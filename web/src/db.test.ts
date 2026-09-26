@@ -1,6 +1,6 @@
 import initSqlJs, { type Database } from "sql.js";
 import { beforeAll, describe, expect, it } from "vitest";
-import { getArticle, getLinkCardImages, getPage, getPost, getSite, listArticles, listPosts } from "./db";
+import { getArticle, getLinkCardImages, getPage, getPost, getSite, listAll, listArticles, listPosts } from "./db";
 
 let db: Database;
 
@@ -116,5 +116,15 @@ describe("getSite", () => {
     bare.run("INSERT INTO site VALUES (1, 't', NULL, NULL, NULL, NULL, 'd')");
     expect(getSite(bare).license).toBeNull();
     bare.close();
+  });
+});
+
+describe("listAll（ADR 0033）", () => {
+  it("post と article を、日付の新しい順にまとめる", () => {
+    expect(listAll(db).map((entry) => [entry.kind, entry.slug, entry.publishedAt, entry.description])).toEqual([
+      ["post", "new", "2026-09-17", null],
+      ["article", "long", "2026-09-15", "要約。"],
+      ["post", "old", "2026-01-01", null],
+    ]);
   });
 });

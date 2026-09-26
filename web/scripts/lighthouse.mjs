@@ -20,6 +20,7 @@ const PAGES = [
   ["post-ruby", "/posts/ruby"],
   ["about", "/about"],
   ["search", "/search?q=%E8%A8%98%E4%BA%8B"],
+  ["archive", "/archive"],
 ];
 
 const CATEGORIES = ["performance", "accessibility", "best-practices", "seo"];

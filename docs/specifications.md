@@ -135,6 +135,7 @@ content/
 | `timezone` | 任意 | `new` が入れる今日の日付のタイムゾーン。IANA の名前（`Asia/Tokyo`）か時差（`+09:00`）。省略すると環境のタイムゾーン |
 | `description` | 任意 | ページの meta description。省略すると「`<title>`。記事とブログを置いているサイトです。」。要約を持つ article のページでは記事の要約を使う（ADR 0022） |
 | `base_path` | 任意 | サイトを置くパス。`/` で始める（末尾の `/` は補う）。省略すると `/`。Cloudflare では使えない（ADR 0030） |
+| `url` | 任意 | 公開したサイトの URL（`https://…`）。書くと RSS 2.0 のフィード `/rss.xml` を作る。パスは `base_path` と同じにする（ADR 0033） |
 
 知らないキーはエラーにする。
 フッターは `author` と `license` のどちらかがあるときだけ表示する。
@@ -171,6 +172,7 @@ Zenn を参考にした拡張（`:::message`、`:::details`、コードのファ
 - `/posts/:slug`、`/articles/:slug`：本文。
 - `/about`：自己紹介（`pages` の slug `about`）。
 - `/search`：全文検索。`?q=` に探す言葉を入れる（ADR 0031）。
+- `/archive`：post と article をまとめた一覧。年ごとに新しい順に並べる（ADR 0033）。
 
 ## CLI
 

@@ -103,7 +103,7 @@ fn build_writes_complete_site() {
     let output = run(&["build", example_dir().to_str().unwrap(), "--out", out.to_str().unwrap()], tmp.path());
 
     assert!(output.status.success(), "{}", stderr(&output));
-    for file in ["index.html", "_headers", "db/manifest.json", "media/sample.svg", "favicon.svg"] {
+    for file in ["index.html", "_headers", "db/manifest.json", "media/sample.svg", "favicon.svg", "rss.xml"] {
         assert!(out.join(file).is_file(), "{file} がありません");
     }
     assert!(fs::read_dir(out.join("assets")).unwrap().count() > 0);
@@ -723,6 +723,11 @@ fn build_fetches_link_card_images_and_reuses_the_cache() {
     assert_eq!(fs::read_dir(dist.join("link-cards")).unwrap().count(), 1);
 }
 
+/// 見本の site.toml から、公開したサイトの url の行を外す（base_path を変えるテストで、パスが食い違わないように）。
+fn without_site_url(toml: &str) -> String {
+    toml.lines().filter(|line| !line.starts_with("url = \"https://gentle")).map(|line| format!("{line}\n")).collect()
+}
+
 /// 見本を写し、site.toml の末尾に設定を足した記事リポジトリ。
 fn site_with_config(tmp: &Path, extra: &str) -> PathBuf {
     let site = tmp.join("site");
@@ -789,7 +794,7 @@ fn deploy_to_github_pages_pushes_a_branch_without_touching_the_work_tree() {
         "base_path = \"/my-blog/\"\n\n[deploy]\ntarget = \"github-pages\"\ncname = \"blog.example.com\"\n",
     );
     // base_path は site.toml の先頭の表の中に置く必要があるので、[license] より前に書き直す。
-    let toml = fs::read_to_string(site.join("site.toml")).unwrap().replace("base_path = \"/my-blog/\"\n", "");
+    let toml = without_site_url(&fs::read_to_string(site.join("site.toml")).unwrap().replace("base_path = \"/my-blog/\"\n", ""));
     fs::write(site.join("site.toml"), format!("base_path = \"/my-blog/\"\n{toml}")).unwrap();
     git(&site, &["init", "--quiet", "-b", "main"]);
     git(&site, &["add", "."]);
@@ -836,7 +841,7 @@ fn serve_and_build_use_the_base_path() {
     let tmp = testutil::tempdir();
     let site = tmp.path().join("site");
     copy_dir(&example_dir(), &site);
-    let toml = fs::read_to_string(site.join("site.toml")).unwrap();
+    let toml = without_site_url(&fs::read_to_string(site.join("site.toml")).unwrap());
     fs::write(site.join("site.toml"), format!("base_path = \"/blog\"\n{toml}")).unwrap();
 
     let dist = tmp.path().join("dist");

@@ -173,3 +173,29 @@ export function getLinkCardImages(db: Database): ReadonlyMap<string, string> {
   }
   return images;
 }
+
+/** 統合一覧（ADR 0033）の項目。post と article をまとめたもの。 */
+export interface ListEntry {
+  kind: "post" | "article";
+  slug: string;
+  title: string;
+  publishedAt: string;
+  description: string | null;
+}
+
+/** post と article を、日付の新しい順（同じ日付なら article、slug の逆順）にまとめて返す。 */
+export function listAll(db: Database): ListEntry[] {
+  return selectAll(
+    db,
+    `SELECT 'article', slug, title, published_at, description FROM articles
+     UNION ALL
+     SELECT 'post', slug, title, published_at, NULL FROM posts
+     ORDER BY 4 DESC, 1, 2 DESC`,
+  ).map(([kind, slug, title, publishedAt, description]) => ({
+    kind: kind as "post" | "article",
+    slug: slug as string,
+    title: title as string,
+    publishedAt: publishedAt as string,
+    description: (description as string | null) ?? null,
+  }));
+}

@@ -17,6 +17,8 @@ pub struct SiteConfig {
     pub description: Option<String>,
     /// サイトを置くパス（ADR 0030）。GitHub Pages のプロジェクトのページなら "/<リポジトリ名>/"。
     pub base_path: Option<String>,
+    /// 公開したサイトの URL（ADR 0033）。書くと RSS のフィードを作る。
+    pub url: Option<String>,
 }
 
 impl SiteConfig {
@@ -35,6 +37,11 @@ impl SiteConfig {
     /// サイトを置くパス。`/` で始まり `/` で終わる形にそろえる。省略すると `/`。書式は読み込み時に検査済み。
     pub fn base_path(&self) -> String {
         self.base_path.as_deref().map_or_else(|| "/".to_string(), normalize_base_path)
+    }
+
+    /// 公開したサイトの URL。`/` で終わる形にそろえる。書式は読み込み時に検査済み。
+    pub fn url(&self) -> Option<String> {
+        self.url.as_deref().map(|url| if url.ends_with('/') { url.to_string() } else { format!("{url}/") })
     }
 
     /// 公開先。`[deploy]` がなければ None。書式は読み込み時に検査済み。
@@ -152,6 +159,19 @@ impl DeployConfig {
     }
 }
 
+/// `url` の書式を確かめる。http か https で、ホストがあり、パスが `base_path` と同じであること。
+fn validate_url(url: &str, base_path: &str) -> Result<()> {
+    let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"));
+    let Some(rest) = rest.filter(|rest| !rest.starts_with('/') && !rest.contains(['?', '#', ' '])) else {
+        bail!("site.toml の url は https:// で始まるサイトの URL（\"https://example.com/\" など）で指定してください: {url}");
+    };
+    let path = rest.find('/').map_or("/", |i| &rest[i..]);
+    if path != base_path {
+        bail!("site.toml の url のパス（{path}）が base_path（{base_path}）と違います。サイトを置く URL をそろえてください");
+    }
+    Ok(())
+}
+
 /// コマンドの引数として渡しても、オプションと取り違えられず、空白や改行を含まない値。
 fn is_safe_argument(value: &str) -> bool {
     !value.is_empty() && !value.starts_with('-') && !value.chars().any(char::is_whitespace)
@@ -197,6 +217,9 @@ pub fn parse_site_config(raw: &str) -> Result<SiteConfig> {
     if let Some(base_path) = &config.base_path {
         validate_base_path(base_path)?;
     }
+    if let Some(url) = config.url() {
+        validate_url(&url, &config.base_path())?;
+    }
     if matches!(config.deploy_target(), Some(DeployTarget::Cloudflare { .. })) && config.base_path() != "/" {
         bail!("Cloudflare に公開するときは base_path を使えません（Worker はドメインの直下で配信します）");
     }
@@ -220,6 +243,7 @@ mod tests {
                 timezone: None,
                 description: None,
                 base_path: None,
+                url: None,
             }
         );
     }
@@ -348,6 +372,22 @@ mod tests {
         assert!(message("target = \"github-pages\"\nbranch = \"a b\"\n").contains("deploy.branch"));
         assert!(message("target = \"github-pages\"\nremote = \"--upload-pack=x\"\n").contains("deploy.remote"));
         assert!(message("target = \"github-pages\"\ncname = \"https://x\"\n").contains("deploy.cname"));
+    }
+
+    #[test]
+    fn url_is_normalized_and_must_match_the_base_path() {
+        let url = |extra: &str| parse_site_config(&format!("title = \"t\"\n{extra}")).map(|c| c.url());
+        assert_eq!(url("").unwrap(), None);
+        assert_eq!(url("url = \"https://example.com\"\n").unwrap().as_deref(), Some("https://example.com/"));
+        assert_eq!(url("url = \"http://example.com/\"\n").unwrap().as_deref(), Some("http://example.com/"));
+        assert_eq!(
+            url("base_path = \"/blog/\"\nurl = \"https://user.github.io/blog\"\n").unwrap().as_deref(),
+            Some("https://user.github.io/blog/")
+        );
+        assert!(url("url = \"https://example.com/blog/\"\n").unwrap_err().to_string().contains("base_path"));
+        for invalid in ["example.com", "ftp://example.com/", "https:///path", "https://example.com/?q=1", "https://a b/"] {
+            assert!(url(&format!("url = \"{invalid}\"\n")).is_err(), "{invalid}");
+        }
     }
 
     #[test]
