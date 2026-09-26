@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex, RwLock};
+use std::time::Duration;
 use std::thread;
 
 use crate::deploy::extension;
@@ -146,6 +147,66 @@ pub fn encode(response: Response, accept_encoding: &str, cache: &GzipCache) -> R
     Response { body, gzip: true, vary: true, ..response }
 }
 
+/// ブラウザに再読み込みを知らせる口（Server-Sent Events）のパス。サイトを置くパスの下に置く（ADR 0034）。
+pub const EVENTS_PATH: &str = "__sqlite-cms/events";
+
+/// 知らせがないときに、接続を保つために送る間隔。
+const KEEP_ALIVE: Duration = Duration::from_secs(15);
+
+/// 配信する中身と、自動反映の状態。記事の変更を反映するときは、中身を入れ替えて版を上げ、待っている接続に知らせる。
+pub struct ServeState {
+    output: RwLock<Arc<SiteOutput>>,
+    version: Mutex<u64>,
+    changed: Condvar,
+    base_path: String,
+    live_reload: bool,
+}
+
+impl ServeState {
+    pub fn new(output: SiteOutput, base_path: String, live_reload: bool) -> Self {
+        Self { output: RwLock::new(Arc::new(output)), version: Mutex::new(0), changed: Condvar::new(), base_path, live_reload }
+    }
+
+    fn current(&self) -> Arc<SiteOutput> {
+        Arc::clone(&self.output.read().unwrap())
+    }
+
+    /// 中身を入れ替え、再読み込みを知らせる。
+    pub fn replace(&self, output: SiteOutput) {
+        *self.output.write().unwrap() = Arc::new(output);
+        *self.version.lock().unwrap() += 1;
+        self.changed.notify_all();
+    }
+
+    fn version(&self) -> u64 {
+        *self.version.lock().unwrap()
+    }
+
+    /// 版が seen から変わるまで、最長 timeout 待つ。変わったら新しい版を返す。
+    fn wait_for_change(&self, seen: u64, timeout: Duration) -> Option<u64> {
+        let version = self.version.lock().unwrap();
+        let (version, _) = self.changed.wait_timeout_while(version, timeout, |version| *version == seen).unwrap();
+        (*version != seen).then_some(*version)
+    }
+}
+
+/// 再読み込みの知らせを送り続ける。接続が切れたら終える。
+fn stream_events(state: &ServeState, mut stream: TcpStream) -> std::io::Result<()> {
+    write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n: connected\n\n")?;
+    stream.flush()?;
+    let mut seen = state.version();
+    loop {
+        match state.wait_for_change(seen, KEEP_ALIVE) {
+            Some(version) => {
+                write!(stream, "event: reload\ndata: {version}\n\n")?;
+                seen = version;
+            }
+            None => write!(stream, ": ping\n\n")?,
+        }
+        stream.flush()?;
+    }
+}
+
 /// サイトを置くパス（ADR 0030）の下のパスを、サイトの中のパス（`/` から始まる）にする。外なら None。
 fn strip_base_path(path: &str, base_path: &str) -> Option<String> {
     if base_path == "/" {
@@ -179,7 +240,7 @@ pub fn respond(output: &SiteOutput, base_path: &str, method: &str, target: &str)
     text(404)
 }
 
-fn handle(output: &SiteOutput, base_path: &str, cache: &GzipCache, stream: TcpStream) -> std::io::Result<()> {
+fn handle(state: &ServeState, cache: &GzipCache, stream: TcpStream) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
@@ -197,10 +258,18 @@ fn handle(output: &SiteOutput, base_path: &str, cache: &GzipCache, stream: TcpSt
     }
 
     let mut parts = request_line.split_whitespace();
+    let (method, target) = (parts.next(), parts.next());
+    if state.live_reload
+        && method == Some("GET")
+        && target.and_then(|t| t.split('?').next()) == Some(format!("{}{EVENTS_PATH}", state.base_path).as_str())
+    {
+        return stream_events(state, stream);
+    }
+    let output = state.current();
     let mut head_length = 0;
-    let response = match (parts.next(), parts.next()) {
+    let response = match (method, target) {
         (Some(method), Some(target)) => {
-            let response = encode(respond(output, base_path, method, target), &accept_encoding, cache);
+            let response = encode(respond(&output, &state.base_path, method, target), &accept_encoding, cache);
             if method == "HEAD" {
                 head_length = response.body.len();
                 Response { body: Vec::new(), ..response }
@@ -229,16 +298,13 @@ fn handle(output: &SiteOutput, base_path: &str, cache: &GzipCache, stream: TcpSt
     stream.flush()
 }
 
-pub fn serve(output: SiteOutput, base_path: String, listener: TcpListener) {
-    let output = Arc::new(output);
-    let base_path = Arc::new(base_path);
+pub fn serve(state: Arc<ServeState>, listener: TcpListener) {
     let cache = Arc::new(GzipCache::default());
     for stream in listener.incoming().flatten() {
-        let output = Arc::clone(&output);
+        let state = Arc::clone(&state);
         let cache = Arc::clone(&cache);
-        let base_path = Arc::clone(&base_path);
         thread::spawn(move || {
-            let _ = handle(&output, &base_path, &cache, stream);
+            let _ = handle(&state, &cache, stream);
         });
     }
 }
@@ -381,6 +447,22 @@ mod tests {
         assert_eq!(top.location.as_deref(), Some("/blog/"));
         assert_eq!(respond(&output(), "/blog/", "GET", "/db/manifest.json").status, 404);
         assert_eq!(respond(&output(), "/blog/", "GET", "/blogger/").status, 404);
+    }
+
+    #[test]
+    fn replacing_the_output_wakes_waiting_listeners() {
+        let state = Arc::new(ServeState::new(output(), "/".into(), true));
+        assert_eq!(state.wait_for_change(0, Duration::from_millis(10)), None);
+        let waiter = {
+            let state = Arc::clone(&state);
+            thread::spawn(move || state.wait_for_change(0, Duration::from_secs(5)))
+        };
+        thread::sleep(Duration::from_millis(50));
+        let mut next = output();
+        next.files.insert("/db/manifest.json".into(), b"{\"db\":\"new\"}".to_vec());
+        state.replace(next);
+        assert_eq!(waiter.join().unwrap(), Some(1));
+        assert_eq!(state.current().files["/db/manifest.json"], b"{\"db\":\"new\"}");
     }
 
     #[test]

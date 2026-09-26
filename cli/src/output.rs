@@ -45,6 +45,18 @@ pub fn apply_base_path(html: &str, base_path: &str) -> String {
     }
 }
 
+/// serve で記事の変更を反映したときに、ブラウザを再読み込みさせるスクリプト（ADR 0034）。
+pub fn inject_live_reload(html: &str, base_path: &str) -> String {
+    let script = format!(
+        "<script>new EventSource(\"{base_path}{}\").addEventListener(\"reload\", () => location.reload());</script>\n  ",
+        crate::serve::EVENTS_PATH
+    );
+    match html.rfind("</body>") {
+        Some(index) => format!("{}{script}{}", &html[..index], &html[index..]),
+        None => format!("{html}{script}"),
+    }
+}
+
 pub struct SiteOutput {
     pub files: BTreeMap<String, Vec<u8>>,
 }
@@ -86,6 +98,17 @@ impl SiteOutput {
         output.files.insert("/404.html".to_string(), index.clone());
         output.files.insert("/index.html".to_string(), index);
         Ok(output)
+    }
+
+    /// serve で使う。index.html と 404.html に再読み込みのスクリプトを入れる。
+    pub fn with_live_reload(mut self, base_path: &str) -> Self {
+        for path in ["/index.html", "/404.html"] {
+            if let Some(bytes) = self.files.get(path) {
+                let html = inject_live_reload(&String::from_utf8_lossy(bytes), base_path);
+                self.files.insert(path.to_string(), html.into_bytes());
+            }
+        }
+        self
     }
 
     pub fn total_bytes(&self) -> usize {
@@ -180,6 +203,21 @@ mod tests {
         assert!(sub.contains("href=\"/my-blog/assets/index.css\""), "{sub}");
         assert!(sub.contains("href=\"/my-blog/favicon.svg\""), "{sub}");
         assert!(sub.contains("content=\"/my-blog/\""), "{sub}");
+    }
+
+    #[test]
+    fn live_reload_script_is_injected_before_the_body_end() {
+        let html = inject_live_reload("<body>\n  <div id=\"root\"></div>\n</body>", "/blog/");
+        assert_eq!(
+            html,
+            "<body>\n  <div id=\"root\"></div>\n<script>new EventSource(\"/blog/__sqlite-cms/events\").addEventListener(\"reload\", () => location.reload());</script>\n  </body>"
+        );
+        let site = site_fixture();
+        let spa: &[(&str, &[u8])] = &[("/index.html", b"<head><title></title></head><body></body>")];
+        let output = SiteOutput::site(site.path(), spa, &linkcard::Offline).unwrap().with_live_reload("/");
+        for path in ["/index.html", "/404.html"] {
+            assert!(String::from_utf8_lossy(&output.files[path]).contains("EventSource(\"/__sqlite-cms/events\")"), "{path}");
+        }
     }
 
     #[test]

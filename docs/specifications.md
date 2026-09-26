@@ -117,6 +117,7 @@ content/
 
 組み立てた一式を、`serve` は手元の HTTP サーバで返し、`build` はディレクトリに書き出し、`deploy` は Cloudflare にアップロードする。
 `serve` は、要求が受け付けるなら、テキスト、JS、JSON、SVG、wasm、DB を gzip で圧縮して返す（ADR 0026）。
+`serve` は `site.toml` と `content/` の変更を監視し、変わったら組み立て直して、Server-Sent Events でブラウザに読み込み直させる。`--no-reload` で止められる（ADR 0034）。
 
 ## サイトのメタデータ
 
@@ -178,7 +179,8 @@ sqlite-cms init [SITE_DIR] [--title <TITLE>] [--force]
                                                -- 記事リポジトリに必要なファイルを作る（ADR 0016、0027）
 sqlite-cms new <post|article|page> [SLUG] [SITE_DIR] [--title <TITLE>] [--date <YYYY-MM-DD>]
                                                -- 記事の雛形を作る（ADR 0015、0020）
-sqlite-cms serve  [SITE_DIR] [--port <PORT>]   -- 手元でプレビューする
+sqlite-cms serve  [SITE_DIR] [--port <PORT>] [--no-reload]
+                                               -- 手元でプレビューする（記事の変更を自動で反映する）
 sqlite-cms build  [SITE_DIR] [--out <DIR>]     -- 配信用のディレクトリに書き出す
 sqlite-cms deploy [SITE_DIR]                   -- Cloudflare Workers に公開する
 ```
