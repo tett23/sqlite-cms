@@ -144,19 +144,38 @@ impl Drop for ServeProcess {
 }
 
 fn http_get(address: &str, path: &str) -> (u16, String, Vec<u8>) {
-    let mut stream = TcpStream::connect(address).unwrap();
-    write!(stream, "GET {path} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n").unwrap();
-    let mut raw = Vec::new();
-    stream.read_to_end(&mut raw).unwrap();
-    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
-    let head = String::from_utf8(raw[..split].to_vec()).unwrap();
-    let status = head.split_whitespace().nth(1).unwrap().parse().unwrap();
+    let (status, head, body) = http_request(address, path, "");
     let content_type = head
         .lines()
         .find_map(|l| l.strip_prefix("Content-Type: "))
         .unwrap_or_default()
         .to_string();
-    (status, content_type, raw[split + 4..].to_vec())
+    (status, content_type, body)
+}
+
+/// 追加のヘッダ（`名前: 値\r\n` の並び）を付けて GET し、状態、ヘッダ、本文を返す。
+fn http_request(address: &str, path: &str, headers: &str) -> (u16, String, Vec<u8>) {
+    let mut stream = TcpStream::connect(address).unwrap();
+    write!(stream, "GET {path} HTTP/1.1\r\nHost: {address}\r\n{headers}Connection: close\r\n\r\n").unwrap();
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw).unwrap();
+    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let head = String::from_utf8(raw[..split].to_vec()).unwrap();
+    let status = head.split_whitespace().nth(1).unwrap().parse().unwrap();
+    (status, head, raw[split + 4..].to_vec())
+}
+
+fn gunzip(data: &[u8]) -> Vec<u8> {
+    let mut child = Command::new("gzip")
+        .arg("-dc")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("gzip を起動できません");
+    child.stdin.take().unwrap().write_all(data).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    output.stdout
 }
 
 #[test]
@@ -200,6 +219,16 @@ fn serve_previews_the_site() {
     assert!(String::from_utf8_lossy(&body).starts_with("<svg"));
 
     assert_eq!(http_get(&server.address, "/assets/missing.js").0, 404);
+
+    // Accept-Encoding に gzip があれば、圧縮して返す（ADR 0026）。
+    let (_, plain_head, plain) = http_request(&server.address, "/", "");
+    assert!(!plain_head.contains("Content-Encoding"));
+    let (status, head, body) = http_request(&server.address, "/", "Accept-Encoding: gzip, deflate, br\r\n");
+    assert_eq!(status, 200);
+    assert!(head.contains("\r\nContent-Encoding: gzip\r\n"), "{head}");
+    assert!(head.contains("\r\nVary: Accept-Encoding\r\n"), "{head}");
+    assert!(head.contains(&format!("\r\nContent-Length: {}\r\n", body.len())), "{head}");
+    assert_eq!(gunzip(&body), plain);
 }
 
 #[derive(Clone, Debug)]

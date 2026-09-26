@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::deploy::extension;
@@ -10,6 +11,10 @@ pub struct Response {
     pub status: u16,
     pub content_type: String,
     pub body: Vec<u8>,
+    /// gzip で圧縮したとき true。
+    pub gzip: bool,
+    /// 圧縮するかどうかを Accept-Encoding で決める種類なら true（Vary を付ける）。
+    pub vary: bool,
 }
 
 fn reason(status: u16) -> &'static str {
@@ -54,7 +59,87 @@ fn content_type(path: &str) -> String {
 }
 
 fn text(status: u16) -> Response {
-    Response { status, content_type: "text/plain; charset=utf-8".into(), body: reason(status).as_bytes().to_vec() }
+    Response {
+        status,
+        content_type: "text/plain; charset=utf-8".into(),
+        body: reason(status).as_bytes().to_vec(),
+        gzip: false,
+        vary: false,
+    }
+}
+
+fn ok(content_type: String, body: Vec<u8>) -> Response {
+    Response { status: 200, content_type, body, gzip: false, vary: false }
+}
+
+/// これより小さい応答は圧縮しない（gzip の枠の分だけかえって大きくなりうる）。
+const MIN_COMPRESS_SIZE: usize = 256;
+
+/// 圧縮して配信する種類。本番の Cloudflare と同じく、テキスト、JSON、JS、SVG、wasm などを圧縮する。
+/// SVG 以外の画像、woff と woff2、音声、動画はすでに圧縮されているので除く。
+fn compressible(content_type: &str) -> bool {
+    let essence = content_type.split(';').next().unwrap_or("").trim();
+    essence.starts_with("text/")
+        || matches!(
+            essence,
+            "application/json"
+                | "application/xml"
+                | "application/wasm"
+                | "application/vnd.sqlite3"
+                | "image/svg+xml"
+                | "font/ttf"
+                | "font/otf"
+        )
+}
+
+/// Accept-Encoding が gzip を受け付けるか。`gzip;q=0` は拒否として扱い、gzip の指定がなければ `*` に従う。
+pub fn accepts_gzip(accept_encoding: &str) -> bool {
+    let mut wildcard = None;
+    for item in accept_encoding.split(',') {
+        let mut parts = item.split(';');
+        let coding = parts.next().unwrap_or("").trim();
+        let quality = parts
+            .find_map(|param| param.trim().strip_prefix("q="))
+            .and_then(|q| q.trim().parse::<f32>().ok())
+            .unwrap_or(1.0);
+        if coding.eq_ignore_ascii_case("gzip") {
+            return quality > 0.0;
+        }
+        if coding == "*" {
+            wildcard = Some(quality > 0.0);
+        }
+    }
+    wildcard.unwrap_or(false)
+}
+
+/// 圧縮した結果を中身ごとに覚えておく。配信する中身は起動後に変わらないので、同じものは一度だけ圧縮する。
+#[derive(Default)]
+pub struct GzipCache {
+    entries: Mutex<HashMap<blake3::Hash, Arc<Vec<u8>>>>,
+}
+
+impl GzipCache {
+    fn compress(&self, body: &[u8]) -> Arc<Vec<u8>> {
+        let key = blake3::hash(body);
+        if let Some(compressed) = self.entries.lock().unwrap().get(&key) {
+            return Arc::clone(compressed);
+        }
+        let compressed = Arc::new(crate::gzip::compress(body));
+        self.entries.lock().unwrap().insert(key, Arc::clone(&compressed));
+        compressed
+    }
+}
+
+/// 受け付けるなら、圧縮できる種類の応答を gzip で圧縮する。
+pub fn encode(response: Response, accept_encoding: &str, cache: &GzipCache) -> Response {
+    if response.status != 200 || !compressible(&response.content_type) {
+        return response;
+    }
+    if response.body.len() < MIN_COMPRESS_SIZE || !accepts_gzip(accept_encoding) {
+        return Response { vary: true, ..response };
+    }
+    let body = cache.compress(&response.body).as_ref().clone();
+    Response { body, gzip: true, vary: true, ..response }
 }
 
 pub fn respond(output: &SiteOutput, method: &str, target: &str) -> Response {
@@ -65,32 +150,40 @@ pub fn respond(output: &SiteOutput, method: &str, target: &str) -> Response {
     let path = if path == "/" { "/index.html".to_string() } else { path };
 
     if let Some(bytes) = output.files.get(&path) {
-        return Response { status: 200, content_type: content_type(&path), body: bytes.clone() };
+        return ok(content_type(&path), bytes.clone());
     }
     if extension(&path).is_empty() {
         if let Some(index) = output.files.get("/index.html") {
-            return Response { status: 200, content_type: content_type("/index.html"), body: index.clone() };
+            return ok(content_type("/index.html"), index.clone());
         }
     }
     text(404)
 }
 
-fn handle(output: &SiteOutput, stream: TcpStream) -> std::io::Result<()> {
+fn handle(output: &SiteOutput, cache: &GzipCache, stream: TcpStream) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
+    let mut accept_encoding = String::new();
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line)? == 0 || line == "\r\n" || line == "\n" {
             break;
         }
+        if let Some((name, value)) = line.split_once(':') {
+            if name.trim().eq_ignore_ascii_case("accept-encoding") {
+                accept_encoding = value.trim().to_string();
+            }
+        }
     }
 
     let mut parts = request_line.split_whitespace();
+    let mut head_length = 0;
     let response = match (parts.next(), parts.next()) {
         (Some(method), Some(target)) => {
-            let response = respond(output, method, target);
+            let response = encode(respond(output, method, target), &accept_encoding, cache);
             if method == "HEAD" {
+                head_length = response.body.len();
                 Response { body: Vec::new(), ..response }
             } else {
                 response
@@ -100,13 +193,17 @@ fn handle(output: &SiteOutput, stream: TcpStream) -> std::io::Result<()> {
     };
 
     let mut stream = stream;
+    // HEAD でも、GET と同じ（圧縮した）Content-Length を返す。
+    let length = if response.body.is_empty() { head_length } else { response.body.len() };
     write!(
         stream,
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\n{}{}Content-Length: {}\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
         response.status,
         reason(response.status),
         response.content_type,
-        response.body.len()
+        if response.gzip { "Content-Encoding: gzip\r\n" } else { "" },
+        if response.vary { "Vary: Accept-Encoding\r\n" } else { "" },
+        length
     )?;
     stream.write_all(&response.body)?;
     stream.flush()
@@ -114,10 +211,12 @@ fn handle(output: &SiteOutput, stream: TcpStream) -> std::io::Result<()> {
 
 pub fn serve(output: SiteOutput, listener: TcpListener) {
     let output = Arc::new(output);
+    let cache = Arc::new(GzipCache::default());
     for stream in listener.incoming().flatten() {
         let output = Arc::clone(&output);
+        let cache = Arc::clone(&cache);
         thread::spawn(move || {
-            let _ = handle(&output, stream);
+            let _ = handle(&output, &cache, stream);
         });
     }
 }
@@ -169,6 +268,82 @@ mod tests {
     fn only_get_and_head_are_allowed() {
         assert_eq!(respond(&output(), "POST", "/").status, 405);
         assert_eq!(respond(&output(), "HEAD", "/").status, 200);
+    }
+
+    fn large_js() -> Response {
+        ok("text/javascript; charset=utf-8".into(), "console.log('こんにちは');\n".repeat(100).into_bytes())
+    }
+
+    #[test]
+    fn compresses_compressible_responses_when_gzip_is_accepted() {
+        let original = large_js().body;
+        let response = encode(large_js(), "gzip, deflate, br", &GzipCache::default());
+        assert!(response.gzip);
+        assert!(response.vary);
+        assert_eq!(response.body, crate::gzip::compress(&original));
+        assert!(response.body.len() < original.len());
+    }
+
+    #[test]
+    fn keeps_responses_as_is_when_gzip_is_not_accepted() {
+        for accept_encoding in ["", "br", "gzip;q=0", "gzip;q=0, *", "identity"] {
+            let response = encode(large_js(), accept_encoding, &GzipCache::default());
+            assert!(!response.gzip, "{accept_encoding}");
+            assert!(response.vary, "{accept_encoding}");
+            assert_eq!(response.body, large_js().body, "{accept_encoding}");
+        }
+    }
+
+    #[test]
+    fn does_not_compress_small_or_already_compressed_or_error_responses() {
+        let cache = GzipCache::default();
+        let small = encode(ok("text/html; charset=utf-8".into(), b"<html>".to_vec()), "gzip", &cache);
+        assert!(!small.gzip);
+        let png = encode(ok("image/png".into(), vec![0; 1000]), "gzip", &cache);
+        assert!(!png.gzip);
+        assert!(!png.vary);
+        let woff2 = encode(ok("font/woff2".into(), vec![0; 1000]), "gzip", &cache);
+        assert!(!woff2.gzip);
+        let not_found = encode(Response { body: vec![b'x'; 1000], ..text(404) }, "gzip", &cache);
+        assert!(!not_found.gzip);
+    }
+
+    #[test]
+    fn compressible_types() {
+        for content_type in [
+            "text/html; charset=utf-8",
+            "text/css; charset=utf-8",
+            "text/javascript; charset=utf-8",
+            "application/json",
+            "application/wasm",
+            "application/vnd.sqlite3",
+            "image/svg+xml",
+        ] {
+            assert!(compressible(content_type), "{content_type}");
+        }
+        for content_type in ["image/png", "image/jpeg", "font/woff2", "video/mp4", "application/zip"] {
+            assert!(!compressible(content_type), "{content_type}");
+        }
+    }
+
+    #[test]
+    fn accept_encoding_is_parsed_case_insensitively_with_quality() {
+        assert!(accepts_gzip("gzip"));
+        assert!(accepts_gzip("GZIP"));
+        assert!(accepts_gzip("br, gzip;q=0.5"));
+        assert!(accepts_gzip("*"));
+        assert!(!accepts_gzip("gzip;q=0"));
+        assert!(!accepts_gzip("gzip; q=0.0, *"));
+        assert!(!accepts_gzip("*;q=0"));
+        assert!(!accepts_gzip("deflate"));
+    }
+
+    #[test]
+    fn same_body_is_compressed_once() {
+        let cache = GzipCache::default();
+        encode(large_js(), "gzip", &cache);
+        encode(large_js(), "gzip", &cache);
+        assert_eq!(cache.entries.lock().unwrap().len(), 1);
     }
 
     #[test]

@@ -113,6 +113,7 @@ content/
 ```
 
 組み立てた一式を、`serve` は手元の HTTP サーバで返し、`build` はディレクトリに書き出し、`deploy` は Cloudflare にアップロードする。
+`serve` は、要求が受け付けるなら、テキスト、JS、JSON、SVG、wasm、DB を gzip で圧縮して返す（ADR 0026）。
 
 ## サイトのメタデータ
 

@@ -6,6 +6,7 @@ mod db;
 mod deploy;
 mod favicon;
 mod frontmatter;
+mod gzip;
 mod media;
 mod migrations;
 mod mime;
