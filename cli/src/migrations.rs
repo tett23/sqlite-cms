@@ -1,6 +1,4 @@
 use std::collections::HashSet;
-use std::fs;
-use std::path::Path;
 
 use anyhow::{anyhow, Context, Result};
 use rusqlite::Connection;
@@ -21,22 +19,16 @@ fn parse_file_name(file_name: &str) -> Option<(String, String)> {
     Some((version.to_string(), name.to_string()))
 }
 
-pub fn read_migrations(dir: &Path) -> Result<Vec<Migration>> {
-    let mut file_names: Vec<String> = fs::read_dir(dir)
-        .with_context(|| format!("マイグレーションディレクトリを読めません: {}", dir.display()))?
-        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
-        .filter(|name| name.ends_with(".sql"))
-        .collect();
-    file_names.sort();
+include!(concat!(env!("OUT_DIR"), "/migrations.rs"));
 
-    file_names
-        .into_iter()
-        .map(|file_name| {
-            let (version, name) = parse_file_name(&file_name).ok_or_else(|| {
+pub fn embedded_migrations() -> Result<Vec<Migration>> {
+    EMBEDDED
+        .iter()
+        .map(|(file_name, sql)| {
+            let (version, name) = parse_file_name(file_name).ok_or_else(|| {
                 anyhow!("マイグレーションのファイル名が不正です: {file_name}（NNNN_名前.sql）")
             })?;
-            let sql = fs::read_to_string(dir.join(&file_name))?;
-            Ok(Migration { version, name, sql })
+            Ok(Migration { version, name, sql: sql.to_string() })
         })
         .collect()
 }
@@ -75,14 +67,14 @@ mod tests {
     use super::*;
 
     fn repo_migrations() -> Vec<Migration> {
-        read_migrations(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../migrations")).unwrap()
+        embedded_migrations().unwrap()
     }
 
     #[test]
-    fn reads_versions_and_names_in_file_name_order() {
+    fn embeds_versions_and_names_in_file_name_order() {
         let migrations = repo_migrations();
         let versions: Vec<&str> = migrations.iter().map(|m| m.version.as_str()).collect();
-        assert_eq!(versions, ["0001", "0002", "0003"]);
+        assert_eq!(versions, ["0001", "0002", "0003", "0004"]);
         assert_eq!(migrations[0].name, "initial");
         assert_eq!(migrations[1].name, "content_types");
     }
@@ -98,7 +90,7 @@ mod tests {
     fn applies_all_to_empty_db_and_records_them() {
         let conn = Connection::open_in_memory().unwrap();
         let applied = apply_migrations(&conn, &repo_migrations()).unwrap();
-        assert_eq!(applied, ["0001", "0002", "0003"]);
+        assert_eq!(applied, ["0001", "0002", "0003", "0004"]);
 
         let recorded: Vec<(String, String)> = conn
             .prepare("SELECT version, name FROM schema_migrations ORDER BY version")
@@ -113,6 +105,7 @@ mod tests {
                 ("0001".into(), "initial".into()),
                 ("0002".into(), "content_types".into()),
                 ("0003".into(), "markdown_body".into()),
+                ("0004".into(), "site".into()),
             ]
         );
 
@@ -134,6 +127,6 @@ mod tests {
         let migrations = repo_migrations();
         apply_migrations(&conn, &migrations[..1]).unwrap();
         let applied = apply_migrations(&conn, &migrations).unwrap();
-        assert_eq!(applied, ["0002", "0003"]);
+        assert_eq!(applied, ["0002", "0003", "0004"]);
     }
 }
