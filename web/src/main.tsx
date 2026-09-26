@@ -2,13 +2,10 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
-import { highlightLoader } from "./highlightLoader";
 import { Router } from "./router";
 
 function start() {
-  // DB の取得と並行して読み込み始め、記事の表示までに間に合わせる。
-  highlightLoader.load().catch(() => {});
-
+  // Shiki、KaTeX、mermaid は、それを使うコードブロック、数式、図が表示されたときに読み込む（ADR 0029）。
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <Router>

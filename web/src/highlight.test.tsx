@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it } from "vitest";
 import { BACKGROUND, DIFF_BACKGROUNDS, getHighlighter, LANGUAGES, THEME_REGISTRATION } from "./highlight";
 import { highlightLoader } from "./highlightLoader";
+import { HIGHLIGHT_LANGUAGES, needsHighlight } from "./highlightLanguages";
 import { MarkdownBody } from "./MarkdownBody";
 
 function render(source: string): string {
@@ -118,5 +119,32 @@ describe("シンタックスハイライト", () => {
 
   it("ハイライタは一度だけ作って使い回す", () => {
     expect(getHighlighter()).toBe(getHighlighter());
+  });
+});
+
+describe("Shiki を読み込む前の言語の判断（ADR 0029）", () => {
+  it("本体に持つ言語の一覧が、Shiki に登録した言語の名前と別名に一致する", () => {
+    const registered = new Set<string>(["jsx"]);
+    for (const grammars of LANGUAGES) {
+      const main = grammars[grammars.length - 1];
+      registered.add(main.name);
+      for (const alias of main.aliases ?? []) registered.add(alias);
+    }
+    expect([...HIGHLIGHT_LANGUAGES].sort()).toEqual([...registered].sort());
+    const loaded = getHighlighter().getLoadedLanguages();
+    for (const language of HIGHLIGHT_LANGUAGES) {
+      expect(loaded, language).toContain(language === "jsx" ? "tsx" : language);
+    }
+  });
+
+  it("色を付ける言語と diff と言語の組み合わせだけを読み込みの対象にする", () => {
+    expect(needsHighlight(["language-rust"])).toBe(true);
+    expect(needsHighlight(["language-sh"])).toBe(true);
+    expect(needsHighlight(["language-diff-ts"])).toBe(true);
+    expect(needsHighlight(["language-mermaid"])).toBe(false);
+    expect(needsHighlight(["language-brainfuck"])).toBe(false);
+    expect(needsHighlight([])).toBe(false);
+    expect(needsHighlight(undefined)).toBe(false);
+    expect(needsHighlight(["rust"])).toBe(false);
   });
 });

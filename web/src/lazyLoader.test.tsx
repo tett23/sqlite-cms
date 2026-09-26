@@ -40,6 +40,28 @@ describe("createLoader", () => {
   });
 });
 
+describe("読み込み終わりの通知", () => {
+  it("読み込み終わったら登録した関数を呼び、登録を解いたら呼ばない", async () => {
+    const loader = createLoader(async () => fake);
+    const calls: string[] = [];
+    const unsubscribe = loader.subscribe(() => calls.push("a"));
+    loader.subscribe(() => calls.push("b"));
+    unsubscribe();
+    await loader.load();
+    expect(calls).toEqual(["b"]);
+  });
+
+  it("失敗したときは呼ばない", async () => {
+    const loader = createLoader<Highlight>(async () => {
+      throw new Error("network");
+    });
+    let called = false;
+    loader.subscribe(() => (called = true));
+    await expect(loader.load()).rejects.toThrow("network");
+    expect(called).toBe(false);
+  });
+});
+
 describe("MarkdownBody の非同期のハイライト", () => {
   const source = "```rust\nfn main() {}\n```";
 

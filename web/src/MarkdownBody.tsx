@@ -4,7 +4,8 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { highlightLoader } from "./highlightLoader";
-import { useLazy } from "./lazyLoader";
+import { needsHighlight } from "./highlightLanguages";
+import { useLazy, useLoaded } from "./lazyLoader";
 import { MATH_DISPLAY_CLASS, MATH_INLINE_CLASS } from "./markdown/math";
 import { Diagram } from "./render/Diagram";
 import { MathView } from "./render/Math";
@@ -83,7 +84,11 @@ const components: Components = {
   },
   pre({ node, ...props }) {
     const code = (node as HastNode | undefined)?.children?.[0];
-    if (code?.tagName === "code" && hasClass(code, "language-mermaid")) {
+    const isCode = code?.tagName === "code";
+    // 色を付けられる言語のコードブロックが表示されたときに、初めて Shiki を読み込む（ADR 0029）。
+    // 読み込むまでは色なしで表示し、読み込み終わったら MarkdownBody が描き直す。
+    useLazy(highlightLoader, logHighlightError, isCode && needsHighlight(code.properties?.className));
+    if (isCode && hasClass(code, "language-mermaid")) {
       return <Diagram source={textOf(code).replace(/\n$/, "")} />;
     }
     return <pre {...props} />;
@@ -104,7 +109,8 @@ export function MarkdownBody({
   /** リンクカードの URL と画像のパス（DB の link_cards、ADR 0028）。 */
   linkCardImages?: ReadonlyMap<string, string>;
 }) {
-  const highlight = useLazy(highlightLoader, logHighlightError);
+  // 読み込みはコードブロックの部品が始める。ここでは読み込み終わりを待って描き直すだけにする。
+  const highlight = useLoaded(highlightLoader);
   const remarkPlugins = useMemo<Options["remarkPlugins"]>(
     () => [remarkGfm, [remarkExtensions, { linkCardImage: (url: string) => linkCardImages.get(url) }]],
     [linkCardImages],
