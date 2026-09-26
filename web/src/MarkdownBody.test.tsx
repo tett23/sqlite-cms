@@ -46,7 +46,7 @@ describe("MarkdownBody", () => {
     expect(html).toContain('href="https://example.com"');
   });
 
-  it("生の HTML は要素にも文字にもせず、表示しない", () => {
+  it("許可しない HTML の要素は外し、script とコメントは中身ごと取り除く", () => {
     const html = render("<script>alert(1)</script>\n\n本文と<span>生</span>の HTML\n\n<!-- コメント -->");
     expect(html).not.toContain("<script>");
     expect(html).not.toContain("<span>");

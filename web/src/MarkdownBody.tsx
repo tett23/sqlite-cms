@@ -1,17 +1,25 @@
 import { useEffect, useState } from "react";
 import Markdown, { type Components, type Options } from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { highlightLoader, type Highlight } from "./highlightLoader";
+import { sanitizeSchema } from "./sanitize";
 import { Link } from "./router";
 
 const remarkPlugins: Options["remarkPlugins"] = [remarkGfm];
 
 const remarkRehypeOptions: Options["remarkRehypeOptions"] = {
+  allowDangerousHtml: true,
   footnoteLabel: "脚注",
   footnoteLabelProperties: {},
   footnoteBackLabel: "本文に戻る",
   footnoteBackContent: "↩︎",
 };
+
+// 本文の HTML を取り込み（raw）、許可した要素と属性だけを残す（sanitize）。
+// Shiki は sanitize の後に通す。先に通すと、Shiki が付けた色の指定が取り除かれる。
+const baseRehypePlugins: NonNullable<Options["rehypePlugins"]> = [rehypeRaw, [rehypeSanitize, sanitizeSchema]];
 
 /** シンタックスハイライトを読み込み、読み込み終わったら描き直す。読み込むまでコードブロックは色なし。 */
 function useHighlight(): Highlight | null {
@@ -45,10 +53,9 @@ export function MarkdownBody({ source, className = "mt-6" }: { source: string; c
   return (
     <div className={`article-body ${className}`}>
       <Markdown
-        skipHtml
         remarkPlugins={remarkPlugins}
         remarkRehypeOptions={remarkRehypeOptions}
-        rehypePlugins={highlight?.rehypePlugins}
+        rehypePlugins={highlight ? [...baseRehypePlugins, ...(highlight.rehypePlugins ?? [])] : baseRehypePlugins}
         components={components}
       >
         {source}
