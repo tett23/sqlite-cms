@@ -151,6 +151,9 @@ const noProblems = (tab, where) => assertEqual(tab.problems, [], `${where} で�
 const COMMAND_TIMEOUT = 30000;
 const SCENARIO_TIMEOUT = 120000;
 
+/** Shiki の読み込み。Worker（highlight.worker-….js）が Shiki の本体を含む（ADR 0046）。 */
+const SHIKI = /\/highlight\.worker-[^/]*\.js$/;
+
 /** 図や数式を待つ時間。後から読み込むライブラリは、描画の後に手が空くのを待つ（ADR 0038）。 */
 const LAZY_TIMEOUT = 20000;
 
@@ -179,9 +182,13 @@ scenario("計測するすべてのページが、エラーなく描かれ、レ�
 scenario("画面の外のコードブロックは、近くに来てから色を付ける。コードのないページでは Shiki を読まない（ADR 0029、0038）", async ({ tab, origin }) => {
   await tab.goto(origin + "/about");
   await sleep(1500);
-  assert(!tab.requests.some((url) => /\/highlight-[^/]*\.js$/.test(url)), "コードのないページで Shiki を読み込んだ");
+  assert(!tab.requests.some((url) => SHIKI.test(url)), "コードのないページで Shiki を読み込んだ");
 
   await tab.goto(origin + "/articles/heavy-code");
+  await tab.waitFor("document.querySelectorAll('pre.shiki').length > 0", { timeout: LAZY_TIMEOUT, message: "最初の画面のコードに色が付かない" });
+  // コードのあるページでは読み込みが見えることを確かめる（見えなければ、上の「読み込まない」の確認が意味を持たない）。
+  // Worker の中からの通信（wasm）はページの側からは見えないので、Worker のスクリプト（Shiki の本体を含む）で判断する。
+  assert(tab.requests.some((url) => SHIKI.test(url)), "コードのあるページで Shiki の読み込みが見えない");
   await tab.waitFor("document.querySelectorAll('pre.shiki').length > 0", { timeout: LAZY_TIMEOUT, message: "最初の画面のコードに色が付かない" });
   await sleep(1000);
   const before = await count(tab, "pre.shiki");
@@ -242,7 +249,8 @@ scenario("ヘッダの検索ボックスで、候補を 5 件まで出し、キ�
   await tab.goto(origin + "/articles/syntax");
   await tab.eval("document.querySelector('#header-search').focus()");
   await tab.type("記事");
-  assertEqual(await count(tab, "#header-search-suggestions [role=option]"), 5, "候補の数");
+  // 検索に使う sql.js は、検索ボックスに焦点が来てから読み込む（ADR 0047）。
+  await tab.waitFor("document.querySelectorAll('#header-search-suggestions [role=option]').length === 5", { message: "候補が 5 件出ない" });
   assertEqual(await tab.eval("document.querySelector('#header-search').getAttribute('aria-expanded')"), "true", "aria-expanded");
   await tab.key("ArrowDown");
   await tab.key("ArrowDown");
@@ -254,7 +262,9 @@ scenario("ヘッダの検索ボックスで、候補を 5 件まで出し、キ�
 
   await tab.eval("document.querySelector('#header-search').focus()");
   await tab.type("存在しない言葉");
-  assert((await tab.eval("document.querySelector('#header-search-suggestions').parentElement.textContent")).includes("一致する記事はありません"), "一致しないことを出さない");
+  await tab.waitFor("document.querySelector('#header-search-suggestions').parentElement.textContent.includes('一致する記事はありません')", {
+    message: "一致しないことを出さない",
+  });
   await tab.key("Escape");
   assertEqual(await tab.eval("document.querySelector('#header-search-suggestions').parentElement.hidden"), true, "Escape で閉じない");
   noProblems(tab, "ヘッダの検索");

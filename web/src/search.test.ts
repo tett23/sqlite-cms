@@ -1,20 +1,21 @@
-import initSqlJs, { type Database } from "sql.js";
+import initSqlJs from "sql.js";
 import { beforeAll, describe, expect, it } from "vitest";
-import { plainText, queryTerms, search, searchPath, snippet, tokenize, toMatchExpression } from "./search";
+import { plainText, queryTerms, search, searchPath, snippet } from "./search";
+import { SqliteFile } from "./sqlite";
 
-let db: Database;
+let db: SqliteFile;
 
 beforeAll(async () => {
   const SQL = await initSqlJs();
-  db = new SQL.Database();
+  const sql = new SQL.Database();
   const migrations = import.meta.glob<string>("../../migrations/*.sql", { query: "?raw", import: "default", eager: true });
-  for (const file of Object.keys(migrations).sort()) db.exec(migrations[file]);
+  for (const file of Object.keys(migrations).sort()) sql.exec(migrations[file]);
   const post = (slug: string, title: string, date: string, body: string) =>
-    db.run("INSERT INTO posts VALUES (?, ?, ?, ?)", [slug, title, date, body]);
+    sql.run("INSERT INTO posts VALUES (?, ?, ?, ?)", [slug, title, date, body]);
   post("ruby", "ルビを振る", "2026-09-23", "本文に<ruby>振<rt>ふ</rt></ruby>り仮名を付けたいときは、`<ruby>` を使う。");
   post("shiki", "コードの色分け", "2026-09-25", "色分けには **Shiki** を使っていて、VS Code と同じ文法の定義で色を決めている。");
   post("hello", "記事置き場を作った", "2026-09-16", "書いたものを置いておく場所を作った。[仕組み](/articles/x) に書いた。");
-  db.run("INSERT INTO articles VALUES (?, ?, ?, ?, ?, ?)", [
+  sql.run("INSERT INTO articles VALUES (?, ?, ?, ?, ?, ?)", [
     "getting-started",
     "sqlite-cms の使い方",
     "2026-09-26",
@@ -22,22 +23,17 @@ beforeAll(async () => {
     null,
     "記事リポジトリを作ってから、Cloudflare に公開するまでの手順。\n\n```sh\nsqlite-cms init my-blog\n```",
   ]);
-  db.run("INSERT INTO pages VALUES (?, ?, ?)", ["about", "自己紹介", "組版と日本語の文章が好きです。"]);
-  db.run("INSERT INTO pages VALUES (?, ?, ?)", ["draft", "下書き", "組版の下書き。URL のないページ。"]);
+  sql.run("INSERT INTO pages VALUES (?, ?, ?)", ["about", "自己紹介", "組版と日本語の文章が好きです。"]);
+  sql.run("INSERT INTO pages VALUES (?, ?, ?)", ["draft", "下書き", "組版の下書き。URL のないページ。"]);
+  // sql.js で作った DB を書き出し、ページの表示と同じく自前の読み手で開く（ADR 0047）。
+  db = new SqliteFile(sql.export());
+  sql.close();
 });
 
 describe("語の分け方", () => {
-  it("英数字は語のまま、日本語は 2 文字ずつ重ねて区切る。全角の英数字は半角にし、小文字にする", () => {
-    expect(tokenize("記事置き場")).toEqual(["記事", "事置", "置き", "き場"]);
-    expect(tokenize("sqlite-cms の使い方")).toEqual(["sqlite", "cms", "の使", "使い", "い方"]);
-    expect(tokenize("ＳＨＩＫＩで色")).toEqual(["shiki", "で色"]);
-  });
-
-  it("検索する言葉を検索式にする", () => {
-    expect(toMatchExpression(queryTerms("使い方"))).toBe('"使い い方"');
-    expect(toMatchExpression(queryTerms("sqlite-cms 公開"))).toBe('"sqlite cms*" "公開"');
-    expect(toMatchExpression(queryTerms("字"))).toBeNull();
-    expect(toMatchExpression(queryTerms("!!!"))).toBeNull();
+  it("検索する言葉を、空白で区切った語に分け、全角の英数字を半角に、大文字を小文字にする", () => {
+    expect(queryTerms("  ＳＨＩＫＩ  使い方 ")).toEqual(["shiki", "使い方"]);
+    expect(queryTerms("!!! 字")).toEqual(["字"]);
   });
 
   it("Markdown の記号を大まかに取り除く", () => {

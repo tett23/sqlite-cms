@@ -1,6 +1,5 @@
-import initSqlJs, { type Database, type SqlValue } from "sql.js";
-import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
 import { withBasePath } from "./base";
+import { compareBinary, SqliteFile, type Row } from "./sqlite";
 
 export interface PostSummary {
   slug: string;
@@ -61,9 +60,9 @@ async function manifestDbPath(): Promise<string> {
 /**
  * DB を読み込む。index.html に DB のパスがあれば、マニフェストを読まずに直接取りに行く（先読みも効く）。
  * 取れなければ（古い index.html が消えた DB を指しているときなど）、マニフェストから読み直す。
+ * 自前の読み手（SqliteFile）で読み、sql.js（wasm）は使わない（ADR 0047）。
  */
-export async function loadDb(): Promise<Database> {
-  const SQL = initSqlJs({ locateFile: () => wasmUrl });
+export async function loadDb(): Promise<SqliteFile> {
   const embedded = embeddedDbPath();
   let dbRes = embedded ? await fetch(embedded).catch(() => null) : null;
   if (!dbRes?.ok) {
@@ -73,123 +72,93 @@ export async function loadDb(): Promise<Database> {
   if (!dbRes.ok) {
     throw new Error(`DB の取得に失敗しました (${dbRes.status})`);
   }
-  const bytes = new Uint8Array(await dbRes.arrayBuffer());
-  return new (await SQL).Database(bytes);
+  return new SqliteFile(new Uint8Array(await dbRes.arrayBuffer()));
 }
 
-function selectAll(db: Database, sql: string): SqlValue[][] {
-  const result = db.exec(sql);
-  return result.length === 0 ? [] : result[0].values;
-}
+/** 列の値を文字列として読む（NULL なら null）。 */
+const text = (row: Row, column: string) => (row[column] ?? null) as string | null;
 
-function selectOne(db: Database, sql: string, params: SqlValue[]): SqlValue[] | null {
-  const stmt = db.prepare(sql);
-  try {
-    stmt.bind(params);
-    return stmt.step() ? stmt.get() : null;
-  } finally {
-    stmt.free();
-  }
-}
+/** 新しい順（日付の降順、同じ日付なら slug の降順）。 */
+const newestFirst = (a: Row, b: Row) =>
+  compareBinary(text(b, "published_at")!, text(a, "published_at")!) || compareBinary(text(b, "slug")!, text(a, "slug")!);
 
-export function listPosts(db: Database): PostSummary[] {
-  return selectAll(
-    db,
-    "SELECT slug, title, published_at FROM posts ORDER BY published_at DESC, slug DESC",
-  ).map(([slug, title, publishedAt]) => ({
-    slug: slug as string,
-    title: title as string,
-    publishedAt: publishedAt as string,
+export function listPosts(db: SqliteFile): PostSummary[] {
+  return [...db.table("posts")].sort(newestFirst).map((row) => ({
+    slug: text(row, "slug")!,
+    title: text(row, "title")!,
+    publishedAt: text(row, "published_at")!,
   }));
 }
 
-export function getPost(db: Database, slug: string): Post | null {
-  const row = selectOne(db, "SELECT slug, title, published_at, body_md FROM posts WHERE slug = ?", [slug]);
+export function getPost(db: SqliteFile, slug: string): Post | null {
+  const row = db.table("posts").find((r) => r.slug === slug);
   if (!row) {
     return null;
   }
-  const [s, title, publishedAt, bodyMd] = row;
   return {
-    slug: s as string,
-    title: title as string,
-    publishedAt: publishedAt as string,
-    bodyMd: bodyMd as string,
+    slug: text(row, "slug")!,
+    title: text(row, "title")!,
+    publishedAt: text(row, "published_at")!,
+    bodyMd: text(row, "body_md")!,
   };
 }
 
-export function listArticles(db: Database): ArticleSummary[] {
-  return selectAll(
-    db,
-    "SELECT slug, title, published_at, description FROM articles ORDER BY published_at DESC, slug DESC",
-  ).map(([slug, title, publishedAt, description]) => ({
-    slug: slug as string,
-    title: title as string,
-    publishedAt: publishedAt as string,
-    description: (description as string | null) ?? null,
+export function listArticles(db: SqliteFile): ArticleSummary[] {
+  return [...db.table("articles")].sort(newestFirst).map((row) => ({
+    slug: text(row, "slug")!,
+    title: text(row, "title")!,
+    publishedAt: text(row, "published_at")!,
+    description: text(row, "description"),
   }));
 }
 
-export function getArticle(db: Database, slug: string): Article | null {
-  const row = selectOne(
-    db,
-    "SELECT slug, title, published_at, updated_at, description, body_md FROM articles WHERE slug = ?",
-    [slug],
-  );
+export function getArticle(db: SqliteFile, slug: string): Article | null {
+  const row = db.table("articles").find((r) => r.slug === slug);
   if (!row) {
     return null;
   }
-  const [s, title, publishedAt, updatedAt, description, bodyMd] = row;
   return {
-    slug: s as string,
-    title: title as string,
-    publishedAt: publishedAt as string,
-    updatedAt: (updatedAt as string | null) ?? null,
-    description: (description as string | null) ?? null,
-    bodyMd: bodyMd as string,
+    slug: text(row, "slug")!,
+    title: text(row, "title")!,
+    publishedAt: text(row, "published_at")!,
+    updatedAt: text(row, "updated_at"),
+    description: text(row, "description"),
+    bodyMd: text(row, "body_md")!,
   };
 }
 
-export function getPage(db: Database, slug: string): Page | null {
-  const row = selectOne(db, "SELECT slug, title, body_md FROM pages WHERE slug = ?", [slug]);
+export function getPage(db: SqliteFile, slug: string): Page | null {
+  const row = db.table("pages").find((r) => r.slug === slug);
   if (!row) {
     return null;
   }
-  const [s, title, bodyMd] = row;
-  return { slug: s as string, title: title as string, bodyMd: bodyMd as string };
+  return { slug: text(row, "slug")!, title: text(row, "title")!, bodyMd: text(row, "body_md")! };
 }
 
-export function getSite(db: Database): Site {
-  const row = selectOne(
-    db,
-    "SELECT title, author, license_name, license_url, home_md, description, header_md FROM site WHERE id = 1",
-    [],
-  );
+export function getSite(db: SqliteFile): Site {
+  const row = db.table("site").find((r) => r.id === 1);
   if (!row) {
     throw new Error("site テーブルが空です");
   }
-  const [title, author, licenseName, licenseUrl, homeMd, description, headerMd] = row;
+  const title = text(row, "title")!;
+  const licenseName = text(row, "license_name");
   return {
-    title: title as string,
-    author: (author as string | null) ?? null,
-    license:
-      licenseName === null
-        ? null
-        : { name: licenseName as string, url: (licenseUrl as string | null) ?? null },
-    homeMd: (homeMd as string | null) ?? null,
-    description: (description as string | null) ?? (title as string),
-    headerMd: (headerMd as string | null) ?? null,
+    title,
+    author: text(row, "author"),
+    license: licenseName === null ? null : { name: licenseName, url: text(row, "license_url") },
+    homeMd: text(row, "home_md"),
+    description: text(row, "description") ?? title,
+    headerMd: text(row, "header_md"),
   };
 }
 
-const linkCardImageCache = new WeakMap<Database, ReadonlyMap<string, string>>();
+const linkCardImageCache = new WeakMap<SqliteFile, ReadonlyMap<string, string>>();
 
 /** リンクカードの URL と、その画像のパス（ADR 0028）。同じ DB では一度だけ読む。 */
-export function getLinkCardImages(db: Database): ReadonlyMap<string, string> {
+export function getLinkCardImages(db: SqliteFile): ReadonlyMap<string, string> {
   let images = linkCardImageCache.get(db);
   if (!images) {
-    images = new Map(
-      selectAll(db, "SELECT url, image_path FROM link_cards").map(([url, path]) => [url as string, path as string]),
-    );
+    images = new Map(db.table("link_cards").map((row) => [text(row, "url")!, text(row, "image_path")!]));
     linkCardImageCache.set(db, images);
   }
   return images;
@@ -205,18 +174,24 @@ export interface ListEntry {
 }
 
 /** post と article を、日付の新しい順（同じ日付なら article、slug の逆順）にまとめて返す。 */
-export function listAll(db: Database): ListEntry[] {
-  return selectAll(
-    db,
-    `SELECT 'article', slug, title, published_at, description FROM articles
-     UNION ALL
-     SELECT 'post', slug, title, published_at, NULL FROM posts
-     ORDER BY 4 DESC, 1, 2 DESC`,
-  ).map(([kind, slug, title, publishedAt, description]) => ({
-    kind: kind as "post" | "article",
-    slug: slug as string,
-    title: title as string,
-    publishedAt: publishedAt as string,
-    description: (description as string | null) ?? null,
-  }));
+export function listAll(db: SqliteFile): ListEntry[] {
+  const entries: ListEntry[] = [
+    ...db.table("articles").map((row) => ({
+      kind: "article" as const,
+      slug: text(row, "slug")!,
+      title: text(row, "title")!,
+      publishedAt: text(row, "published_at")!,
+      description: text(row, "description"),
+    })),
+    ...db.table("posts").map((row) => ({
+      kind: "post" as const,
+      slug: text(row, "slug")!,
+      title: text(row, "title")!,
+      publishedAt: text(row, "published_at")!,
+      description: null,
+    })),
+  ];
+  return entries.sort(
+    (a, b) => compareBinary(b.publishedAt, a.publishedAt) || compareBinary(a.kind, b.kind) || compareBinary(b.slug, a.slug),
+  );
 }

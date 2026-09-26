@@ -1,18 +1,22 @@
-import initSqlJs, { type Database } from "sql.js";
+import initSqlJs from "sql.js";
 import { beforeAll, describe, expect, it } from "vitest";
 import { moveActive, suggest, SUGGESTION_LIMIT } from "./suggest";
+import { SqliteFile } from "./sqlite";
 
-let db: Database;
+let db: SqliteFile;
 
 beforeAll(async () => {
   const SQL = await initSqlJs();
-  db = new SQL.Database();
+  const sql = new SQL.Database();
   const migrations = import.meta.glob<string>("../../migrations/*.sql", { query: "?raw", import: "default", eager: true });
-  for (const file of Object.keys(migrations).sort()) db.exec(migrations[file]);
+  for (const file of Object.keys(migrations).sort()) sql.exec(migrations[file]);
   for (let day = 1; day <= 7; day++) {
-    db.run("INSERT INTO posts VALUES (?, ?, ?, ?)", [`p${day}`, `メモ ${day}`, `2026-09-0${day}`, "組版についてのメモ。"]);
+    sql.run("INSERT INTO posts VALUES (?, ?, ?, ?)", [`p${day}`, `メモ ${day}`, `2026-09-0${day}`, "組版についてのメモ。"]);
   }
-  db.run("INSERT INTO posts VALUES (?, ?, ?, ?)", ["title", "組版の題", "2026-08-01", "本文。"]);
+  sql.run("INSERT INTO posts VALUES (?, ?, ?, ?)", ["title", "組版の題", "2026-08-01", "本文。"]);
+  // sql.js で作った DB を書き出し、ページの表示と同じく自前の読み手で開く（ADR 0047）。
+  db = new SqliteFile(sql.export());
+  sql.close();
 });
 
 describe("候補", () => {

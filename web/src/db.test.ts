@@ -1,12 +1,13 @@
-import initSqlJs, { type Database } from "sql.js";
+import initSqlJs from "sql.js";
 import { beforeAll, describe, expect, it } from "vitest";
 import { getArticle, getLinkCardImages, getPage, getPost, getSite, listAll, listArticles, listPosts } from "./db";
+import { SqliteFile } from "./sqlite";
 
-let db: Database;
+let db: SqliteFile;
 
 beforeAll(async () => {
   const SQL = await initSqlJs();
-  db = new SQL.Database();
+  const sql = new SQL.Database();
   const migrations = import.meta.glob<string>("../../migrations/*.sql", {
     query: "?raw",
     import: "default",
@@ -15,12 +16,12 @@ beforeAll(async () => {
   const files = Object.keys(migrations).sort();
   expect(files.length).toBeGreaterThan(0);
   for (const file of files) {
-    db.exec(migrations[file]);
+    sql.exec(migrations[file]);
   }
 
-  db.run("INSERT INTO posts VALUES (?, ?, ?, ?)", ["old", "古い記事", "2026-01-01", "**old**"]);
-  db.run("INSERT INTO posts VALUES (?, ?, ?, ?)", ["new", "新しい記事", "2026-09-17", "new"]);
-  db.run("INSERT INTO articles VALUES (?, ?, ?, ?, ?, ?)", [
+  sql.run("INSERT INTO posts VALUES (?, ?, ?, ?)", ["old", "古い記事", "2026-01-01", "**old**"]);
+  sql.run("INSERT INTO posts VALUES (?, ?, ?, ?)", ["new", "新しい記事", "2026-09-17", "new"]);
+  sql.run("INSERT INTO articles VALUES (?, ?, ?, ?, ?, ?)", [
     "long",
     "長い読み物",
     "2026-09-15",
@@ -28,8 +29,8 @@ beforeAll(async () => {
     "要約。",
     "| a |\n|---|\n| 1 |",
   ]);
-  db.run("INSERT INTO pages VALUES (?, ?, ?)", ["about", "自己紹介", "# about"]);
-  db.run("INSERT INTO site VALUES (1, ?, ?, ?, ?, ?, ?, ?)", [
+  sql.run("INSERT INTO pages VALUES (?, ?, ?)", ["about", "自己紹介", "# about"]);
+  sql.run("INSERT INTO site VALUES (1, ?, ?, ?, ?, ?, ?, ?)", [
     "記事置き場",
     null,
     "CC0 1.0",
@@ -38,7 +39,10 @@ beforeAll(async () => {
     "組版の記事",
     "[記事置き場](/)",
   ]);
-  db.run("INSERT INTO link_cards VALUES (?, ?)", ["https://example.com/", "/link-cards/0123456789abcdef.png"]);
+  sql.run("INSERT INTO link_cards VALUES (?, ?)", ["https://example.com/", "/link-cards/0123456789abcdef.png"]);
+  // sql.js で作った DB を書き出し、ページの表示と同じく自前の読み手で開く（ADR 0047）。
+  db = new SqliteFile(sql.export());
+  sql.close();
 });
 
 describe("getLinkCardImages", () => {
@@ -116,8 +120,9 @@ describe("getSite", () => {
       "CREATE TABLE site (id INTEGER, title TEXT, author TEXT, license_name TEXT, license_url TEXT, home_md TEXT, description TEXT, header_md TEXT)",
     );
     bare.run("INSERT INTO site VALUES (1, 't', NULL, NULL, NULL, NULL, 'd', NULL)");
-    expect(getSite(bare).license).toBeNull();
-    expect(getSite(bare).headerMd).toBeNull();
+    const file = new SqliteFile(bare.export());
+    expect(getSite(file).license).toBeNull();
+    expect(getSite(file).headerMd).toBeNull();
     bare.close();
   });
 });

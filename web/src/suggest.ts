@@ -1,11 +1,11 @@
-import type { Database } from "sql.js";
+import type { SqliteFile } from "./sqlite";
 import { search, type SearchResult } from "./search";
 
 /** ヘッダの検索ボックスに出す候補の数（ADR 0042）。 */
 export const SUGGESTION_LIMIT = 5;
 
 /** 入力中の言葉の候補。検索のページと同じ順（題名に言葉を含むものが先、新しい順）で、先頭の SUGGESTION_LIMIT 件。 */
-export function suggest(db: Database, query: string): SearchResult[] {
+export function suggest(db: SqliteFile, query: string): SearchResult[] {
   return query.trim() ? search(db, query).slice(0, SUGGESTION_LIMIT) : [];
 }
 

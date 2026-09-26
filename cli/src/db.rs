@@ -282,6 +282,34 @@ mod tests {
         assert!(message.ends_with("header.md の 2 行目: セクションが閉じていません: {{#title}}"), "{message}");
     }
 
+    /// SPA の自前の DB の読み手（web/src/sqlite.ts、ADR 0047）が読める形であること。
+    /// 読み手は、UTF-8 の、rowid を持つ表だけを読む。列を足す前の行の既定値は、定数だけを読む。
+    #[test]
+    fn db_stays_readable_by_the_spa_reader() {
+        let site = site_fixture(&[("posts/a.md", POST), ("index.md", "トップ\n"), ("header.md", "[{{title}}](/)\n")]);
+        let (_dir, conn) = open(&build_db_bytes(site.path(), &[]).unwrap());
+        let encoding: String = conn.query_row("PRAGMA encoding", [], |r| r.get(0)).unwrap();
+        assert_eq!(encoding, "UTF-8");
+        let page_size: i64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0)).unwrap();
+        assert!((512..=65536).contains(&page_size), "{page_size}");
+
+        let tables: Vec<(String, i64, String)> = conn
+            .prepare("SELECT name, rootpage, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert!(!tables.is_empty());
+        for (name, rootpage, sql) in &tables {
+            let upper = sql.to_uppercase();
+            assert!(*rootpage > 0 && !upper.contains("VIRTUAL"), "{name} は仮想表: {sql}");
+            assert!(!upper.contains("WITHOUT ROWID"), "{name} は WITHOUT ROWID の表: {sql}");
+            // 既定値は定数だけ（式の既定値は、読み手が読めない）。
+            assert!(!upper.contains("DEFAULT ("), "{name} の既定値が式: {sql}");
+        }
+    }
+
     #[test]
     fn missing_site_toml_is_error() {
         let dir = crate::testutil::tempdir();

@@ -1,17 +1,27 @@
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { Database } from "sql.js";
-import { getArticle, getLinkCardImages, getPage, getPost, getSite, listAll, listArticles, listPosts, loadDb } from "./db";
+import {
+  getArticle,
+  getLinkCardImages,
+  getPage,
+  getPost,
+  getSite,
+  listAll,
+  listArticles,
+  listPosts,
+  loadDb,
+} from "./db";
 import { pageDescription, setMetaDescription } from "./documentMeta";
 import { MarkdownBody } from "./MarkdownBody";
 import { withBasePath } from "./base";
 import { Link, matchPath, navigate, usePath, useSearch } from "./router";
 import { search, searchPath, type SearchKind } from "./search";
+import type { SqliteFile } from "./sqlite";
 import { moveActive, suggest } from "./suggest";
 
-let dbPromise: Promise<Database> | null = null;
+let dbPromise: Promise<SqliteFile> | null = null;
 /** 読み込み終わった DB。読み込み済みなら、部品は最初の描画から使う。 */
-let loadedDb: Database | undefined;
-function getDb(): Promise<Database> {
+let loadedDb: SqliteFile | undefined;
+function getDb(): Promise<SqliteFile> {
   dbPromise ??= loadDb().then((db) => (loadedDb = db));
   return dbPromise;
 }
@@ -20,8 +30,8 @@ function getDb(): Promise<Database> {
  * DB を読み込み、読み込み終わったら描き直す。
  * 読み込み済みなら最初の描画から返す。読み込み中の表示を一度描いてから本文に替えると、その下の要素（フッタ）がずれ、ページを移るたびに読み込み中の表示が一瞬見える。
  */
-function useDb(): { db?: Database; error?: string } {
-  const [state, setState] = useState<{ db?: Database; error?: string }>(() => (loadedDb ? { db: loadedDb } : {}));
+function useDb(): { db?: SqliteFile; error?: string } {
+  const [state, setState] = useState<{ db?: SqliteFile; error?: string }>(() => (loadedDb ? { db: loadedDb } : {}));
   useEffect(() => {
     if (state.db) return;
     let mounted = true;
@@ -37,7 +47,7 @@ function useDb(): { db?: Database; error?: string } {
 }
 
 /** ページのタイトルと meta description を設定する。 */
-function useDocumentMeta(db: Database | undefined, title: string | null, description?: string | null) {
+function useDocumentMeta(db: SqliteFile | undefined, title: string | null, description?: string | null) {
   useEffect(() => {
     if (!db) return;
     const site = getSite(db);
@@ -458,7 +468,9 @@ export default function App() {
           </div>
         </header>
       )}
-      <main>
+      {/* 本文の領域を少なくとも画面の高さにし、フッタを最初の画面の外に置く（ADR 0047）。
+          検索の結果、数式、図など、後から入る中身でフッタが押し下げられても、画面の外なのでレイアウトのずれにならない。 */}
+      <main className="min-h-screen">
         <CurrentPage />
       </main>
       {/* フッターは DB を読んだ後に描く。先に RSS の案内だけを描くと、本文が入ったときに押し下げられて、レイアウトがずれる。 */}
