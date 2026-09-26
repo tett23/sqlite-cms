@@ -10,14 +10,44 @@ Markdown で書いた記事から、軽い個人サイトを作って Cloudflare
 
 ## インストール
 
-[Releases](https://github.com/tett23/sqlite-cms/releases) から自分の環境のバイナリ（`sqlite-cms-<target>.tar.gz`）を取ってきて展開し、PATH の通った場所に置く。
+[Releases](https://github.com/tett23/sqlite-cms/releases) に、次の環境のバイナリを置いている。
+
+| 環境 | ファイル |
+|---|---|
+| macOS（Apple Silicon） | `sqlite-cms-aarch64-apple-darwin.tar.gz` |
+| Linux（x86_64） | `sqlite-cms-x86_64-unknown-linux-gnu.tar.gz` |
+
+取ってきて展開し、PATH の通った場所に置く。
+以下は macOS の例。Linux では、ファイル名の `aarch64-apple-darwin` を `x86_64-unknown-linux-gnu` に読み替える。
+
+curl で最新版を取るとき:
 
 ```sh
+curl -fsSL https://github.com/tett23/sqlite-cms/releases/latest/download/sqlite-cms-aarch64-apple-darwin.tar.gz | tar -xz
+mv sqlite-cms ~/.local/bin/
+```
+
+[GitHub CLI](https://cli.github.com/)（gh）で最新版を取るとき:
+
+```sh
+gh release download --repo tett23/sqlite-cms -p 'sqlite-cms-aarch64-apple-darwin.tar.gz'
 tar -xzf sqlite-cms-aarch64-apple-darwin.tar.gz
 mv sqlite-cms ~/.local/bin/
 ```
 
 ソースからビルドする方法は `DEVELOPMENT.md` にある。
+
+### macOS でブラウザから取ったとき
+
+macOS 用のバイナリは Apple の署名と公証を受けていない。
+ブラウザで取ったファイルには macOS が隔離の属性（`com.apple.quarantine`）を付けるので、そのまま実行すると Gatekeeper に止められる（確認の画面が出るか、ターミナルでは起動したまま止まったように見える）。
+curl と gh で取ったファイルには、この属性は付かない。
+
+ブラウザで取ったときは、展開したバイナリから隔離の属性を外してから使う。
+
+```sh
+xattr -d com.apple.quarantine sqlite-cms
+```
 
 ## はじめる
 
