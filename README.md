@@ -16,6 +16,7 @@ Markdown で書いた記事から、軽い個人サイトを作って Cloudflare
 - **一つの SQLite**：全記事を一つの SQLite にまとめて配信する。ブラウザは最初に一度読み込むだけで、以後はページを移っても記事を取りに行かない。
 - **Markdown**：CommonMark と GFM に加えて、[Zenn](https://zenn.dev/zenn/articles/markdown-guide) 風の拡張（メッセージ、折りたたみ、コードのファイル名と diff、数式、mermaid の図、画像の幅、インラインの脚注、リンクカード）が書ける。
 - **コードの色分け**：Shiki で、VS Code と同じ文法の定義で色を付ける。
+- **全文検索**：ヘッダの「検索」から、全記事を日本語でも探せる。索引はブラウザの中で作るので、サーバーは要らない。
 - **軽さ**：色分け、数式、図のライブラリは、要るページでだけ後から読み込む。リンクカードの画像もビルドのときに取ってきて自分のサイトから配信するので、読む人のブラウザはほかのサイトと通信しない。
 - **読みやすさ**：白背景に黒文字、青い下線のリンクだけの見た目。Lighthouse のユーザー補助とおすすめの方法は 100 点を保ち、CI で確かめている。
 
@@ -100,6 +101,7 @@ author = "tett23"              # 任意。フッターに表示
 timezone = "Asia/Tokyo"        # 任意。new が入れる日付のタイムゾーン（"+09:00" の形も可）。省略すると環境のタイムゾーン
 description = "サイトの説明"    # 任意。ページの meta description。省略すると「<サイト名>。記事とブログを置いているサイトです。」
 base_path = "/my-blog/"        # 任意。サイトを置くパス。省略すると "/"（公開の節を参照）
+url = "https://example.com/"   # 任意。公開したサイトの URL。書くと RSS のフィード（/rss.xml）を作る
 
 [license]                      # 任意。フッターに表示
 name = "CC0 1.0"               # [license] を書くなら必須
@@ -109,7 +111,7 @@ url = "https://creativecommons.org/publicdomain/zero/1.0/"  # 任意。書けば
 worker = "my-blog"             # Cloudflare の Worker 名（英小文字、数字、ハイフン）
 ```
 
-`base_path` などの表より前に書くキー（`title` から `base_path` まで）は、`[license]` や `[deploy]` より前に書く。
+`base_path` などの表より前に書くキー（`title` から `url` まで）は、`[license]` や `[deploy]` より前に書く。
 
 知らないキーはエラーになる（綴りの誤りを見逃さないため）。
 
@@ -265,7 +267,7 @@ https://example.com/
 ```sh
 sqlite-cms new post hello --title はじめまして   # content/posts/hello.md の雛形を作る
 sqlite-cms new post                             # content/posts/<今日の日付>.md の雛形を作る
-sqlite-cms serve    # http://127.0.0.1:8080/ でプレビュー（記事を変えたら再起動）
+sqlite-cms serve    # http://127.0.0.1:8080/ でプレビュー（記事を変えると自動で反映する）
 sqlite-cms build    # dist/ に配信用の一式を書き出す
 sqlite-cms deploy   # site.toml の [deploy] の公開先に公開する
 ```
@@ -281,6 +283,29 @@ slug を指定して、同じ名前のファイルがすでにあるときは、
 slug を省いて別の場所の記事リポジトリを指すときは、`./blog` や `../blog` のようにパスとわかる形で書く（`/` を含むか `.` で始まる引数は、slug ではなく記事リポジトリとみなす）。
 
 詳しいオプションは `sqlite-cms --help` で確認できる。
+
+### 検索
+
+サイトのヘッダの「検索」（`/search`）から、post、article、自己紹介の題名と本文を探せる。
+空白で区切った言葉をすべて含むものを、題名に言葉を含むものを先に、新しい順に出す。
+全角と半角の英数字、大文字と小文字は区別しない。
+`/search?q=言葉` の形の URL で、検索した結果を開ける。
+
+### 一覧と RSS
+
+ヘッダの「一覧」（`/archive`）に、post と article をまとめて、年ごとに新しい順に並べる。
+
+`site.toml` に `url`（公開したサイトの URL）を書くと、`build`、`serve`、`deploy` が RSS 2.0 のフィード（`/rss.xml`）を作る。
+新しい順に 20 件を載せ、article は要約を、post は本文の書き出しを説明にする（本文は載せない）。
+フッターに RSS のリンクが出て、ページの head にもフィードの案内が入る。
+`url` のパスは `base_path` と同じにする（`https://<user>.github.io/my-blog/` なら `base_path = "/my-blog/"`）。
+
+### プレビューの自動反映
+
+`serve` は、`site.toml` と `content/` の変更を 0.5 秒ごとに調べ、変わっていれば組み立て直して、開いているブラウザを読み込み直させる。
+記事に書き誤りがあれば、エラーを表示して、直すまで前の内容を配信する。
+`base_path` を変えたときだけは、`serve` を起動し直す。
+自動反映が要らないときは `--no-reload` を付ける。
 
 ## 公開
 

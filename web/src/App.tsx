@@ -1,9 +1,11 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Database } from "sql.js";
-import { getArticle, getLinkCardImages, getPage, getPost, getSite, listArticles, listPosts, loadDb } from "./db";
+import { getArticle, getLinkCardImages, getPage, getPost, getSite, listAll, listArticles, listPosts, loadDb } from "./db";
 import { pageDescription, setMetaDescription } from "./documentMeta";
 import { MarkdownBody } from "./MarkdownBody";
+import { withBasePath } from "./base";
 import { Link, matchPath, usePath } from "./router";
+import { search, type SearchKind } from "./search";
 
 let dbPromise: Promise<Database> | null = null;
 function getDb(): Promise<Database> {
@@ -154,11 +156,113 @@ function NotFound() {
   return <p>見つかりません。</p>;
 }
 
+const KIND_LABELS: Record<SearchKind, string> = { post: "ブログ", article: "記事", page: "ページ" };
+
+function initialQuery(): string {
+  return typeof window === "undefined" ? "" : (new URLSearchParams(window.location.search).get("q") ?? "");
+}
+
+/** 全文検索（ADR 0031）。入力に合わせて結果を出し、言葉を URL（?q=）に残す。 */
+function SearchPage() {
+  const { db, error } = useDb();
+  const [query, setQuery] = useState(initialQuery);
+  useDocumentMeta(db, "検索");
+  const results = useMemo(() => (db && query.trim() ? search(db, query) : null), [db, query]);
+
+  useEffect(() => {
+    const url = withBasePath("/search") + (query.trim() ? `?q=${encodeURIComponent(query.trim())}` : "");
+    window.history.replaceState(null, "", url);
+  }, [query]);
+
+  return (
+    <div>
+      <h1 className="mb-4 text-xl font-bold">検索</h1>
+      <form role="search" onSubmit={(event) => event.preventDefault()} className="mb-6">
+        <label htmlFor="search-query" className="mr-2 text-sm">
+          探す言葉
+        </label>
+        <input
+          id="search-query"
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          className="w-64 border border-gray-500 px-2 py-1"
+        />
+      </form>
+      {!db && <Loading error={error} />}
+      {results && (
+        <>
+          <p role="status" className="mb-4 text-sm text-gray-600">
+            {results.length} 件
+          </p>
+          <ul className="space-y-4">
+            {results.map((result) => (
+              <li key={result.path}>
+                <Link to={result.path}>{result.title}</Link>
+                <span className="ml-2 text-sm text-gray-600">
+                  {KIND_LABELS[result.kind]}
+                  {result.date && ` ${result.date}`}
+                </span>
+                <p className="text-sm text-gray-700">
+                  {result.snippet.map((part, i) => (part.match ? <mark key={i}>{part.text}</mark> : part.text))}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** 種別をまたいだ統合一覧（ADR 0033）。post と article を、年ごとに新しい順に並べる。 */
+function ArchivePage() {
+  const { db, error } = useDb();
+  useDocumentMeta(db, "すべての記事");
+  if (!db) return <Loading error={error} />;
+
+  const entries = listAll(db);
+  const years = [...new Set(entries.map((entry) => entry.publishedAt.slice(0, 4)))];
+  return (
+    <div>
+      <h1 className="mb-4 text-xl font-bold">すべての記事</h1>
+      {entries.length === 0 && <p>まだ記事がありません。</p>}
+      {years.map((year) => (
+        <section key={year} className="mb-8">
+          <h2 className="mb-3 border-b border-gray-300 pb-1 text-lg font-bold">{year}</h2>
+          <ul className="space-y-2">
+            {entries
+              .filter((entry) => entry.publishedAt.startsWith(year))
+              .map((entry) => (
+                <li key={`${entry.kind}/${entry.slug}`}>
+                  <span className="mr-2 text-sm text-gray-600">{entry.publishedAt}</span>
+                  <Link to={entry.kind === "post" ? `/posts/${entry.slug}` : `/articles/${entry.slug}`}>{entry.title}</Link>
+                  <span className="ml-2 text-sm text-gray-600">{entry.kind === "post" ? "ブログ" : "記事"}</span>
+                  {entry.description && <p className="text-sm text-gray-700">{entry.description}</p>}
+                </li>
+              ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/** CLI が index.html に入れた RSS のフィードの案内（ADR 0033）。なければ null。 */
+function feedHref(): string | null {
+  if (typeof document === "undefined") return null;
+  return document.querySelector('link[rel="alternate"][type="application/rss+xml"]')?.getAttribute("href") ?? null;
+}
+
+const FEED_HREF = feedHref();
+
 const ROUTES: [string, (params: Record<string, string>) => ReactNode][] = [
   ["/", () => <Home />],
   ["/posts/:slug", ({ slug }) => <PostPage slug={slug} />],
   ["/articles/:slug", ({ slug }) => <ArticlePage slug={slug} />],
   ["/about", () => <AboutPage />],
+  ["/search", () => <SearchPage />],
+  ["/archive", () => <ArchivePage />],
 ];
 
 function CurrentPage() {
@@ -180,25 +284,33 @@ export default function App() {
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
-      <header className="mb-8 flex items-baseline justify-between border-b border-black pb-2">
+      {/* 狭い画面ではサイト名と案内を別の行にし、サイト名が後から入っても案内が折り返さない（高さが変わらない）ようにする。 */}
+      <header className="mb-8 flex flex-col gap-1 border-b border-black pb-2 sm:flex-row sm:items-baseline sm:justify-between">
         <Link to="/" className="site-title text-xl font-bold">
           {site?.title ?? "\u00a0"}
         </Link>
         <nav className="space-x-4 text-sm">
           <Link to="/">トップ</Link>
+          <Link to="/archive">一覧</Link>
           <Link to="/about">自己紹介</Link>
+          <Link to="/search">検索</Link>
         </nav>
       </header>
       <main>
         <CurrentPage />
       </main>
-      {(site?.author || site?.license) && (
+      {(site?.author || site?.license || FEED_HREF) && (
         <footer className="mt-16 border-t border-gray-400 pt-2 text-sm text-gray-600">
-          {site.author && <p>{site.author}</p>}
-          {site.license && (
+          {site?.author && <p>{site.author}</p>}
+          {site?.license && (
             <p>
               ライセンス:{" "}
               {site.license.url ? <a href={site.license.url}>{site.license.name}</a> : site.license.name}
+            </p>
+          )}
+          {FEED_HREF && (
+            <p>
+              <a href={FEED_HREF}>RSS</a>
             </p>
           )}
         </footer>
