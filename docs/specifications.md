@@ -28,17 +28,26 @@ post と article の境界は書き手の判断に委ねる。
 このリポジトリはツールだけを持つ。
 記事などのコンテンツは別のリポジトリ（以下、コンテンツリポジトリ）で Markdown ファイルとして管理する（ADR 0009）。
 
-- **このリポジトリ**：スキーマ（マイグレーション）、ビルダー、SPA、デプロイの設定。
-- **コンテンツリポジトリ**：サイトのメタデータ（`site.toml`）、記事の Markdown、トップページの本文、画像。
+- **このリポジトリ**：スキーマ（マイグレーション）、CLI `sqlite-cms`、SPA。
+- **コンテンツリポジトリ**：サイトのメタデータと公開先（`site.toml`）、記事の Markdown、トップページの本文、画像。
 
 コンテンツの更新でツールのリポジトリにコミットが生じず、ツールの変更で記事の履歴が汚れない。
 このリポジトリの `example/` は動作確認用のサンプルであり、公開する記事ではない。
 
+## 利用者と開発者
+
+サイトの管理（プレビュー、書き出し、公開）は、すべて CLI `sqlite-cms` で行う（ADR 0011）。
+利用者（コンテンツリポジトリの持ち主）が扱うのは、CLI のバイナリとコンテンツリポジトリだけである。
+SPA はバイナリに埋め込まれて配布されるので、利用者は Node も TS のコードも意識しない。
+
+TS（`web/`）は SPA を開発する人だけが触る。
+開発の手順は `DEVELOPMENT.md` にまとめ、利用者向けの `README.md` からは切り離す。
+
 ## アーキテクチャ
 
-ビルド時に全コンテンツを単一の SQLite ファイルへ格納し、静的アセットとして配信する。
-格納は Rust の単一バイナリ `sqlite-cms` が行う（ADR 0006、0008）。
-マイグレーションはバイナリに埋め込まれており、バイナリはコンテンツのディレクトリだけを引数に取る（ADR 0009）。
+サイトの組み立て時に全コンテンツを単一の SQLite ファイルへ格納し、SPA と画像と合わせて静的アセットとして配信する。
+組み立ては Rust の単一バイナリ `sqlite-cms` が行う（ADR 0006、0008、0011）。
+マイグレーションと SPA はバイナリに埋め込まれており、バイナリはコンテンツリポジトリのディレクトリだけを引数に取る（ADR 0009、0011）。
 DB に入れる本文は Markdown のままであり、HTML への変換はブラウザが行う（ADR 0007）。
 スキーマは連番 SQL マイグレーションの適用列として定義し、ビルドごとに空 DB へ全件適用する（ADR 0005）。
 フロントエンドは React SPA であり、起動時に SQLite ファイルを取得してブラウザ内（sql.js）で開き、以後の一覧・本文表示はローカルの DB 参照だけで完結する。
@@ -73,10 +82,9 @@ SPA は無キャッシュの小さなマニフェストを読んで現行 DB の
 このリポジトリの構成は次のとおり。
 
 ```
-migrations/    -- 連番 SQL マイグレーション（ビルダーに埋め込まれる）
-cli/           -- ビルダー `sqlite-cms`（Rust。Markdown を検証して SQLite へ格納）
-src/           -- React SPA
-public/        -- 配信用ディレクトリ（生成された db/ と media/ を含む）
+cli/           -- CLI `sqlite-cms`（Rust。利用者向け）
+web/           -- React SPA（TS。開発者向け。ビルド結果は CLI に埋め込まれる）
+migrations/    -- 連番 SQL マイグレーション（CLI に埋め込まれる）
 example/       -- 動作確認用のサンプル（コンテンツリポジトリと同じ構成）
 ```
 
@@ -92,10 +100,16 @@ content/
   media/       -- 画像など（任意。/media/ で配信する）
 ```
 
-処理は `site.toml + content/**.md → sqlite-cms（マイグレーション適用 + 挿入）→ public/db/articles-<hash>.sqlite → SPA が取得` の順に流れる。
-同時に `content/media/` を `public/media/` へコピーする。
-コンテンツリポジトリの場所は環境変数 `SITE_DIR` で指定し、未指定のときは `example/` を使う。
-ただしデプロイは、サンプルを本番に出さないよう `SITE_DIR` の指定を必須とする。
+`sqlite-cms` は、`site.toml` と `content/` から次の一式を組み立てる。
+
+```
+/index.html, /assets/...          -- 埋め込まれた SPA
+/db/articles-<hash>.sqlite        -- 全コンテンツを格納した DB
+/db/manifest.json                 -- 現行の DB を指すマニフェスト
+/media/...                        -- content/media/ の中身
+```
+
+組み立てた一式を、`serve` は手元の HTTP サーバで返し、`build` はディレクトリに書き出し、`deploy` は Cloudflare にアップロードする。
 
 ## サイトのメタデータ
 
@@ -107,6 +121,7 @@ content/
 | `author` | 任意 | 著者名。フッター |
 | `license.name` | `[license]` を書くなら必須 | ライセンス名（`CC0 1.0` など）。フッター |
 | `license.url` | 任意 | ライセンスの URL。書けばライセンス名をリンクにする |
+| `deploy.worker` | `deploy` を使うなら必須 | 公開先の Cloudflare Worker 名 |
 
 知らないキーはエラーにする。
 フッターは `author` と `license` のどちらかがあるときだけ表示する。
@@ -136,24 +151,34 @@ SPA が remark（react-markdown）で本文を描画する。
 - `/posts/:slug`、`/articles/:slug`：本文。
 - `/about`：自己紹介（`pages` の slug `about`）。
 
-## デプロイ
+## CLI
 
-Cloudflare（静的アセット配信）にデプロイする。
-デプロイはこのリポジトリの GitHub Actions が行う。
-コンテンツリポジトリをリポジトリ変数 `CONTENT_REPOSITORY` で指定し、ワークフローがそれを `site/` にチェックアウトして DB 生成と SPA ビルドを行い、wrangler でデプロイする。
+```
+sqlite-cms serve  [SITE_DIR] [--port <PORT>]   -- 手元でプレビューする
+sqlite-cms build  [SITE_DIR] [--out <DIR>]     -- 配信用のディレクトリに書き出す
+sqlite-cms deploy [SITE_DIR]                   -- Cloudflare Workers に公開する
+```
 
-ワークフローは次の三つを契機に走る。
+`SITE_DIR` の既定はカレントディレクトリである。
 
-- このリポジトリの `main` への push
-- 手動実行（`workflow_dispatch`）
-- コンテンツリポジトリからの通知（`repository_dispatch`、種別 `content-updated`）
+## 公開
 
-`CONTENT_REPOSITORY` が未設定のときはデプロイを止める。
-空のコンテンツで公開サイトを上書きしないためである。
+Cloudflare Workers の静的アセット配信に公開する。
+`sqlite-cms deploy` が Cloudflare の API を直接呼び、wrangler も Node も使わない（ADR 0011）。
+認証情報は環境変数 `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` で渡し、公開先の Worker 名は `site.toml` の `[deploy] worker` で指定する。
+
+コンテンツリポジトリの CI は、リリースから `sqlite-cms` のバイナリを取得して `sqlite-cms deploy` を実行する。
+このワークフローの雛形を `example/.github/workflows/deploy.yml` に置く。
+
+## 配布
+
+`v*` のタグを push すると、このリポジトリの CI が SPA を埋め込んだバイナリをビルドし、GitHub Release に添付する。
+利用者はこのバイナリを使う。
 
 ## 未決事項
 
 - 全文検索（FTS5）の導入時期
 - golem のプレーンテキスト出力を記事ソースに取り込む経路
 - 種別をまたいだ統合一覧と RSS
-- コンテンツリポジトリ側から `content-updated` を送るワークフロー
+- `serve` での記事の変更の自動反映（現在は再起動が要る）
+- Linux x86_64 と macOS arm64 以外のバイナリの配布

@@ -1,120 +1,102 @@
 # sqlite-cms
 
-個人の記事置き場のためのツール。記事の Markdown をビルド時に単一の SQLite へ格納し、Cloudflare に配信する。
-ブラウザは SQLite を sql.js で開き、本文を remark（GFM 対応）で描画する。
-仕様は `docs/specifications.md`、設計決定は `docs/adr/` を参照。
+Markdown で書いた記事から、軽い個人サイトを作って Cloudflare に公開するツール。
+記事は全部まとめて一つの SQLite に入り、ブラウザはそれを一度読み込むだけで、あとはページを移るたびにサーバへ記事を取りに行かない（画像は除く）。
+見た目は白背景に黒文字、青い下線のリンクだけの、古いウェブサイトのようなものになる。
 
-このリポジトリはツール（スキーマ、ビルダー、SPA、デプロイの設定）だけを持つ。
-記事は別のリポジトリ（コンテンツリポジトリ）で管理する。
-`example/` は動作確認用のサンプル。
+使うのは `sqlite-cms` コマンドだけ。記事は自分のリポジトリ（以下、記事リポジトリ）で管理する。
 
-## 使い方
+## インストール
 
-Node と Rust（cargo）が要る。
+[Releases](https://github.com/tett23/sqlite-cms/releases) から自分の環境のバイナリ（`sqlite-cms-<target>.tar.gz`）を取ってきて展開し、PATH の通った場所に置く。
 
 ```sh
-npm install
-npm run dev      # DB 生成 + 開発サーバ
-npm test         # cargo test + vitest
-npm run build    # DB 生成 + 型検査 + 本番ビルド (dist/)
-npm run deploy   # build + wrangler deploy（要 wrangler login、SITE_DIR 必須）
+tar -xzf sqlite-cms-aarch64-apple-darwin.tar.gz
+mv sqlite-cms ~/.local/bin/
 ```
 
-コンテンツリポジトリの場所は環境変数 `SITE_DIR` で指定する。
-未指定なら `example/` を使う（`deploy` だけは指定が必須）。
+ソースからビルドする方法は `DEVELOPMENT.md` にある。
 
-```sh
-SITE_DIR=../blog-content npm run dev
-SITE_DIR=../blog-content npm run deploy
-```
-
-## ビルダー
-
-Markdown を検証して SQLite に格納する処理は、Rust のバイナリ `sqlite-cms`（`cli/`）が行う。
-本文は Markdown のまま格納し、HTML への変換はしない。
-マイグレーションはバイナリに埋め込まれているので、バイナリ単体でどこからでも実行できる。
-
-```sh
-cargo build --release --manifest-path cli/Cargo.toml
-cli/target/release/sqlite-cms [SITE_DIR] [--public <DIR>]   # SITE_DIR の既定は .、--public の既定は public
-```
-
-記事リポジトリの中で実行するなら、引数は要らない。
-`sqlite-cms --help` で、記事リポジトリの構成と書き出すものの一覧を確認できる。
-npm スクリプトは `SITE_DIR` 環境変数（未指定なら `example/`）を常に引数として渡す。
-
-DB を `<public>/db/` に、`content/media/` を `<public>/media/` に書き出す。
-
-## コンテンツリポジトリの構成
+## 記事リポジトリの構成
 
 ```
-site.toml          -- サイトのメタデータ（必須）
+site.toml          -- サイトの設定（必須）
 content/
   index.md         -- トップページの本文（任意。frontmatter なしの Markdown）
-  posts/           -- ブログ的な軽量の記事（/posts/:slug）
+  posts/           -- ブログ的な軽い記事（/posts/:slug）
   articles/        -- 長めの読み物（/articles/:slug）
   pages/           -- 固定ページ。about.md が自己紹介（/about）
   media/           -- 画像など（任意。/media/ で配信）
 ```
 
-`example/` が同じ構成のサンプルになっている。
+このリポジトリの `example/` が同じ構成のサンプルになっている。コピーして始めるとよい。
 
 ### site.toml
 
 ```toml
-title = "tett23の記事置き場"   # 必須
+title = "tett23の記事置き場"   # 必須。ヘッダとページタイトル
 author = "tett23"              # 任意。フッターに表示
 
 [license]                      # 任意。フッターに表示
 name = "CC0 1.0"               # [license] を書くなら必須
 url = "https://creativecommons.org/publicdomain/zero/1.0/"  # 任意。書けばリンクになる
+
+[deploy]                       # sqlite-cms deploy を使うなら必須
+worker = "my-blog"             # 公開先の Cloudflare Worker 名（英小文字、数字、ハイフン）
 ```
 
 知らないキーはエラーになる（綴りの誤りを見逃さないため）。
 
 ### 記事
 
-Markdown のファイル名が slug になる。
-記法は CommonMark と GFM（表、取り消し線、タスクリスト、自動リンク、脚注）。本文中の生の HTML は表示されない。
-画像は `content/media/` に置き、`![説明](/media/foo.png)` のように参照する。
-
-- `posts/` の frontmatter は `title` と `date`。
-- `articles/` は加えて `description`（一覧用の要約）と `updated`（改稿日）を任意で持つ。
-- `pages/` の frontmatter は `title` のみ。
+Markdown のファイル名が URL の一部（slug）になる。
 
 ```markdown
 ---
 title: 記事タイトル
 date: 2026-09-17
-description: 一覧に出す要約（article のみ、任意）
+description: 一覧に出す要約（articles/ のみ、任意）
 updated: 2026-09-18
 ---
 
 本文。
 ```
 
-## DB マイグレーション
+- `posts/` の frontmatter は `title` と `date`。
+- `articles/` は加えて `description`（一覧用の要約）と `updated`（改稿日）を任意で持つ。
+- `pages/` の frontmatter は `title` だけ。
 
-スキーマは `migrations/NNNN_名前.sql` の適用列で定義する。
-ファイルはビルド時にバイナリへ埋め込まれ、DB の生成のたびに空 DB へファイル名昇順に全件適用される。適用記録は `schema_migrations` に入る。
-スキーマを変えるときは既存ファイルを編集せず、次の連番を追加する。
+記法は CommonMark と GFM（表、取り消し線、タスクリスト、自動リンク、脚注）。本文中の生の HTML は表示されない。
+画像は `content/media/` に置き、`![説明](/media/foo.png)` のように参照する。
 
-## デプロイ
+## 使い方
 
-ローカルからは `npx wrangler login` のあと、`SITE_DIR` を指定して `npm run deploy`。
-
-CI（`.github/workflows/deploy.yml`）を使うには、このリポジトリに次を設定する。
-
-| 種類 | 名前 | 内容 |
-|---|---|---|
-| 変数 | `CONTENT_REPOSITORY` | コンテンツリポジトリ（`owner/repo`）。未設定ならデプロイは止まる |
-| シークレット | `CLOUDFLARE_API_TOKEN` | Cloudflare の API トークン |
-| シークレット | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare のアカウント ID |
-| シークレット | `CONTENT_REPOSITORY_TOKEN` | コンテンツリポジトリが非公開の場合のみ。読み取り権限のあるトークン |
-
-ワークフローは `main` への push、手動実行、`repository_dispatch`（種別 `content-updated`）で走る。
-コンテンツの更新でデプロイしたいときは、コンテンツリポジトリの push から `content-updated` を送る。
+記事リポジトリの中で実行する（別の場所から使うときは、記事リポジトリのパスを引数に渡す）。
 
 ```sh
-gh api repos/<owner>/sqlite-cms/dispatches -f event_type=content-updated
+sqlite-cms serve    # http://127.0.0.1:8080/ でプレビュー（記事を変えたら再起動）
+sqlite-cms build    # dist/ に配信用の一式を書き出す
+sqlite-cms deploy   # Cloudflare に公開する
 ```
+
+詳しいオプションは `sqlite-cms --help` で確認できる。
+
+## Cloudflare への公開
+
+1. Cloudflare の API トークンを、ダッシュボードのテンプレート「Edit Cloudflare Workers」から作る。
+2. `site.toml` の `[deploy]` に公開先の Worker 名を書く。
+3. 環境変数を設定して `sqlite-cms deploy` を実行する。
+
+```sh
+export CLOUDFLARE_API_TOKEN=...
+export CLOUDFLARE_ACCOUNT_ID=...
+sqlite-cms deploy
+```
+
+公開が終わると `https://<worker>.<サブドメイン>.workers.dev` の URL が表示される。
+独自ドメインは Cloudflare のダッシュボードで設定する。
+
+### GitHub Actions で自動公開する
+
+`example/.github/workflows/deploy.yml` を記事リポジトリの `.github/workflows/` にコピーし、記事リポジトリのシークレットに `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` を設定する。
+`main` に push するたびに、最新の `sqlite-cms` を取ってきて公開する。
