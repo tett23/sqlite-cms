@@ -1,0 +1,142 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light only;
+}
+
+body {
+  background: #ffffff;
+  color: #000000;
+}
+
+a {
+  color: #0000ee;
+  text-decoration: underline;
+}
+
+a:visited {
+  color: #551a8b;
+}
+
+a.site-title,
+a.site-title:visited {
+  color: #000000;
+  text-decoration: none;
+}
+
+.article-body h1,
+.article-body h2 {
+  font-size: 1.25rem;
+  font-weight: bold;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.article-body h3,
+.article-body h4 {
+  font-size: 1.05rem;
+  font-weight: bold;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.article-body p {
+  margin-bottom: 1rem;
+  line-height: 1.9;
+}
+
+.article-body ul,
+.article-body ol {
+  margin-bottom: 1rem;
+  padding-left: 1.5rem;
+  line-height: 1.9;
+}
+
+.article-body ul {
+  list-style: disc;
+}
+
+.article-body ol {
+  list-style: decimal;
+}
+
+.article-body blockquote {
+  border-left: 3px solid #999999;
+  padding-left: 1rem;
+  margin-bottom: 1rem;
+  color: #444444;
+}
+
+.article-body pre {
+  background: #f5f5f5;
+  border: 1px solid #dddddd;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+  overflow-x: auto;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.article-body code {
+  background: #f5f5f5;
+  font-size: 0.875em;
+}
+
+.article-body pre code {
+  background: none;
+}
+
+.article-body img {
+  max-width: 100%;
+}
+
+.article-body hr {
+  border: none;
+  border-top: 1px solid #999999;
+  margin: 2rem 0;
+}
+
+.article-body table {
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+
+.article-body th,
+.article-body td {
+  border: 1px solid #999999;
+  padding: 0.25rem 0.75rem;
+}
+
+.article-body th {
+  background: #eeeeee;
+  font-weight: bold;
+}
+
+.article-body del {
+  color: #666666;
+}
+
+.article-body ul.contains-task-list {
+  list-style: none;
+  padding-left: 0.25rem;
+}
+
+.article-body .task-list-item input {
+  margin-right: 0.5rem;
+}
+
+.article-body sup {
+  font-size: 0.75em;
+}
+
+.article-body section.footnotes {
+  margin-top: 2.5rem;
+  border-top: 1px solid #999999;
+  padding-top: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.article-body section.footnotes h2 {
+  font-size: 0.875rem;
+  margin-top: 0;
+}
