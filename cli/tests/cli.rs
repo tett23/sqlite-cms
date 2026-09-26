@@ -42,10 +42,15 @@ fn stderr(output: &Output) -> String {
     String::from_utf8(output.stderr.clone()).unwrap()
 }
 
+/// ディレクトリを写す。`.env` は写さない。
+/// 開発者が example/.env に本物の認証情報を書いていても、テストが本物の Cloudflare に公開しないようにするためである。
 fn copy_dir(src: &Path, dst: &Path) {
     fs::create_dir_all(dst).unwrap();
     for entry in fs::read_dir(src).unwrap() {
         let path = entry.unwrap().path();
+        if path.file_name().is_some_and(|name| name == ".env") {
+            continue;
+        }
         let target = dst.join(path.file_name().unwrap());
         if path.is_dir() {
             copy_dir(&path, &target);
@@ -433,6 +438,7 @@ fn deploy_requires_deploy_section_and_credentials() {
     assert!(stderr(&output).contains("[deploy]"));
 
     let site = site_with_deploy(tmp.path());
+    assert!(!site.join(".env").exists(), "テストの記事リポジトリに .env を写してはいけない");
     let output = run(&["deploy", site.to_str().unwrap()], tmp.path());
     assert!(!output.status.success());
     assert!(stderr(&output).contains("CLOUDFLARE_API_TOKEN"));
