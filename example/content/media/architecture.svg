@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="150" viewBox="0 0 640 150" font-family="sans-serif" font-size="13">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#000000"/>
+    </marker>
+  </defs>
+  <rect width="640" height="150" fill="#ffffff"/>
+  <g fill="#ffffff" stroke="#000000">
+    <rect x="10" y="40" width="130" height="60"/>
+    <rect x="180" y="40" width="120" height="60"/>
+    <rect x="340" y="40" width="130" height="60"/>
+    <rect x="510" y="40" width="120" height="60"/>
+  </g>
+  <g stroke="#000000" marker-end="url(#arrow)">
+    <line x1="140" y1="70" x2="178" y2="70"/>
+    <line x1="300" y1="70" x2="338" y2="70"/>
+    <line x1="470" y1="70" x2="508" y2="70"/>
+  </g>
+  <g text-anchor="middle" fill="#000000">
+    <text x="75" y="66">記事リポジトリ</text>
+    <text x="75" y="84" font-size="11" fill="#555555">site.toml と Markdown</text>
+    <text x="240" y="66">sqlite-cms</text>
+    <text x="240" y="84" font-size="11" fill="#555555">検証して組み立てる</text>
+    <text x="405" y="66">Cloudflare</text>
+    <text x="405" y="84" font-size="11" fill="#555555">SPA、SQLite、画像</text>
+    <text x="570" y="66">ブラウザ</text>
+    <text x="570" y="84" font-size="11" fill="#555555">SQLite を開いて表示</text>
+  </g>
+  <text x="320" y="130" text-anchor="middle" fill="#555555" font-size="11">一度読み込んだら、記事の間を移っても通信しない</text>
+</svg>
