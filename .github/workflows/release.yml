@@ -41,6 +41,20 @@ jobs:
       - run: cargo test --release
       - run: cargo build --release --target ${{ matrix.target }}
 
+      - name: Lighthouse
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run lighthouse
+        working-directory: web
+        env:
+          SQLITE_CMS_BIN: ${{ github.workspace }}/target/${{ matrix.target }}/release/sqlite-cms
+
+      - uses: actions/upload-artifact@v7
+        if: always() && matrix.os == 'ubuntu-latest'
+        with:
+          name: lighthouse-reports
+          path: web/lighthouse-reports
+          if-no-files-found: ignore
+
       - name: Package
         run: tar -czf sqlite-cms-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release sqlite-cms
 

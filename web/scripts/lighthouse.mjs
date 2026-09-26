@@ -25,12 +25,13 @@ const CATEGORIES = ["performance", "accessibility", "best-practices", "seo"];
 /** 必ず満たす点数（0〜1）。ここにない項目は計測して記録するだけ。 */
 const REQUIRED = { accessibility: 1 };
 
+// SQLITE_CMS_BIN を指定すると、そのバイナリ（リリースのビルドなど）で配信する。なければ cargo run で起動する。
 function startServer() {
-  const child = spawn(
-    "cargo",
-    ["run", "--quiet", "--manifest-path", path.join(webDir, "../cli/Cargo.toml"), "--", "serve", siteDir, "--port", "0"],
-    { stdio: ["ignore", "pipe", "inherit"] },
-  );
+  const serve = ["serve", siteDir, "--port", "0"];
+  const [command, args] = process.env.SQLITE_CMS_BIN
+    ? [process.env.SQLITE_CMS_BIN, serve]
+    : ["cargo", ["run", "--quiet", "--manifest-path", path.join(webDir, "../cli/Cargo.toml"), "--", ...serve]];
+  const child = spawn(command, args, { stdio: ["ignore", "pipe", "inherit"] });
   return new Promise((resolve, reject) => {
     child.on("exit", (code) => reject(new Error(`sqlite-cms serve が終了しました（${code}）`)));
     createInterface({ input: child.stdout }).once("line", (line) => {
