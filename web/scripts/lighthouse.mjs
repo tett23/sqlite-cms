@@ -1,5 +1,5 @@
 // example を sqlite-cms serve で配信し、Lighthouse で計測する（ADR 0019）。
-// アクセシビリティは 100 点でなければ失敗する。ほかの項目は計測して記録するだけ。
+// アクセシビリティとベストプラクティスは 100 点でなければ失敗する（ADR 0024）。ほかの項目は計測して記録するだけ。
 import { spawn } from "node:child_process";
 import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -23,7 +23,7 @@ const PAGES = [
 const CATEGORIES = ["performance", "accessibility", "best-practices", "seo"];
 
 /** 必ず満たす点数（0〜1）。ここにない項目は計測して記録するだけ。 */
-const REQUIRED = { accessibility: 1 };
+const REQUIRED = { accessibility: 1, "best-practices": 1 };
 
 // SQLITE_CMS_BIN を指定すると、そのバイナリ（リリースのビルドなど）で配信する。なければ cargo run で起動する。
 function startServer() {
@@ -43,7 +43,9 @@ function startServer() {
 }
 
 function failingAudits(lhr, category) {
+  // 重みが 0 の監査（ソースマップの有無など）は点数に影響しないので、表示しない。
   return lhr.categories[category].auditRefs
+    .filter((ref) => ref.weight > 0)
     .map((ref) => lhr.audits[ref.id])
     .filter((audit) => audit.score !== null && audit.score < 1)
     .map((audit) => ({
