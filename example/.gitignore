@@ -1,0 +1,2 @@
+# deploy の認証情報（sqlite-cms deploy が読む）
+.env

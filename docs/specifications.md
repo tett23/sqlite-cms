@@ -101,6 +101,8 @@ content/
   articles/    -- article の Markdown
   pages/       -- 固定ページの Markdown
   media/       -- 画像など（任意。/media/ で配信する）
+.env           -- deploy の認証情報（任意。Git に入れず、配信もしない。ADR 0027）
+.env.example   -- .env の見本（init が作る）
 ```
 
 `sqlite-cms` は、`site.toml` と `content/` から次の一式を組み立てる。
@@ -167,7 +169,7 @@ Zenn を参考にした拡張（`:::message`、`:::details`、コードのファ
 
 ```
 sqlite-cms init [SITE_DIR] [--title <TITLE>] [--force]
-                                               -- 記事リポジトリに必要なファイルを作る（ADR 0016）
+                                               -- 記事リポジトリに必要なファイルを作る（ADR 0016、0027）
 sqlite-cms new <post|article|page> [SLUG] [SITE_DIR] [--title <TITLE>] [--date <YYYY-MM-DD>]
                                                -- 記事の雛形を作る（ADR 0015、0020）
 sqlite-cms serve  [SITE_DIR] [--port <PORT>]   -- 手元でプレビューする
@@ -182,6 +184,8 @@ sqlite-cms deploy [SITE_DIR]                   -- Cloudflare Workers に公開�
 Cloudflare Workers の静的アセット配信に公開する。
 `sqlite-cms deploy` が Cloudflare の API を直接呼び、wrangler も Node も使わない（ADR 0011）。
 認証情報は環境変数 `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` で渡し、公開先の Worker 名は `site.toml` の `[deploy] worker` で指定する。
+環境変数は記事リポジトリの `.env` にも書ける。両方あれば環境変数を優先する。`init` は見本の `.env.example` を作り、`.gitignore` に `.env` を書く（ADR 0027）。
+API トークンに要る権限は、アカウントの「Workers スクリプト：編集」（Workers Scripts Write）だけである。
 
 コンテンツリポジトリの CI は、リリースから `sqlite-cms` のバイナリを取得して `sqlite-cms deploy` を実行する。
 このワークフローの雛形を `example/.github/workflows/deploy.yml` に置く。

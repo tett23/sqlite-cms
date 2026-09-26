@@ -385,6 +385,46 @@ fn deploy_uploads_site_through_cloudflare_api() {
 }
 
 #[test]
+fn deploy_reads_credentials_from_dotenv_and_prefers_the_environment() {
+    require_spa();
+    let tmp = testutil::tempdir();
+    let site = site_with_deploy(tmp.path());
+    let (base, recorded) = start_mock_cloudflare();
+    fs::write(
+        site.join(".env"),
+        format!("# 認証情報\nCLOUDFLARE_API_TOKEN=dotenv-token\nCLOUDFLARE_ACCOUNT_ID='abc123'\nCLOUDFLARE_API_BASE_URL=\"{base}\"\n"),
+    )
+    .unwrap();
+
+    let output = run(&["deploy", site.to_str().unwrap()], tmp.path());
+    assert!(output.status.success(), "{}", stderr(&output));
+    let requests = recorded.lock().unwrap().clone();
+    assert_eq!(requests[0].path, "/client/v4/accounts/abc123/workers/scripts/blog-test/assets-upload-session");
+    assert_eq!(requests[0].headers["authorization"], "Bearer dotenv-token");
+    assert!(!stdout(&output).contains("dotenv-token") && !stderr(&output).contains("dotenv-token"));
+
+    recorded.lock().unwrap().clear();
+    let output = sqlite_cms()
+        .args(["deploy", site.to_str().unwrap()])
+        .env("CLOUDFLARE_API_TOKEN", "process-token")
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(recorded.lock().unwrap()[0].headers["authorization"], "Bearer process-token");
+}
+
+#[test]
+fn deploy_reports_broken_dotenv_lines() {
+    let tmp = testutil::tempdir();
+    let site = site_with_deploy(tmp.path());
+    fs::write(site.join(".env"), "CLOUDFLARE_API_TOKEN=x\nこれは代入ではない\n").unwrap();
+    let output = run(&["deploy", site.to_str().unwrap()], tmp.path());
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains(".env の 2 行目"), "{}", stderr(&output));
+}
+
+#[test]
 fn deploy_requires_deploy_section_and_credentials() {
     let tmp = testutil::tempdir();
 
@@ -529,6 +569,9 @@ fn init_new_build_is_the_first_run_flow() {
     let output = run(&["build", "--out", dist.to_str().unwrap()], &site);
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(dist.join("index.html").is_file());
+    assert!(site.join(".env.example").is_file());
+    assert!(fs::read_to_string(site.join(".gitignore")).unwrap().lines().any(|line| line == ".env"));
+    assert!(!dist.join(".env.example").exists());
     assert!(fs::read_to_string(dist.join("index.html")).unwrap().contains(r#"<link rel="icon" type="image/svg+xml" href="/favicon.svg" />"#));
     assert_eq!(fs::read(dist.join("favicon.svg")).unwrap(), fs::read(site.join("content/favicon.svg")).unwrap());
     assert!(!dist.join("media/.gitkeep").exists());

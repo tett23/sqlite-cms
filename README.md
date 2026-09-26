@@ -43,6 +43,9 @@ content/
   articles/        -- 長めの読み物（/articles/:slug）
   pages/           -- 固定ページ。about.md が自己紹介（/about）
   media/           -- 画像など（任意。/media/ で配信）
+.env               -- deploy の認証情報（任意。Git に入れない）
+.env.example       -- .env の見本（init が作る）
+.gitignore         -- init が .env を書く
 ```
 
 このリポジトリの `example/` が、記事や画像を入れた同じ構成のサンプルになっている。
@@ -234,15 +237,26 @@ slug を省いて別の場所の記事リポジトリを指すときは、`./blo
 
 ## Cloudflare への公開
 
-1. Cloudflare の API トークンを、ダッシュボードのテンプレート「Edit Cloudflare Workers」から作る。
+1. Cloudflare の API トークンを作る。ダッシュボードの「アカウント API トークン」または「ユーザー API トークン」で、カスタムトークンに次の権限を付ける。
+   - アカウント → Workers スクリプト → 編集（Workers Scripts Write）
+   - アカウント リソース：公開に使うアカウント
+
+   `deploy` が使う API（アセットのアップロードの開始、Worker の更新、workers.dev の有効化とサブドメインの取得）は、すべてこの権限で呼べる。
+   テンプレート「Edit Cloudflare Workers」でも作れるが、KV やルートなどの使わない権限も付く。
 2. `site.toml` の `[deploy]` に公開先の Worker 名を書く。
-3. 環境変数を設定して `sqlite-cms deploy` を実行する。
+3. 記事リポジトリの `.env.example` を `.env` にコピーして、トークンとアカウント ID を書く。
+4. `sqlite-cms deploy` を実行する。
 
 ```sh
-export CLOUDFLARE_API_TOKEN=...
-export CLOUDFLARE_ACCOUNT_ID=...
+cp .env.example .env   # CLOUDFLARE_API_TOKEN と CLOUDFLARE_ACCOUNT_ID を書く
 sqlite-cms deploy
 ```
+
+`.env` の代わりに環境変数で渡してもよい。両方あるときは環境変数を優先する。
+`.env` は `init` が `.gitignore` に書くので Git には入らない。`init` を使わずに作った記事リポジトリでは、自分で `.gitignore` に書く。
+`.env` には 1 行に `名前=値` を書く。値は `"..."` か `'...'` で囲んでもよく、`#` で始まる行は注釈になる。
+
+workers.dev のサブドメインは、アカウントで一度だけ、ダッシュボードの Workers & Pages の画面で決めておく。
 
 公開が終わると `https://<worker>.<サブドメイン>.workers.dev` の URL が表示される。
 独自ドメインは Cloudflare のダッシュボードで設定する。

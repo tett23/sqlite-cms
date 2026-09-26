@@ -153,10 +153,38 @@ fn default_title(site_dir: &Path) -> String {
 pub struct InitReport {
     pub written: Vec<PathBuf>,
     pub overwritten: Vec<PathBuf>,
+    /// `.env` の行を足した既存の `.gitignore`。
+    pub appended: Vec<PathBuf>,
 }
 
-/// ビルドに必要な site.toml と content/ を作る。
-/// すでにあるときは `force` がなければエラーにし、`force` なら init が作るファイルだけを作り直す（記事や画像は消さない）。
+const GITIGNORE: &str = ".gitignore";
+const GITIGNORE_BODY: &str = "# deploy の認証情報（sqlite-cms deploy が読む）\n.env\n";
+
+/// `.env` が Git に入らないよう、`.gitignore` に書く。
+/// なければ作り、あって `.env` の行がなければ末尾に足す。すでにあれば何もしない。
+fn ignore_dotenv(site_dir: &Path, report: &mut InitReport) -> Result<()> {
+    let path = site_dir.join(GITIGNORE);
+    let existing = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::write(&path, GITIGNORE_BODY).with_context(|| format!("{} に書き込めません", path.display()))?;
+            report.written.push(path);
+            return Ok(());
+        }
+        Err(error) => return Err(error).with_context(|| format!("{} を読めません", path.display())),
+    };
+    if existing.lines().any(|line| matches!(line.trim(), ".env" | "/.env")) {
+        return Ok(());
+    }
+    let separator = if existing.is_empty() || existing.ends_with('\n') { "" } else { "\n" };
+    fs::write(&path, format!("{existing}{separator}{GITIGNORE_BODY}"))
+        .with_context(|| format!("{} に書き込めません", path.display()))?;
+    report.appended.push(path);
+    Ok(())
+}
+
+/// ビルドに必要な site.toml と content/、公開の認証情報の見本 .env.example を作り、.gitignore に .env を書く。
+/// すでにあるときは `force` がなければエラーにし、`force` なら init が作るファイルだけを作り直す（記事や画像、.env は消さない）。
 pub fn init(site_dir: &Path, title: Option<&str>, force: bool) -> Result<InitReport> {
     if title.is_some_and(|t| t.trim().is_empty()) {
         bail!("タイトルが空です");
@@ -186,9 +214,10 @@ pub fn init(site_dir: &Path, title: Option<&str>, force: bool) -> Result<InitRep
         ("content/posts/.gitkeep", String::new()),
         ("content/articles/.gitkeep", String::new()),
         ("content/media/.gitkeep", String::new()),
+        (crate::dotenv::EXAMPLE_FILE_NAME, crate::dotenv::EXAMPLE.to_string()),
     ];
 
-    let mut report = InitReport { written: Vec::new(), overwritten: Vec::new() };
+    let mut report = InitReport { written: Vec::new(), overwritten: Vec::new(), appended: Vec::new() };
     for (relative, body) in files {
         let path = site_dir.join(relative);
         if path.is_dir() {
@@ -201,6 +230,7 @@ pub fn init(site_dir: &Path, title: Option<&str>, force: bool) -> Result<InitRep
         fs::write(&path, body).with_context(|| format!("{} に書き込めません", path.display()))?;
         report.written.push(path);
     }
+    ignore_dotenv(site_dir, &mut report)?;
     Ok(report)
 }
 
@@ -237,6 +267,8 @@ mod tests {
         assert_eq!(
             files_under(&site),
             [
+                ".env.example",
+                ".gitignore",
                 "content/articles/.gitkeep",
                 "content/favicon.svg",
                 "content/index.md",
@@ -246,8 +278,11 @@ mod tests {
                 "site.toml",
             ]
         );
-        assert_eq!(report.written.len(), 7);
+        assert_eq!(report.written.len(), 9);
         assert!(report.overwritten.is_empty());
+        assert!(report.appended.is_empty());
+        assert_eq!(fs::read_to_string(site.join(".env.example")).unwrap(), crate::dotenv::EXAMPLE);
+        assert!(fs::read_to_string(site.join(".gitignore")).unwrap().lines().any(|line| line == ".env"));
 
         let config = parse_site_config(&fs::read_to_string(site.join("site.toml")).unwrap()).unwrap();
         assert_eq!(config.title, "my-blog");
@@ -304,7 +339,30 @@ mod tests {
         assert!(fs::read_to_string(tmp.path().join("content/pages/about.md")).unwrap().contains("\"自己紹介\""));
         assert!(tmp.path().join("content/posts/hello.md").is_file());
         assert!(tmp.path().join("content/media/photo.png").is_file());
-        assert_eq!(report.overwritten.len(), 7);
+        // .gitignore にはすでに .env があるので触らない。
+        assert_eq!(report.overwritten.len(), 8);
+        assert!(!report.written.iter().any(|path| path.ends_with(".gitignore")));
+        assert!(report.appended.is_empty());
+    }
+
+    #[test]
+    fn init_never_touches_dotenv_and_keeps_existing_gitignore() {
+        let tmp = crate::testutil::tempdir();
+        fs::write(tmp.path().join(".env"), "CLOUDFLARE_API_TOKEN=secret\n").unwrap();
+        fs::write(tmp.path().join(".gitignore"), "dist/").unwrap();
+
+        let report = init(tmp.path(), Some("サイト"), false).unwrap();
+
+        assert_eq!(fs::read_to_string(tmp.path().join(".env")).unwrap(), "CLOUDFLARE_API_TOKEN=secret\n");
+        let gitignore = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
+        assert!(gitignore.starts_with("dist/\n"), "{gitignore}");
+        assert!(gitignore.lines().any(|line| line == ".env"), "{gitignore}");
+        assert_eq!(report.appended, [tmp.path().join(".gitignore")]);
+
+        // 二度目は足さない。
+        init(tmp.path(), Some("サイト"), true).unwrap();
+        assert_eq!(fs::read_to_string(tmp.path().join(".gitignore")).unwrap(), gitignore);
+        assert_eq!(fs::read_to_string(tmp.path().join(".env")).unwrap(), "CLOUDFLARE_API_TOKEN=secret\n");
     }
 
     #[test]

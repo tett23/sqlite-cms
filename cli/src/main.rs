@@ -4,6 +4,7 @@ mod content;
 mod date;
 mod db;
 mod deploy;
+mod dotenv;
 mod favicon;
 mod frontmatter;
 mod gzip;
@@ -70,11 +71,15 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
     articles/     article の Markdown
     pages/        固定ページの Markdown
     media/        画像など（任意。/media/ で配信する）
+  .env            deploy の認証情報（任意。Git に入れない。init が .gitignore に書く）
+  .env.example    .env の見本（init が作る）
 
 deploy に要るもの:
   site.toml の [deploy] worker    公開先の Worker 名
-  環境変数 CLOUDFLARE_API_TOKEN   Workers を編集できる API トークン
+  環境変数 CLOUDFLARE_API_TOKEN   Workers のスクリプトを編集できる API トークン
   環境変数 CLOUDFLARE_ACCOUNT_ID  Cloudflare のアカウント ID
+  環境変数は記事リポジトリの .env にも書ける（init が作る .env.example をコピーする）。
+  実際の環境変数があれば、そちらを優先する
 
 例:
   sqlite-cms init my-blog                        my-blog/ に記事リポジトリを作る
@@ -201,6 +206,9 @@ fn init(site_dir: PathBuf, title: Option<String>, force: bool) -> Result<()> {
         let verb = if report.overwritten.contains(path) { "上書きしました" } else { "作りました" };
         println!("{} を{verb}", path.display());
     }
+    for path in &report.appended {
+        println!("{} に .env を足しました", path.display());
+    }
     let target = if site_dir == Path::new(".") { String::new() } else { format!(" {}", site_dir.display()) };
     println!();
     println!("次は記事を書いてプレビューする:");
@@ -256,11 +264,10 @@ fn serve(site_dir: PathBuf, port: u16) -> Result<()> {
     Ok(())
 }
 
-fn required_env(name: &str) -> Result<String> {
-    match std::env::var(name) {
-        Ok(value) if !value.is_empty() => Ok(value),
-        _ => bail!("環境変数 {name} を設定してください（詳しくは sqlite-cms --help）"),
-    }
+fn required_env(env: &dotenv::Env, name: &str) -> Result<String> {
+    env.get(name).ok_or_else(|| {
+        anyhow!("環境変数 {name} を設定してください（記事リポジトリの .env にも書けます。詳しくは sqlite-cms --help）")
+    })
 }
 
 fn deploy(site_dir: PathBuf) -> Result<()> {
@@ -269,13 +276,13 @@ fn deploy(site_dir: PathBuf) -> Result<()> {
         .deploy
         .map(|d| d.worker)
         .ok_or_else(|| anyhow!("site.toml に公開先がありません。[deploy] に worker = \"Worker 名\" を書いてください"))?;
-    let api_token = required_env("CLOUDFLARE_API_TOKEN")?;
-    let account_id = required_env("CLOUDFLARE_ACCOUNT_ID")?;
+    let env = dotenv::Env::load(&site_dir)?;
+    let api_token = required_env(&env, "CLOUDFLARE_API_TOKEN")?;
+    let account_id = required_env(&env, "CLOUDFLARE_ACCOUNT_ID")?;
     if !account_id.bytes().all(|b| b.is_ascii_alphanumeric()) {
         bail!("環境変数 CLOUDFLARE_ACCOUNT_ID が不正です（英数字のアカウント ID を指定してください）");
     }
-    let api_base =
-        std::env::var("CLOUDFLARE_API_BASE_URL").unwrap_or_else(|_| cloudflare::DEFAULT_API_BASE.to_string());
+    let api_base = env.get("CLOUDFLARE_API_BASE_URL").unwrap_or_else(|| cloudflare::DEFAULT_API_BASE.to_string());
 
     let output = SiteOutput::site(&site_dir, spa::embedded())?;
     println!("{} ファイル（{} バイト）を Worker {worker} に公開します", output.files.len(), output.total_bytes());
