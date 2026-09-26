@@ -14,11 +14,11 @@ import tsx from "@shikijs/langs/tsx";
 import typescript from "@shikijs/langs/typescript";
 import yaml from "@shikijs/langs/yaml";
 import githubLightHighContrast from "@shikijs/themes/github-light-high-contrast";
-import rehypeShikiFromHighlighter from "@shikijs/rehype/core";
-import type { Options } from "react-markdown";
-import { createHighlighterCoreSync, type HighlighterCore } from "shiki/core";
+import type { Element } from "hast";
+import { createHighlighterCoreSync, hastToHtml, type HighlighterCore } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
-import { rehypeHighlightDiff } from "./highlightDiff";
+import { highlightDiff } from "./highlightDiff";
+import { DIFF_LANGUAGE_PREFIX } from "./markdown/transforms";
 
 // 文字色がすべて本文の pre の背景（#f5f5f5）に対して 4.5:1 以上になるテーマ（ADR 0019）。
 export const THEME = "github-light-high-contrast";
@@ -63,10 +63,48 @@ export function getHighlighter(): HighlighterCore {
 
 export const highlightOptions = { theme: THEME, colorReplacements: COLOR_REPLACEMENTS };
 
-export function createRehypePlugins(): Options["rehypePlugins"] {
-  // diff と言語を同時に指定したコードブロックを先に処理する。Shiki は処理済みのものを飛ばす。
-  return [
-    [rehypeHighlightDiff, getHighlighter(), highlightOptions],
-    [rehypeShikiFromHighlighter, getHighlighter(), highlightOptions],
-  ];
+/** 色付けしたコードブロック。pre 要素のクラス、スタイル、中身の HTML。 */
+export interface HighlightedBlock {
+  className: string;
+  style: Record<string, string>;
+  html: string;
+}
+
+/** `background-color:#f5f5f5;color:#0e1116` を React の style にする。 */
+function parseStyle(style: unknown): Record<string, string> {
+  if (typeof style !== "string") return {};
+  return Object.fromEntries(
+    style
+      .split(";")
+      .map((declaration) => declaration.split(":").map((part) => part.trim()))
+      .filter(([name, value]) => name && value)
+      .map(([name, value]) => [name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase()), value]),
+  );
+}
+
+/**
+ * コードブロックを一つ色付けする（ADR 0038）。コードブロックの部品が、画面の近くに来たときに呼ぶ。
+ * 本文の Markdown 全体を描き直さずに、そのブロックだけを色付けするためである。
+ * languageClass は code 要素の `language-<言語名>`。色を付けられなければ null。
+ */
+export function highlightBlock(code: string, languageClass: string): HighlightedBlock | null {
+  const text = code.endsWith("\n") ? code.slice(0, -1) : code;
+  const lang = languageClass.replace(/^language-/, "");
+  const highlighter = getHighlighter();
+  let pre: Element;
+  try {
+    pre = lang.startsWith(DIFF_LANGUAGE_PREFIX)
+      ? highlightDiff(highlighter, highlightOptions, lang.slice(DIFF_LANGUAGE_PREFIX.length), text)
+      : (highlighter.codeToHast(text, { ...highlightOptions, lang }).children[0] as Element);
+  } catch {
+    return null;
+  }
+  // Shiki の hast は、クラスを class（文字列）で持つ。
+  const className = pre.properties.class ?? pre.properties.className;
+  return {
+    className: Array.isArray(className) ? className.join(" ") : String(className ?? ""),
+    style: parseStyle(pre.properties.style),
+    // 文字参照は短い書き方（&lt; など）にする。
+    html: hastToHtml({ type: "root", children: pre.children }, { characterReferences: { useShortestReferences: true } }),
+  };
 }

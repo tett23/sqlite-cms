@@ -40,21 +40,39 @@ export interface Site {
   description: string;
 }
 
-export async function loadDb(): Promise<Database> {
+/** CLI が index.html に入れた DB のパス（ADR 0038）。なければ null。 */
+function embeddedDbPath(): string | null {
+  if (typeof document === "undefined") return null;
+  return document.querySelector('meta[name="sqlite-cms-db"]')?.getAttribute("content") ?? null;
+}
+
+/** マニフェストから今の DB のパスを読む。 */
+async function manifestDbPath(): Promise<string> {
   const manifestRes = await fetch(withBasePath("/db/manifest.json"), { cache: "no-cache" });
   if (!manifestRes.ok) {
     throw new Error(`manifest の取得に失敗しました (${manifestRes.status})`);
   }
   const manifest: { db: string } = await manifestRes.json();
+  return withBasePath(manifest.db);
+}
 
-  const dbRes = await fetch(withBasePath(manifest.db));
+/**
+ * DB を読み込む。index.html に DB のパスがあれば、マニフェストを読まずに直接取りに行く（先読みも効く）。
+ * 取れなければ（古い index.html が消えた DB を指しているときなど）、マニフェストから読み直す。
+ */
+export async function loadDb(): Promise<Database> {
+  const SQL = initSqlJs({ locateFile: () => wasmUrl });
+  const embedded = embeddedDbPath();
+  let dbRes = embedded ? await fetch(embedded).catch(() => null) : null;
+  if (!dbRes?.ok) {
+    const path = await manifestDbPath();
+    dbRes = await fetch(path);
+  }
   if (!dbRes.ok) {
     throw new Error(`DB の取得に失敗しました (${dbRes.status})`);
   }
   const bytes = new Uint8Array(await dbRes.arrayBuffer());
-
-  const SQL = await initSqlJs({ locateFile: () => wasmUrl });
-  return new SQL.Database(bytes);
+  return new (await SQL).Database(bytes);
 }
 
 function selectAll(db: Database, sql: string): SqlValue[][] {

@@ -1,7 +1,6 @@
 //! gzip（RFC 1952）で圧縮する。`serve` の応答を本番（Cloudflare）と同じく圧縮して配信するために使う（ADR 0026）。
 //!
-//! 中身は DEFLATE（RFC 1951）の固定ハフマン符号のブロック一つと、LZ77 による繰り返しの置き換え。
-//! 動的ハフマン符号を作らないぶん zlib より圧縮率は少し劣るが、手元のプレビューには十分で、実装が小さい。
+//! 中身は DEFLATE（RFC 1951）の動的ハフマン符号のブロックと、LZ77 による繰り返しの置き換え（ADR 0026、0038）。
 
 const WINDOW_SIZE: usize = 1 << 15;
 const WINDOW_MASK: usize = WINDOW_SIZE - 1;
@@ -60,26 +59,6 @@ impl BitWriter {
         }
         self.out
     }
-}
-
-/// 固定ハフマン符号で、リテラルか長さの記号（0〜287）を書く。
-fn write_literal_or_length(writer: &mut BitWriter, symbol: u32) {
-    match symbol {
-        0..=143 => writer.write_code(0x30 + symbol, 8),
-        144..=255 => writer.write_code(0x190 + symbol - 144, 9),
-        256..=279 => writer.write_code(symbol - 256, 7),
-        _ => writer.write_code(0xC0 + symbol - 280, 8),
-    }
-}
-
-fn write_match(writer: &mut BitWriter, length: usize, distance: usize) {
-    let index = LENGTH_BASE.iter().rposition(|&base| usize::from(base) <= length).unwrap();
-    write_literal_or_length(writer, 257 + index as u32);
-    writer.write((length - usize::from(LENGTH_BASE[index])) as u32, u32::from(LENGTH_EXTRA[index]));
-
-    let index = DISTANCE_BASE.iter().rposition(|&base| usize::from(base) <= distance).unwrap();
-    writer.write_code(index as u32, 5);
-    writer.write((distance - usize::from(DISTANCE_BASE[index])) as u32, u32::from(DISTANCE_EXTRA[index]));
 }
 
 fn hash(data: &[u8], pos: usize) -> usize {
@@ -145,11 +124,28 @@ impl Matcher {
     }
 }
 
-/// DEFLATE で圧縮する（固定ハフマン符号のブロック一つ）。
-fn deflate(data: &[u8], out: Vec<u8>) -> Vec<u8> {
-    let mut writer = BitWriter::new(out);
-    writer.write(1, 1); // 最後のブロック
-    writer.write(1, 2); // 固定ハフマン符号
+/// LZ77 の結果。リテラルか、（長さ、距離）の一致。
+#[derive(Clone, Copy)]
+enum Token {
+    Literal(u8),
+    Match { length: u16, distance: u16 },
+}
+
+/// 長さを、長さの記号（257〜285）の番号と追加ビットにする。
+fn length_code(length: usize) -> (usize, u32, u32) {
+    let index = LENGTH_BASE.iter().rposition(|&base| usize::from(base) <= length).unwrap();
+    (index, u32::from(LENGTH_EXTRA[index]), (length - usize::from(LENGTH_BASE[index])) as u32)
+}
+
+/// 距離を、距離の記号（0〜29）と追加ビットにする。
+fn distance_code(distance: usize) -> (usize, u32, u32) {
+    let index = DISTANCE_BASE.iter().rposition(|&base| usize::from(base) <= distance).unwrap();
+    (index, u32::from(DISTANCE_EXTRA[index]), (distance - usize::from(DISTANCE_BASE[index])) as u32)
+}
+
+/// LZ77 で、データをリテラルと一致の並びにする。
+fn tokenize(data: &[u8]) -> Vec<Token> {
+    let mut tokens = Vec::with_capacity(data.len() / 2);
     let mut matcher = Matcher::new();
     let mut pos = 0;
     while pos < data.len() {
@@ -159,7 +155,7 @@ fn deflate(data: &[u8], out: Vec<u8>) -> Vec<u8> {
             matcher.insert(data, pos);
             let next = matcher.longest(data, pos + 1);
             if next.0 > length {
-                write_literal_or_length(&mut writer, u32::from(data[pos]));
+                tokens.push(Token::Literal(data[pos]));
                 pos += 1;
                 continue;
             }
@@ -169,18 +165,218 @@ fn deflate(data: &[u8], out: Vec<u8>) -> Vec<u8> {
         };
         if length == 0 {
             matcher.insert(data, pos);
-            write_literal_or_length(&mut writer, u32::from(data[pos]));
+            tokens.push(Token::Literal(data[pos]));
             pos += 1;
             continue;
         }
-        write_match(&mut writer, length, distance);
+        tokens.push(Token::Match { length: length as u16, distance: distance as u16 });
         let start = if next { pos + 1 } else { pos };
         for p in start..pos + length {
             matcher.insert(data, p);
         }
         pos += length;
     }
-    write_literal_or_length(&mut writer, 256); // ブロックの終わり
+    tokens
+}
+
+/// 出現回数から、各記号の符号の長さ（ハフマン符号）を求める。長さが max_bits を超えたら、回数をならして作り直す。
+fn huffman_lengths(freqs: &[u32], max_bits: u8) -> Vec<u8> {
+    let mut weights: Vec<u64> = freqs.iter().map(|&f| u64::from(f)).collect();
+    loop {
+        let lengths = build_lengths(&weights);
+        if lengths.iter().all(|&l| l <= max_bits) {
+            return lengths;
+        }
+        for weight in weights.iter_mut().filter(|w| **w > 0) {
+            *weight = (*weight >> 1).max(1);
+        }
+    }
+}
+
+fn build_lengths(weights: &[u64]) -> Vec<u8> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+    let mut lengths = vec![0u8; weights.len()];
+    let used: Vec<usize> = (0..weights.len()).filter(|&i| weights[i] > 0).collect();
+    if used.len() == 1 {
+        lengths[used[0]] = 1;
+        return lengths;
+    }
+    // 葉は記号、内部の節は後ろに足す。parent で親をたどって深さを求める。
+    let mut parent: Vec<usize> = vec![usize::MAX; weights.len()];
+    let mut heap: BinaryHeap<Reverse<(u64, usize)>> = used.iter().map(|&i| Reverse((weights[i], i))).collect();
+    while heap.len() > 1 {
+        let Reverse((a_weight, a)) = heap.pop().unwrap();
+        let Reverse((b_weight, b)) = heap.pop().unwrap();
+        let node = parent.len();
+        parent.push(usize::MAX);
+        parent[a] = node;
+        parent[b] = node;
+        heap.push(Reverse((a_weight + b_weight, node)));
+    }
+    for &symbol in &used {
+        let mut depth = 0u8;
+        let mut node = symbol;
+        while parent[node] != usize::MAX {
+            node = parent[node];
+            depth = depth.saturating_add(1);
+        }
+        lengths[symbol] = depth;
+    }
+    lengths
+}
+
+/// 符号の長さから、正準ハフマン符号を作る。
+fn canonical_codes(lengths: &[u8]) -> Vec<u32> {
+    let max = lengths.iter().copied().max().unwrap_or(0) as usize;
+    let mut count = vec![0u32; max + 1];
+    for &l in lengths.iter().filter(|&&l| l > 0) {
+        count[l as usize] += 1;
+    }
+    let mut next = vec![0u32; max + 2];
+    let mut code = 0u32;
+    for bits in 1..=max {
+        code = (code + count[bits - 1]) << 1;
+        next[bits] = code;
+    }
+    lengths
+        .iter()
+        .map(|&l| {
+            if l == 0 {
+                return 0;
+            }
+            let c = next[l as usize];
+            next[l as usize] += 1;
+            c
+        })
+        .collect()
+}
+
+/// 少なくとも二つの記号が使われるようにする（一つだけの符号は扱いにくい展開器がある）。
+fn ensure_two_symbols(freqs: &mut [u32]) {
+    let used = freqs.iter().filter(|&&f| f > 0).count();
+    for f in freqs.iter_mut().filter(|f| **f == 0).take(2usize.saturating_sub(used)) {
+        *f = 1;
+    }
+}
+
+/// 符号の長さの並びを、符号の長さの記号（0〜18）と追加ビットの並びにする（16：直前を繰り返す、17、18：0 を繰り返す）。
+fn run_length_encode(lengths: &[u8]) -> Vec<(u8, u32, u32)> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < lengths.len() {
+        let value = lengths[i];
+        let mut run = lengths[i..].iter().take_while(|&&l| l == value).count();
+        i += run;
+        if value == 0 {
+            while run >= 11 {
+                let n = run.min(138);
+                out.push((18, 7, (n - 11) as u32));
+                run -= n;
+            }
+            if run >= 3 {
+                out.push((17, 3, (run - 3) as u32));
+                run = 0;
+            }
+            out.extend(std::iter::repeat_n((0, 0, 0), run));
+        } else {
+            out.push((value, 0, 0));
+            run -= 1;
+            while run >= 3 {
+                let n = run.min(6);
+                out.push((16, 2, (n - 3) as u32));
+                run -= n;
+            }
+            out.extend(std::iter::repeat_n((value, 0, 0), run));
+        }
+    }
+    out
+}
+
+/// 符号の長さの記号を書く順（RFC 1951 3.2.7）。
+const CODE_LENGTH_ORDER: [usize; 19] = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+
+/// 一つのブロックの記号の数。ブロックごとに符号を作り直し、データの偏りの変化に合わせる。
+const BLOCK_TOKENS: usize = 1 << 16;
+
+/// 動的ハフマン符号のブロック一つを書く。
+fn write_block(writer: &mut BitWriter, tokens: &[Token], last: bool) {
+    let mut litlen_freqs = [0u32; 286];
+    let mut dist_freqs = [0u32; 30];
+    for token in tokens {
+        match *token {
+            Token::Literal(byte) => litlen_freqs[byte as usize] += 1,
+            Token::Match { length, distance } => {
+                litlen_freqs[257 + length_code(length as usize).0] += 1;
+                dist_freqs[distance_code(distance as usize).0] += 1;
+            }
+        }
+    }
+    litlen_freqs[256] += 1;
+    ensure_two_symbols(&mut litlen_freqs);
+    ensure_two_symbols(&mut dist_freqs);
+
+    let litlen_lengths = huffman_lengths(&litlen_freqs, 15);
+    let dist_lengths = huffman_lengths(&dist_freqs, 15);
+    let litlen_codes = canonical_codes(&litlen_lengths);
+    let dist_codes = canonical_codes(&dist_lengths);
+
+    let hlit = (257..=286).rev().find(|&n| litlen_lengths[n - 1] > 0).unwrap_or(257).max(257);
+    let hdist = (1..=30).rev().find(|&n| dist_lengths[n - 1] > 0).unwrap_or(1).max(1);
+    let mut all_lengths = litlen_lengths[..hlit].to_vec();
+    all_lengths.extend_from_slice(&dist_lengths[..hdist]);
+    let encoded = run_length_encode(&all_lengths);
+
+    let mut cl_freqs = [0u32; 19];
+    for &(symbol, _, _) in &encoded {
+        cl_freqs[symbol as usize] += 1;
+    }
+    ensure_two_symbols(&mut cl_freqs);
+    let cl_lengths = huffman_lengths(&cl_freqs, 7);
+    let cl_codes = canonical_codes(&cl_lengths);
+    let hclen = (4..=19).rev().find(|&n| cl_lengths[CODE_LENGTH_ORDER[n - 1]] > 0).unwrap_or(4);
+
+    writer.write(u32::from(last), 1);
+    writer.write(2, 2); // 動的ハフマン符号
+    writer.write((hlit - 257) as u32, 5);
+    writer.write((hdist - 1) as u32, 5);
+    writer.write((hclen - 4) as u32, 4);
+    for &symbol in &CODE_LENGTH_ORDER[..hclen] {
+        writer.write(u32::from(cl_lengths[symbol]), 3);
+    }
+    for &(symbol, extra_bits, extra) in &encoded {
+        writer.write_code(cl_codes[symbol as usize], u32::from(cl_lengths[symbol as usize]));
+        writer.write(extra, extra_bits);
+    }
+
+    for token in tokens {
+        match *token {
+            Token::Literal(byte) => writer.write_code(litlen_codes[byte as usize], u32::from(litlen_lengths[byte as usize])),
+            Token::Match { length, distance } => {
+                let (index, bits, extra) = length_code(length as usize);
+                writer.write_code(litlen_codes[257 + index], u32::from(litlen_lengths[257 + index]));
+                writer.write(extra, bits);
+                let (index, bits, extra) = distance_code(distance as usize);
+                writer.write_code(dist_codes[index], u32::from(dist_lengths[index]));
+                writer.write(extra, bits);
+            }
+        }
+    }
+    writer.write_code(litlen_codes[256], u32::from(litlen_lengths[256])); // ブロックの終わり
+}
+
+/// DEFLATE で圧縮する（動的ハフマン符号のブロック）。
+fn deflate(data: &[u8], out: Vec<u8>) -> Vec<u8> {
+    let mut writer = BitWriter::new(out);
+    let tokens = tokenize(data);
+    if tokens.is_empty() {
+        write_block(&mut writer, &[], true);
+    } else {
+        let blocks: Vec<&[Token]> = tokens.chunks(BLOCK_TOKENS).collect();
+        for (i, block) in blocks.iter().enumerate() {
+            write_block(&mut writer, block, i + 1 == blocks.len());
+        }
+    }
     writer.finish()
 }
 
@@ -277,6 +473,29 @@ mod tests {
         let javascript = "export function greet(name) { return `Hello, ${name}`; }\n".repeat(1000);
         let compressed = compress(javascript.as_bytes());
         assert!(compressed.len() * 20 < javascript.len(), "{} → {}", javascript.len(), compressed.len());
+    }
+
+    #[test]
+    fn many_blocks_round_trip() {
+        // 記号が BLOCK_TOKENS 個を超えると、ブロックを分ける。
+        let input = pseudo_random(BLOCK_TOKENS * 3 + 100);
+        assert_eq!(gunzip(&compress(&input)), input);
+    }
+
+    #[test]
+    fn huffman_lengths_are_limited_and_complete() {
+        // フィボナッチ数の出現回数は、制限しなければ符号がいちばん深くなる。
+        let mut freqs = vec![1u32, 1];
+        while freqs.len() < 30 {
+            freqs.push(freqs[freqs.len() - 1] + freqs[freqs.len() - 2]);
+        }
+        for max_bits in [7u8, 15] {
+            let lengths = huffman_lengths(&freqs, max_bits);
+            assert!(lengths.iter().all(|&l| (1..=max_bits).contains(&l)), "{lengths:?}");
+            // 符号の長さが、過不足のない接頭符号を作れること（クラフトの等式）。
+            let kraft: f64 = lengths.iter().map(|&l| 0.5f64.powi(i32::from(l))).sum();
+            assert!((kraft - 1.0).abs() < 1e-9, "{kraft}");
+        }
     }
 
     #[test]

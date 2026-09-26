@@ -1,13 +1,16 @@
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ComponentProps } from "react";
 import Markdown, { type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { withBasePath } from "./base";
+import type { HighlightedBlock } from "./highlight";
 import { highlightLoader } from "./highlightLoader";
 import { needsHighlight } from "./highlightLanguages";
-import { useLazy, useLoaded } from "./lazyLoader";
+import { inTurn, useLazy } from "./lazyLoader";
+import { useNearViewport } from "./nearViewport";
 import { MATH_DISPLAY_CLASS, MATH_INLINE_CLASS } from "./markdown/math";
+import { LINK_CARD_IMAGE_CLASS } from "./markdown/transforms";
 import { Diagram } from "./render/Diagram";
 import { MathView } from "./render/Math";
 import { remarkExtensions } from "./markdown/remarkExtensions";
@@ -26,7 +29,7 @@ const remarkRehypeOptions: Options["remarkRehypeOptions"] = {
 };
 
 // 本文の HTML を取り込み（raw）、許可した要素と属性だけを残す（sanitize）。
-// Shiki は sanitize の後に通す。先に通すと、Shiki が付けた色の指定が取り除かれる。
+// Shiki の色分けは、ここではなく pre の部品で行う。sanitize の後なので、Shiki が付けた色の指定は取り除かれない。
 const baseRehypePlugins: NonNullable<Options["rehypePlugins"]> = [
   rehypeRaw,
   [rehypeSanitize, sanitizeSchema],
@@ -64,6 +67,16 @@ function isTaskListItem(node: ExtraProps["node"]): boolean {
   return Array.isArray(className) && className.includes("task-list-item");
 }
 
+/**
+ * リンクカードの画像は、画面の近くに来てから読み込む（ADR 0038）。
+ * loading="lazy" だけでは、Chrome は画面から 1,250 px 以内の画像をすぐに読み込むので、画面の外のカードの画像が本文の表示と回線を取り合う。
+ * 画像の大きさは CSS で固定してあるので、後から読み込んでも本文はずれない。
+ */
+function LinkCardImage({ src, ...props }: ComponentProps<"img">) {
+  const [ref, near] = useNearViewport<HTMLImageElement>();
+  return <img ref={ref} src={near ? src : undefined} {...props} />;
+}
+
 /** タスクリストのチェックボックスに、項目の文章を読み上げ用の名前として渡す。 */
 const TaskLabel = createContext<string | undefined>(undefined);
 
@@ -72,8 +85,10 @@ const components: Components = {
     return isInternal(href) ? <Link to={href} {...props} /> : <a href={href} {...props} />;
   },
   // 本文の画像（/media/…）とリンクカードの画像（/link-cards/…）は、サイトを置くパスから始める（ADR 0030）。
-  img({ node: _node, src, ...props }) {
-    return <img src={typeof src === "string" ? withBasePath(src) : src} {...props} />;
+  img({ node, src, ...props }) {
+    const path = typeof src === "string" ? withBasePath(src) : src;
+    if (hasClass(node as HastNode, LINK_CARD_IMAGE_CLASS)) return <LinkCardImage src={path} {...props} />;
+    return <img src={path} {...props} />;
   },
   li({ node, ...props }) {
     const item = <li {...props} />;
@@ -90,13 +105,36 @@ const components: Components = {
   pre({ node, ...props }) {
     const code = (node as HastNode | undefined)?.children?.[0];
     const isCode = code?.tagName === "code";
-    // 色を付けられる言語のコードブロックが表示されたときに、初めて Shiki を読み込む（ADR 0029）。
-    // 読み込むまでは色なしで表示し、読み込み終わったら MarkdownBody が描き直す。
-    useLazy(highlightLoader, logHighlightError, isCode && needsHighlight(code.properties?.className));
+    const className = isCode ? code.properties?.className : undefined;
+    const languageClass = Array.isArray(className)
+      ? (className.find((c) => typeof c === "string" && c.startsWith("language-")) as string | undefined)
+      : undefined;
+    const highlightable = isCode && needsHighlight(className);
+    const source = isCode ? textOf(code) : "";
+    // 色を付けられる言語のコードブロックが画面の近くに来たときに、初めて Shiki を読み込み、そのブロックだけを色付けする（ADR 0029、0038）。
+    // 読み込むまでは色なしで表示する。本文の Markdown 全体は描き直さない。
+    const [ref, near] = useNearViewport<HTMLPreElement>();
+    const highlight = useLazy(highlightLoader, logHighlightError, near && highlightable);
+    // 色分けは、ブロックごとに別のタスクで行う（inTurn）。読み込み済みで、初めから画面の近くにあるとき（サーバーでの描画）だけ、最初の描画で行う。
+    // 同じ部品が別の記事のコードブロックに使い回されることがあるので、色分けの結果は、言語とコードの組と一緒に持つ。
+    const key = `${languageClass}\n${source}`;
+    const canHighlight = highlight !== null && near && highlightable && languageClass !== undefined;
+    const [highlighted, setHighlighted] = useState<{ key: string; block: HighlightedBlock | null } | null>(() =>
+      canHighlight ? { key, block: highlight.highlightBlock(source, languageClass) } : null,
+    );
+    const done = highlighted?.key === key;
+    useEffect(() => {
+      if (done || !canHighlight) return;
+      return inTurn(() => setHighlighted({ key, block: highlight.highlightBlock(source, languageClass) }));
+    }, [done, canHighlight, highlight, key, source, languageClass]);
+    const block = done ? highlighted.block : null;
     if (isCode && hasClass(code, "language-mermaid")) {
-      return <Diagram source={textOf(code).replace(/\n$/, "")} />;
+      return <Diagram source={source.replace(/\n$/, "")} />;
     }
-    return <pre {...props} />;
+    if (block) {
+      return <pre ref={ref} className={block.className} style={block.style} tabIndex={0} dangerouslySetInnerHTML={{ __html: block.html }} />;
+    }
+    return <pre ref={ref} {...props} />;
   },
   input({ node: _node, ...props }) {
     const label = useContext(TaskLabel);
@@ -114,8 +152,6 @@ export function MarkdownBody({
   /** リンクカードの URL と画像のパス（DB の link_cards、ADR 0028）。 */
   linkCardImages?: ReadonlyMap<string, string>;
 }) {
-  // 読み込みはコードブロックの部品が始める。ここでは読み込み終わりを待って描き直すだけにする。
-  const highlight = useLoaded(highlightLoader);
   const remarkPlugins = useMemo<Options["remarkPlugins"]>(
     () => [remarkGfm, [remarkExtensions, { linkCardImage: (url: string) => linkCardImages.get(url) }]],
     [linkCardImages],
@@ -125,7 +161,7 @@ export function MarkdownBody({
       <Markdown
         remarkPlugins={remarkPlugins}
         remarkRehypeOptions={remarkRehypeOptions}
-        rehypePlugins={highlight ? [...baseRehypePlugins, ...(highlight.rehypePlugins ?? [])] : baseRehypePlugins}
+        rehypePlugins={baseRehypePlugins}
         components={components}
       >
         {source}

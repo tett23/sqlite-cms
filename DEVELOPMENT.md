@@ -60,7 +60,7 @@ git config core.hooksPath .githooks
 数十行で書けるものは自前で実装し、ライブラリを足さない。
 
 - `web/`：ルーター（`web/src/router.tsx`）と sql.js の型（`web/src/types/sql.js.d.ts`）を自前にしている。sql.js の API を新しく使うときは、型の宣言も足す。
-- `web/`：シンタックスハイライトは Shiki（ADR 0017）。言語は `web/src/highlight.ts` の `LANGUAGES` に登録したものだけが色付きになる。言語を足すときは、`@shikijs/langs/<言語>` を登録し、`web/src/highlight.test.tsx` の `SAMPLES` に見本を足し（足さないとテストが落ちる）、`web/src/highlightLanguages.ts` の `HIGHLIGHT_LANGUAGES` に言語名と別名を足し（足さないとテストが落ちる。Shiki を読み込むかをこの一覧で決める、ADR 0029）、README の対応表を更新する。Shiki は、色を付ける言語のコードブロックが表示されたときに `web/src/highlightLoader.ts` 経由で読み込む別チャンクなので、`web/src/highlight.ts` と Shiki のモジュールを本体のコードから静的に import しない（すると本体に取り込まれる）。1 言語で gzip 後 1〜16 KB 増えるので、`web/vite.config.ts` の `chunkSizeWarningLimit` も必要に応じて見直す。
+- `web/`：シンタックスハイライトは Shiki（ADR 0017）。言語は `web/src/highlight.ts` の `LANGUAGES` に登録したものだけが色付きになる。言語を足すときは、`@shikijs/langs/<言語>` を登録し、`web/src/highlight.test.tsx` の `SAMPLES` に見本を足し（足さないとテストが落ちる）、`web/src/highlightLanguages.ts` の `HIGHLIGHT_LANGUAGES` に言語名と別名を足し（足さないとテストが落ちる。Shiki を読み込むかをこの一覧で決める、ADR 0029）、README の対応表を更新する。Shiki は、色を付ける言語のコードブロックが画面の近くに来たときに `web/src/highlightLoader.ts` 経由で読み込む別チャンクなので（ADR 0038）、`web/src/highlight.ts` と Shiki のモジュールを本体のコードから静的に import しない（すると本体に取り込まれる）。1 言語で gzip 後 1〜16 KB 増えるので、`web/vite.config.ts` の `chunkSizeWarningLimit` も必要に応じて見直す。
 - `web/`：Markdown の拡張の記法（ADR 0025）は、micromark の構文拡張と mdast の書き換えを `web/src/markdown/` に自前で書く。remark や rehype のプラグインのライブラリは足さず、再実装が現実的でない描画のライブラリ（KaTeX、mermaid）だけを使う。KaTeX と mermaid は `web/src/render/loaders.ts` 経由で非同期に読み込む別チャンクなので、`web/src/render/katex.ts` と `web/src/render/mermaid.ts` を本体のコードから静的に import しない。KaTeX のフォントは `web/vite.config.ts` のプラグインで woff2 だけを残す。
 - `web/`：SPA は相対のパス（Vite の `base: "./"`）でビルドする。どのパスに置いても読めるよう、CLI が `index.html` のパスを `site.toml` の `base_path` に合わせて書き換え、SPA は `<meta name="sqlite-cms-base">` を読んでパスを組み立てる（ADR 0030）。SPA の中でサイト内のパスを URL にするときは `web/src/base.ts` の `withBasePath` を通す。
 - `web/`：本文の HTML は `rehype-raw` で取り込み、`rehype-sanitize` で `web/src/sanitize.ts` の許可一覧以外を取り除く（ADR 0018）。許可するタグを足すときは `EXTRA_TAGS` に足し、`web/src/sanitize.test.tsx` にテストを足す。sanitize は Markdown が作る要素（脚注、タスクリスト、コードブロックの言語名）も検査するので、許可一覧から外すと Markdown の出力が壊れる。Shiki は sanitize の後に通す。
@@ -149,7 +149,8 @@ npm --prefix web run lighthouse
 アクセシビリティとベストプラクティスは 100 点でなければ失敗し、足りない項目と要素を表示する（ADR 0024）。
 ほかの項目（パフォーマンス、SEO）は計測して記録するだけで、基準はまだ決めていない。
 
-`sqlite-cms serve` は、本番の Cloudflare と同じく応答を gzip で圧縮する（ADR 0026）。圧縮は自前の実装で、zlib より 1〜2 割ほど大きくなるので、パフォーマンスの値は本番より少し悪く出る。
+`sqlite-cms serve` は、本番の Cloudflare と同じく応答を gzip で圧縮する（ADR 0026、0038）。圧縮は自前の実装で、大きさは zlib とほぼ同じになる。本番の Cloudflare は Brotli で配信するので、パフォーマンスの値は本番より少し悪く出る。
+計測ごとに数点の揺れがある。パフォーマンスを改善したときは、改善の前後を何度か計測して比べる。
 基準を足すときは `REQUIRED` に書く。
 
 ## リリース

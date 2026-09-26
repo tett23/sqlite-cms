@@ -133,6 +133,19 @@ impl GzipCache {
         self.entries.lock().unwrap().insert(key, Arc::clone(&compressed));
         compressed
     }
+
+    /// 圧縮して配信するファイルを、要求を待たずに圧縮しておく（ADR 0038）。
+    /// 最初の要求で圧縮すると、大きなファイル（sql.js の wasm など）の応答がそのぶん遅れる。
+    /// index.html が読むファイルを先に圧縮する。
+    fn warm(&self, output: &SiteOutput) {
+        let index = output.files.get("/index.html").map(|html| String::from_utf8_lossy(html).into_owned()).unwrap_or_default();
+        let (first, rest): (Vec<_>, Vec<_>) = output.files.iter().partition(|(path, _)| index.contains(&path[1..]));
+        for (path, body) in first.into_iter().chain(rest) {
+            if body.len() >= MIN_COMPRESS_SIZE && compressible(&content_type(path)) {
+                self.compress(body);
+            }
+        }
+    }
 }
 
 /// 受け付けるなら、圧縮できる種類の応答を gzip で圧縮する。
@@ -300,6 +313,11 @@ fn handle(state: &ServeState, cache: &GzipCache, stream: TcpStream) -> std::io::
 
 pub fn serve(state: Arc<ServeState>, listener: TcpListener) {
     let cache = Arc::new(GzipCache::default());
+    {
+        let cache = Arc::clone(&cache);
+        let output = Arc::clone(&state.output.read().unwrap());
+        thread::spawn(move || cache.warm(&output));
+    }
     for stream in listener.incoming().flatten() {
         let state = Arc::clone(&state);
         let cache = Arc::clone(&cache);
@@ -394,6 +412,20 @@ mod tests {
         assert!(!woff2.gzip);
         let not_found = encode(Response { body: vec![b'x'; 1000], ..text(404) }, "gzip", &cache);
         assert!(!not_found.gzip);
+    }
+
+    #[test]
+    fn warm_compresses_only_compressible_files() {
+        let mut files = BTreeMap::new();
+        files.insert("/index.html".to_string(), b"<script src=\"/assets/app.js\"></script>".to_vec());
+        files.insert("/assets/app.js".to_string(), vec![b'a'; 1000]);
+        files.insert("/media/a.png".to_string(), vec![0; 1000]);
+        files.insert("/small.css".to_string(), b"a{}".to_vec());
+        let cache = GzipCache::default();
+        cache.warm(&SiteOutput { files });
+        let entries = cache.entries.lock().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(entries.contains_key(&blake3::hash(&[b'a'; 1000])));
     }
 
     #[test]

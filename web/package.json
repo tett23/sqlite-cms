@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@shikijs/langs": "^4.4.3",
-    "@shikijs/rehype": "^4.4.3",
     "@shikijs/themes": "^4.4.3",
     "katex": "^0.18.9",
     "mermaid": "^12.0.0",

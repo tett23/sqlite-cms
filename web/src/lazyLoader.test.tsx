@@ -4,7 +4,7 @@ import { highlightLoader, type Highlight } from "./highlightLoader";
 import { createLoader } from "./lazyLoader";
 import { MarkdownBody } from "./MarkdownBody";
 
-const fake: Highlight = { rehypePlugins: [] };
+const fake: Highlight = { highlightBlock: () => null };
 
 describe("createLoader", () => {
   it("読み込むまでは null で、読み込み後は結果を返す", async () => {

@@ -77,6 +77,27 @@ pub fn inject_live_reload(html: &str, base_path: &str) -> String {
     }
 }
 
+/// index.html に、DB と sql.js の wasm の先読みと、DB のパスを入れる（ADR 0038）。
+/// SPA の JS を読み込んで実行するのを待たずに、DB と wasm の取得を始めるためである。
+/// SPA は DB のパスがあればマニフェストを読まずに DB を取りに行く（取れなければマニフェストから読み直す）。
+pub fn add_preloads(html: &str, base_path: &str, db_path: &str, wasm_path: Option<&str>) -> String {
+    let relative = |path: &str| format!("{base_path}{}", path.trim_start_matches('/'));
+    let mut tags = format!(
+        "<meta name=\"sqlite-cms-db\" content=\"{db}\" />\n    <link rel=\"preload\" href=\"{db}\" as=\"fetch\" crossorigin=\"anonymous\" />\n    ",
+        db = relative(db_path)
+    );
+    if let Some(wasm) = wasm_path {
+        tags.push_str(&format!(
+            "<link rel=\"preload\" href=\"{}\" as=\"fetch\" crossorigin=\"anonymous\" />\n    ",
+            relative(wasm)
+        ));
+    }
+    match html.find("<title>") {
+        Some(index) => format!("{}{tags}{}", &html[..index], &html[index..]),
+        None => html.replacen("</head>", &format!("{tags}</head>"), 1),
+    }
+}
+
 pub struct SiteOutput {
     pub files: BTreeMap<String, Vec<u8>>,
 }
@@ -116,6 +137,9 @@ impl SiteOutput {
             output.files.entry(path.to_string()).or_insert_with(|| bytes.to_vec());
         }
         let mut index = apply_base_path(&String::from_utf8_lossy(&output.files["/index.html"]), &base_path);
+        let db_path = output.files.keys().find(|path| path.starts_with("/db/articles-")).cloned().expect("DB がない");
+        let wasm_path = output.files.keys().find(|path| path.starts_with("/assets/sql-wasm") && path.ends_with(".wasm")).cloned();
+        index = add_preloads(&index, &base_path, &db_path, wasm_path.as_deref());
         // url を書いたときは RSS のフィードを作り、index.html に案内を入れる（ADR 0033）。
         // サイトマップも作り、robots.txt にその場所を足す（ADR 0037）。
         if let Some(url) = config.url() {
@@ -280,6 +304,22 @@ mod tests {
         for path in ["/index.html", "/404.html"] {
             assert!(String::from_utf8_lossy(&output.files[path]).contains("EventSource(\"/__sqlite-cms/events\")"), "{path}");
         }
+    }
+
+    #[test]
+    fn index_preloads_the_db_and_the_wasm() {
+        let html = add_preloads("<head>\n    <title></title>\n</head>", "/blog/", "/db/articles-abc.sqlite", Some("/assets/sql-wasm-x.wasm"));
+        assert!(html.contains("<meta name=\"sqlite-cms-db\" content=\"/blog/db/articles-abc.sqlite\" />"), "{html}");
+        assert!(html.contains("<link rel=\"preload\" href=\"/blog/db/articles-abc.sqlite\" as=\"fetch\" crossorigin=\"anonymous\" />"), "{html}");
+        assert!(html.contains("<link rel=\"preload\" href=\"/blog/assets/sql-wasm-x.wasm\" as=\"fetch\" crossorigin=\"anonymous\" />"), "{html}");
+
+        let site = site_fixture();
+        let spa: &[(&str, &[u8])] = &[("/index.html", b"<head><title></title></head>"), ("/assets/sql-wasm-q.wasm", b"wasm")];
+        let output = SiteOutput::site(site.path(), spa, &linkcard::Offline).unwrap();
+        let index = String::from_utf8(output.files["/index.html"].clone()).unwrap();
+        let db = output.files.keys().find(|p| p.starts_with("/db/articles-")).unwrap();
+        assert!(index.contains(&format!("content=\"{db}\"")), "{index}");
+        assert!(index.contains("href=\"/assets/sql-wasm-q.wasm\""), "{index}");
     }
 
     #[test]

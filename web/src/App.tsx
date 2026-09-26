@@ -299,10 +299,11 @@ export default function App() {
       <main>
         <CurrentPage />
       </main>
-      {(site?.author || site?.license || FEED_HREF) && (
+      {/* フッターは DB を読んだ後に描く。先に RSS の案内だけを描くと、本文が入ったときに押し下げられて、レイアウトがずれる。 */}
+      {site && (site.author || site.license || FEED_HREF) && (
         <footer className="mt-16 border-t border-gray-400 pt-2 text-sm text-gray-600">
-          {site?.author && <p>{site.author}</p>}
-          {site?.license && (
+          {site.author && <p>{site.author}</p>}
+          {site.license && (
             <p>
               ライセンス:{" "}
               {site.license.url ? <a href={site.license.url}>{site.license.name}</a> : site.license.name}
