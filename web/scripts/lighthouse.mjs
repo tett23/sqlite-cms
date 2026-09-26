@@ -66,6 +66,8 @@ async function main() {
   });
 
   const results = [];
+  /** 項目の日本語の名前（Lighthouse のレポートから取る）。 */
+  const titles = {};
   try {
     for (const [name, pathname] of PAGES) {
       const runner = await lighthouse(server.origin + pathname, {
@@ -73,11 +75,14 @@ async function main() {
         output: ["html", "json"],
         logLevel: "error",
         onlyCategories: CATEGORIES,
+        // レポートと監査の名前を日本語にする。
+        locale: "ja",
       });
       const [html, json] = runner.report;
       await writeFile(path.join(outDir, `${name}.report.html`), html);
       await writeFile(path.join(outDir, `${name}.report.json`), json);
 
+      for (const c of CATEGORIES) titles[c] ??= runner.lhr.categories[c]?.title ?? c;
       const scores = Object.fromEntries(CATEGORIES.map((c) => [c, runner.lhr.categories[c]?.score ?? null]));
       const failures = Object.entries(REQUIRED)
         .filter(([category, min]) => (scores[category] ?? 0) < min)
@@ -89,10 +94,11 @@ async function main() {
     server.stop();
   }
 
-  const header = `| ページ | ${CATEGORIES.join(" | ")} |\n|---|${CATEGORIES.map(() => "---:").join("|")}|`;
+  const title = (category) => titles[category] ?? category;
+  const header = `| ページ | ${CATEGORIES.map(title).join(" | ")} |\n|---|${CATEGORIES.map(() => "---:").join("|")}|`;
   const rows = results.map((r) => `| \`${r.pathname}\` | ${CATEGORIES.map((c) => percent(r.scores[c])).join(" | ")} |`);
   const summary = `## Lighthouse\n\n${header}\n${rows.join("\n")}\n\n必須: ${Object.entries(REQUIRED)
-    .map(([c, min]) => `${c} ${percent(min)}`)
+    .map(([c, min]) => `${title(c)} ${percent(min)} 点`)
     .join("、")}\n`;
   await writeFile(path.join(outDir, "summary.md"), summary);
   if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, summary);
@@ -101,7 +107,7 @@ async function main() {
   const failed = results.filter((r) => r.failures.length > 0);
   for (const r of failed) {
     for (const f of r.failures) {
-      console.error(`✗ ${r.pathname}: ${f.category} が ${percent(r.scores[f.category])} 点（必須 ${percent(f.min)} 点）`);
+      console.error(`✗ ${r.pathname}: ${title(f.category)} が ${percent(r.scores[f.category])} 点（必須 ${percent(f.min)} 点）`);
       for (const audit of f.audits) {
         console.error(`    - ${audit.title}${audit.selectors.length ? `: ${audit.selectors.join(", ")}` : ""}`);
       }

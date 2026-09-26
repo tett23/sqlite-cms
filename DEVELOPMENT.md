@@ -108,7 +108,7 @@ npm --prefix web run lighthouse
 
 `sqlite-cms serve` で `example/` を配信し、代表的な 5 ページ（`web/scripts/lighthouse.mjs` の `PAGES`）をヘッドレスの Chrome で計測する（ADR 0019）。
 手元に Chrome が要る。
-レポート（HTML と JSON）は `web/lighthouse-reports/` に出る。
+レポート（HTML と JSON）は `web/lighthouse-reports/` に日本語で出る。
 配信には既定で `cargo run` を使う。ビルド済みのバイナリで計測するときは、`SQLITE_CMS_BIN` にそのパスを渡す。
 
 アクセシビリティとベストプラクティスは 100 点でなければ失敗し、足りない項目と要素を表示する（ADR 0024）。
