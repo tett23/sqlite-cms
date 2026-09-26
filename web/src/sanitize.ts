@@ -43,6 +43,12 @@ const MARKDOWN_TAGS = [
 ];
 
 /**
+ * ヘッダの `{{> search}}` を CLI が置き換えた目印（ADR 0043、cli/src/header.rs の SEARCH_PARTIAL）。
+ * MarkdownBody は、partials に search を渡されたときに、これを検索ボックスにする。
+ */
+export const PARTIAL_SEARCH_CLASS = "partial-search";
+
+/**
  * Markdown の拡張（ADR 0025）が作る要素。
  * div と span は、拡張が付けるクラスを持つものだけを残す（sanitize の後に unwrapPlainElements でタグを外す）。
  * 本文に HTML で同じクラスを書いても同じ見た目になるだけで、害はない。
@@ -96,7 +102,7 @@ export const sanitizeSchema: Schema = {
     abbr: ["title"],
     details: ["open"],
     div: [
-      ["className", MESSAGE_CLASS, MESSAGE_ALERT_CLASS, MATH_DISPLAY_CLASS],
+      ["className", MESSAGE_CLASS, MESSAGE_ALERT_CLASS, MATH_DISPLAY_CLASS, PARTIAL_SEARCH_CLASS],
       ["role", "note"],
     ],
     span: [["className", MATH_INLINE_CLASS, LINK_CARD_TEXT_CLASS, LINK_CARD_HOST_CLASS, LINK_CARD_URL_CLASS]],

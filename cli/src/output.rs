@@ -98,6 +98,16 @@ pub fn add_preloads(html: &str, base_path: &str, db_path: &str, wasm_path: Optio
     }
 }
 
+/// index.html に、ヘッダを記事リポジトリの content/header.md で作ることを示す目印を入れる（ADR 0043）。
+/// SPA は、これがあれば DB を読むまでヘッダを空にしておく。既定のヘッダを先に描くと、DB を読んだときに差し替わり、表示がずれるためである。
+pub fn add_custom_header_mark(html: &str) -> String {
+    let tag = "<meta name=\"sqlite-cms-header\" content=\"custom\" />\n    ";
+    match html.find("<title>") {
+        Some(index) => format!("{}{tag}{}", &html[..index], &html[index..]),
+        None => html.replacen("</head>", &format!("{tag}</head>"), 1),
+    }
+}
+
 pub struct SiteOutput {
     pub files: BTreeMap<String, Vec<u8>>,
 }
@@ -140,6 +150,9 @@ impl SiteOutput {
         let db_path = output.files.keys().find(|path| path.starts_with("/db/articles-")).cloned().expect("DB がない");
         let wasm_path = output.files.keys().find(|path| path.starts_with("/assets/sql-wasm") && path.ends_with(".wasm")).cloned();
         index = add_preloads(&index, &base_path, &db_path, wasm_path.as_deref());
+        if site_dir.join("content").join("header.md").is_file() {
+            index = add_custom_header_mark(&index);
+        }
         // url を書いたときは RSS のフィードを作り、index.html に案内を入れる（ADR 0033）。
         // サイトマップも作り、robots.txt にその場所を足す（ADR 0037）。
         if let Some(url) = config.url() {
@@ -304,6 +317,19 @@ mod tests {
         for path in ["/index.html", "/404.html"] {
             assert!(String::from_utf8_lossy(&output.files[path]).contains("EventSource(\"/__sqlite-cms/events\")"), "{path}");
         }
+    }
+
+    #[test]
+    fn custom_header_is_marked_in_index_html() {
+        let spa: &[(&str, &[u8])] = &[("/index.html", b"<head><title></title></head>")];
+        let site = site_fixture();
+        let output = SiteOutput::site(site.path(), spa, &linkcard::Offline).unwrap();
+        assert!(!String::from_utf8_lossy(&output.files["/index.html"]).contains("sqlite-cms-header"));
+
+        fs::write(site.path().join("content/header.md"), "[{{title}}](/)\n").unwrap();
+        let output = SiteOutput::site(site.path(), spa, &linkcard::Offline).unwrap();
+        let index = String::from_utf8_lossy(&output.files["/index.html"]).into_owned();
+        assert!(index.contains("<meta name=\"sqlite-cms-header\" content=\"custom\" />\n    <title>"), "{index}");
     }
 
     #[test]

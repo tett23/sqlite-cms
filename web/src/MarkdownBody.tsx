@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ComponentProps } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import Markdown, { type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
@@ -14,10 +14,11 @@ import { LINK_CARD_IMAGE_CLASS } from "./markdown/transforms";
 import { Diagram } from "./render/Diagram";
 import { MathView } from "./render/Math";
 import { remarkExtensions } from "./markdown/remarkExtensions";
-import { sanitizeSchema, unwrapPlainElements } from "./sanitize";
+import { PARTIAL_SEARCH_CLASS, sanitizeSchema, unwrapPlainElements } from "./sanitize";
 import { Link } from "./router";
 
 const NO_LINK_CARD_IMAGES: ReadonlyMap<string, string> = new Map();
+const NO_PARTIALS: PartialComponents = {};
 
 const remarkRehypeOptions: Options["remarkRehypeOptions"] = {
   allowDangerousHtml: true,
@@ -77,6 +78,11 @@ function LinkCardImage({ src, ...props }: ComponentProps<"img">) {
   return <img ref={ref} src={near ? src : undefined} {...props} />;
 }
 
+/** ヘッダの `{{> 名前}}` に置く部品（ADR 0043）。渡さなければ何も置かない。 */
+export type PartialComponents = Readonly<Record<string, ReactNode>>;
+
+const Partials = createContext<PartialComponents>({});
+
 /** タスクリストのチェックボックスに、項目の文章を読み上げ用の名前として渡す。 */
 const TaskLabel = createContext<string | undefined>(undefined);
 
@@ -95,7 +101,9 @@ const components: Components = {
     return isTaskListItem(node) ? <TaskLabel value={textOf(node as HastNode).trim()}>{item}</TaskLabel> : item;
   },
   div({ node, ...props }) {
+    const partials = useContext(Partials);
     if (hasClass(node as HastNode, MATH_DISPLAY_CLASS)) return <MathView tex={textOf(node as HastNode)} display />;
+    if (hasClass(node as HastNode, PARTIAL_SEARCH_CLASS)) return <>{partials.search ?? null}</>;
     return <div {...props} />;
   },
   span({ node, ...props }) {
@@ -145,27 +153,35 @@ const components: Components = {
 export function MarkdownBody({
   source,
   className = "mt-6",
+  baseClassName = "article-body",
   linkCardImages = NO_LINK_CARD_IMAGES,
+  partials = NO_PARTIALS,
 }: {
   source: string;
   className?: string;
+  /** 見た目の種類。本文は article-body、ヘッダは site-header-body（ADR 0043）。 */
+  baseClassName?: string;
   /** リンクカードの URL と画像のパス（DB の link_cards、ADR 0028）。 */
   linkCardImages?: ReadonlyMap<string, string>;
+  /** `{{> 名前}}` に置く部品（ヘッダだけで使う）。 */
+  partials?: PartialComponents;
 }) {
   const remarkPlugins = useMemo<Options["remarkPlugins"]>(
     () => [remarkGfm, [remarkExtensions, { linkCardImage: (url: string) => linkCardImages.get(url) }]],
     [linkCardImages],
   );
   return (
-    <div className={`article-body ${className}`}>
-      <Markdown
-        remarkPlugins={remarkPlugins}
-        remarkRehypeOptions={remarkRehypeOptions}
-        rehypePlugins={baseRehypePlugins}
-        components={components}
-      >
-        {source}
-      </Markdown>
+    <div className={className ? `${baseClassName} ${className}` : baseClassName}>
+      <Partials value={partials}>
+        <Markdown
+          remarkPlugins={remarkPlugins}
+          remarkRehypeOptions={remarkRehypeOptions}
+          rehypePlugins={baseRehypePlugins}
+          components={components}
+        >
+          {source}
+        </Markdown>
+      </Partials>
     </div>
   );
 }

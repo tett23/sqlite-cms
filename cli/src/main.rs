@@ -9,10 +9,12 @@ mod favicon;
 mod feed;
 mod frontmatter;
 mod gzip;
+mod header;
 mod linkcard;
 mod media;
 mod migrations;
 mod mime;
+mod mustache;
 mod output;
 mod pages;
 mod robots;
@@ -81,6 +83,7 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
                   description でページの meta description を指定できる
   content/
     index.md      トップページの本文（任意）
+    header.md     ヘッダ（任意）。site.toml の値を {{title}} のように埋め込める。なければ既定のヘッダ
     favicon.svg   ファビコン（任意。init が仮のものを作る。なければ仮のものを配信する）
     robots.txt    クローラへの指示（任意。init がすべて許可するものを作る。なければ同じ内容を配信する）
     posts/        post の Markdown

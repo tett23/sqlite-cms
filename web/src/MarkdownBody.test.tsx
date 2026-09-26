@@ -56,3 +56,20 @@ describe("MarkdownBody", () => {
     expect(html).toContain("本文と");
   });
 });
+
+describe("ヘッダの Markdown（ADR 0043）", () => {
+  const header = '[記事置き場](/)\n\n- [一覧](/archive)\n\n<div class="partial-search"></div>\n';
+
+  it("パーシャルの目印を、渡した部品に置き換える", () => {
+    const html = renderToStaticMarkup(
+      <MarkdownBody source={header} baseClassName="site-header-body" className="" partials={{ search: <form role="search" /> }} />,
+    );
+    expect(html).toBe(
+      '<div class="site-header-body"><p><a href="/">記事置き場</a></p>\n<ul>\n<li><a href="/archive">一覧</a></li>\n</ul>\n<form role="search"></form></div>',
+    );
+  });
+
+  it("部品を渡さなければ、目印は何も描かない", () => {
+    expect(render('<div class="partial-search"></div>')).toBe('<div class="article-body mt-6"></div>');
+  });
+});

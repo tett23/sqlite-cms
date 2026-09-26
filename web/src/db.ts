@@ -38,6 +38,8 @@ export interface Site {
   license: License | null;
   homeMd: string | null;
   description: string;
+  /** ヘッダの Markdown（ADR 0043）。site.toml の値は埋め込み済み。なければ既定のヘッダ。 */
+  headerMd: string | null;
 }
 
 /** CLI が index.html に入れた DB のパス（ADR 0038）。なければ null。 */
@@ -159,13 +161,13 @@ export function getPage(db: Database, slug: string): Page | null {
 export function getSite(db: Database): Site {
   const row = selectOne(
     db,
-    "SELECT title, author, license_name, license_url, home_md, description FROM site WHERE id = 1",
+    "SELECT title, author, license_name, license_url, home_md, description, header_md FROM site WHERE id = 1",
     [],
   );
   if (!row) {
     throw new Error("site テーブルが空です");
   }
-  const [title, author, licenseName, licenseUrl, homeMd, description] = row;
+  const [title, author, licenseName, licenseUrl, homeMd, description, headerMd] = row;
   return {
     title: title as string,
     author: (author as string | null) ?? null,
@@ -175,6 +177,7 @@ export function getSite(db: Database): Site {
         : { name: licenseName as string, url: (licenseUrl as string | null) ?? null },
     homeMd: (homeMd as string | null) ?? null,
     description: (description as string | null) ?? (title as string),
+    headerMd: (headerMd as string | null) ?? null,
   };
 }
 

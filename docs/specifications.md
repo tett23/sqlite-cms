@@ -97,6 +97,7 @@ example/       -- 動作確認用のサンプル（コンテンツリポジト�
 site.toml      -- サイトのメタデータ（必須）
 content/
   index.md     -- トップページの本文（任意）
+  header.md    -- ヘッダ（任意。site.toml の値を Mustache のような書き方で埋め込める。なければ既定のヘッダ。ADR 0043）
   favicon.svg  -- ファビコン（任意。/favicon.svg で配信する。なければサイト名の頭文字を描いた仮のものを配信する。ADR 0022）
   robots.txt   -- クローラへの指示（任意。/robots.txt で配信する。なければすべてのクロールを許可する内容を配信する。url があればサイトマップの場所を足す。ADR 0037）
   posts/       -- post の Markdown

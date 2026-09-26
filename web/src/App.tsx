@@ -9,14 +9,21 @@ import { search, searchPath, type SearchKind } from "./search";
 import { moveActive, suggest } from "./suggest";
 
 let dbPromise: Promise<Database> | null = null;
+/** 読み込み終わった DB。読み込み済みなら、部品は最初の描画から使う。 */
+let loadedDb: Database | undefined;
 function getDb(): Promise<Database> {
-  dbPromise ??= loadDb();
+  dbPromise ??= loadDb().then((db) => (loadedDb = db));
   return dbPromise;
 }
 
+/**
+ * DB を読み込み、読み込み終わったら描き直す。
+ * 読み込み済みなら最初の描画から返す。読み込み中の表示を一度描いてから本文に替えると、その下の要素（フッタ）がずれ、ページを移るたびに読み込み中の表示が一瞬見える。
+ */
 function useDb(): { db?: Database; error?: string } {
-  const [state, setState] = useState<{ db?: Database; error?: string }>({});
+  const [state, setState] = useState<{ db?: Database; error?: string }>(() => (loadedDb ? { db: loadedDb } : {}));
   useEffect(() => {
+    if (state.db) return;
     let mounted = true;
     getDb().then(
       (db) => mounted && setState({ db }),
@@ -25,7 +32,7 @@ function useDb(): { db?: Database; error?: string } {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [state.db]);
   return state;
 }
 
@@ -372,6 +379,15 @@ function feedHref(): string | null {
 
 const FEED_HREF = feedHref();
 
+/**
+ * CLI が index.html に入れた、ヘッダを content/header.md で作る目印（ADR 0043）。
+ * あれば、DB を読むまでヘッダも本文も描かず、読み込み中の表示だけを出す。
+ * 既定のヘッダを先に描くと、DB を読んだときに差し替わる。空のヘッダを先に描くと、ヘッダの中身が入ったときに本文が押し下げられる。
+ */
+const CUSTOM_HEADER =
+  typeof document !== "undefined" &&
+  document.querySelector('meta[name="sqlite-cms-header"]')?.getAttribute("content") === "custom";
+
 const ROUTES: [string, (params: Record<string, string>) => ReactNode][] = [
   ["/", () => <Home />],
   ["/posts/:slug", ({ slug }) => <PostPage slug={slug} />],
@@ -391,30 +407,56 @@ function CurrentPage() {
 }
 
 export default function App() {
-  const { db } = useDb();
+  const { db, error } = useDb();
   const site = db ? getSite(db) : null;
   const path = usePath();
+  const customHeader = site ? site.headerMd !== null : CUSTOM_HEADER;
+  const headerPartials = useMemo(() => ({ search: <HeaderSearch /> }), []);
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [path]);
 
+  if (CUSTOM_HEADER && !db) {
+    // index.html の読み込み中の表示（loading-screen）と同じ位置に出す。
+    return (
+      <div className="loading-screen">
+        <Loading error={error} />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
-      {/* 狭い画面ではサイト名と案内を別の行にし、サイト名が後から入っても案内が折り返さない（高さが変わらない）ようにする。 */}
-      <header className="mb-8 flex flex-col gap-1 border-b border-black pb-2 sm:flex-row sm:items-baseline sm:justify-between">
-        <Link to="/" className="site-title text-xl font-bold">
-          {site?.title ?? "\u00a0"}
-        </Link>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-          <nav className="space-x-4">
-            <Link to="/">トップ</Link>
-            <Link to="/archive">一覧</Link>
-            <Link to="/about">自己紹介</Link>
-            <Link to="/search">検索</Link>
-          </nav>
-          <HeaderSearch />
-        </div>
-      </header>
+      {customHeader ? (
+        // 記事リポジトリの content/header.md で作ったヘッダ（ADR 0043）。{{> search}} の場所に検索ボックスを置く。
+        <header className="mb-8 border-b border-black pb-2">
+          {site?.headerMd && (
+            <MarkdownBody
+              source={site.headerMd}
+              baseClassName="site-header-body"
+              className=""
+              linkCardImages={db ? getLinkCardImages(db) : undefined}
+              partials={headerPartials}
+            />
+          )}
+        </header>
+      ) : (
+        // 狭い画面ではサイト名と案内を別の行にし、サイト名が後から入っても案内が折り返さない（高さが変わらない）ようにする。
+        <header className="mb-8 flex flex-col gap-1 border-b border-black pb-2 sm:flex-row sm:items-baseline sm:justify-between">
+          <Link to="/" className="site-title text-xl font-bold">
+            {site?.title ?? "\u00a0"}
+          </Link>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+            <nav className="space-x-4">
+              <Link to="/">トップ</Link>
+              <Link to="/archive">一覧</Link>
+              <Link to="/about">自己紹介</Link>
+              <Link to="/search">検索</Link>
+            </nav>
+            <HeaderSearch />
+          </div>
+        </header>
+      )}
       <main>
         <CurrentPage />
       </main>

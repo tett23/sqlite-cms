@@ -2,13 +2,14 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use rusqlite::{Connection, MAIN_DB};
 
 use crate::content::{parse_article, parse_page, parse_post, Article, Page, Post};
+use crate::header;
 use crate::linkcard::LinkCard;
 use crate::migrations::{apply_migrations, embedded_migrations};
-use crate::site::read_site_config;
+use crate::site::{read_site_config, SiteConfig};
 
 fn read_docs<T>(dir: &Path, parse: impl Fn(&str, &str) -> Result<T>) -> Result<Vec<T>> {
     if !dir.is_dir() {
@@ -38,10 +39,19 @@ fn read_optional(path: &Path) -> Result<Option<String>> {
     }
 }
 
-/// 本文の Markdown をそのまま集める（トップページ、post、article、page）。リンクカードの URL を探すのに使う。
+/// `content/header.md` を読み、site.toml の値を埋め込む（ADR 0043）。なければ None。
+fn read_header(content_dir: &Path, config: &SiteConfig) -> Result<Option<String>> {
+    let path = content_dir.join("header.md");
+    let Some(template) = read_optional(&path)? else { return Ok(None) };
+    header::render(&template, config).map(Some).map_err(|e| anyhow!("{} の {e}", path.display()))
+}
+
+/// 本文の Markdown をそのまま集める（トップページ、ヘッダ、post、article、page）。リンクカードの URL を探すのに使う。
+/// ヘッダは、site.toml の値を埋め込んだものを集める。
 pub fn markdown_sources(site_dir: &Path) -> Result<Vec<String>> {
     let content_dir = site_dir.join("content");
     let mut sources: Vec<String> = read_optional(&content_dir.join("index.md"))?.into_iter().collect();
+    sources.extend(read_header(&content_dir, &read_site_config(site_dir)?)?);
     for kind in ["posts", "articles", "pages"] {
         sources.extend(read_docs(&content_dir.join(kind), |_, raw| Ok(raw.to_string()))?);
     }
@@ -67,6 +77,7 @@ pub fn build_db_bytes(site_dir: &Path, link_cards: &[LinkCard]) -> Result<Vec<u8
         bail!("コンテンツのディレクトリがありません: {}", content_dir.display());
     }
     let home_md = read_optional(&content_dir.join("index.md"))?;
+    let header_md = read_header(&content_dir, &config)?;
 
     let conn = Connection::open_in_memory()?;
     apply_migrations(&conn, &embedded_migrations()?)?;
@@ -76,9 +87,9 @@ pub fn build_db_bytes(site_dir: &Path, link_cards: &[LinkCard]) -> Result<Vec<u8
         None => (None, None),
     };
     conn.execute(
-        "INSERT INTO site (id, title, author, license_name, license_url, home_md, description)
-         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)",
-        (&config.title, &config.author, license_name, license_url, &home_md, config.description()),
+        "INSERT INTO site (id, title, author, license_name, license_url, home_md, description, header_md)
+         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        (&config.title, &config.author, license_name, license_url, &home_md, config.description(), &header_md),
     )?;
 
     for p in read_docs(&content_dir.join("posts"), parse_post)? {
@@ -180,7 +191,7 @@ mod tests {
         );
         assert_eq!(
             column(&conn, "SELECT version FROM schema_migrations ORDER BY version"),
-            ["0001", "0002", "0003", "0004", "0005", "0006"]
+            ["0001", "0002", "0003", "0004", "0005", "0006", "0007"]
         );
     }
 
@@ -245,6 +256,30 @@ mod tests {
         let (_dir, conn) = open(&bytes);
         let home: Option<String> = conn.query_row("SELECT home_md FROM site", [], |r| r.get(0)).unwrap();
         assert_eq!(home, None);
+    }
+
+    #[test]
+    fn header_is_rendered_with_site_values() {
+        let header = "[{{title}}](/)\n\n{{#author}}\n{{author}} の記事\n{{/author}}\n{{> search}}\n";
+        let site = site_fixture(&[("header.md", header)]);
+        let (_dir, conn) = open(&build_db_bytes(site.path(), &[]).unwrap());
+        let header: Option<String> = conn.query_row("SELECT header_md FROM site", [], |r| r.get(0)).unwrap();
+        assert_eq!(header.as_deref(), Some("[記事置き場](/)\n\ntett23 の記事\n\n<div class=\"partial-search\"></div>\n\n"));
+    }
+
+    #[test]
+    fn header_is_optional() {
+        let site = site_fixture(&[]);
+        let (_dir, conn) = open(&build_db_bytes(site.path(), &[]).unwrap());
+        let header: Option<String> = conn.query_row("SELECT header_md FROM site", [], |r| r.get(0)).unwrap();
+        assert_eq!(header, None);
+    }
+
+    #[test]
+    fn header_errors_name_the_file_and_line() {
+        let site = site_fixture(&[("header.md", "a\n{{#title}}\n")]);
+        let message = build_db_bytes(site.path(), &[]).unwrap_err().to_string();
+        assert!(message.ends_with("header.md の 2 行目: セクションが閉じていません: {{#title}}"), "{message}");
     }
 
     #[test]
