@@ -109,6 +109,7 @@ npm --prefix web run lighthouse
 `sqlite-cms serve` で `example/` を配信し、代表的な 5 ページ（`web/scripts/lighthouse.mjs` の `PAGES`）をヘッドレスの Chrome で計測する（ADR 0019）。
 手元に Chrome が要る。
 レポート（HTML と JSON）は `web/lighthouse-reports/` に出る。
+配信には既定で `cargo run` を使う。ビルド済みのバイナリで計測するときは、`SQLITE_CMS_BIN` にそのパスを渡す。
 
 アクセシビリティは 100 点でなければ失敗し、足りない項目と要素を表示する。
 ほかの項目（パフォーマンス、ベストプラクティス、SEO）は計測して記録するだけで、基準はまだ決めていない。
@@ -120,7 +121,8 @@ npm --prefix web run lighthouse
 
 1. SPA をビルドし、テストを実行する
 2. Linux x86_64 と macOS arm64 のバイナリをビルドする
-3. `sqlite-cms-<target>.tar.gz` を GitHub Release に添付する
+3. Linux のビルドで作ったバイナリで Lighthouse を計測し、レポートを `lighthouse-reports` の Artifact に保存する。アクセシビリティが 100 点を割ると、ここで失敗して Release は作られない
+4. `sqlite-cms-<target>.tar.gz` を GitHub Release に添付する
 
 タグを付けずに試すときは、`gh workflow run release.yml` で手動実行する。ビルドと梱包までを行い、Release は作らない（成果物は実行結果の Artifacts から取れる）。
 
