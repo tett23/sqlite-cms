@@ -17,6 +17,19 @@ mv sqlite-cms ~/.local/bin/
 
 ソースからビルドする方法は `DEVELOPMENT.md` にある。
 
+## はじめる
+
+```sh
+sqlite-cms init my-blog --title "私の記事置き場"   # my-blog/ に記事リポジトリを作る
+cd my-blog
+sqlite-cms new post hello --title はじめまして     # 最初の記事の雛形
+sqlite-cms serve                                  # http://127.0.0.1:8080/ で確認
+```
+
+`init` は、ビルドに必要な `site.toml` と `content/`（トップページ、自己紹介のページ、記事用の空のディレクトリ）を作る。
+すでに `site.toml` か `content/` があるときはエラーになる。
+`--force` を付けると作り直す。このとき `init` が作るファイル（`site.toml`、`content/index.md`、`content/pages/about.md`）は上書きされるが、書いた記事や画像は消えない。
+
 ## 記事リポジトリの構成
 
 ```
@@ -29,7 +42,7 @@ content/
   media/           -- 画像など（任意。/media/ で配信）
 ```
 
-このリポジトリの `example/` が同じ構成のサンプルになっている。コピーして始めるとよい。
+このリポジトリの `example/` が、記事や画像を入れた同じ構成のサンプルになっている。
 
 ### site.toml
 
