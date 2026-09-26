@@ -40,3 +40,14 @@ jobs:
 
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+
+      - name: Lighthouse
+        run: npm run lighthouse
+        working-directory: web
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: lighthouse-reports
+          path: web/lighthouse-reports
+          if-no-files-found: ignore

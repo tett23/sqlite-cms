@@ -1,13 +1,14 @@
 {
   "name": "sqlite-cms-web",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.0.1",
   "type": "module",
   "scripts": {
     "data": "cargo run --quiet --manifest-path ../cli/Cargo.toml -- build \"${SITE_DIR:-../example}\" --data-only --out public",
     "dev": "npm run data && vite",
     "build": "tsc --noEmit && vite build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lighthouse": "node scripts/lighthouse.mjs"
   },
   "dependencies": {
     "@shikijs/langs": "^4.4.3",
@@ -27,6 +28,8 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "chrome-launcher": "^1.2.1",
+    "lighthouse": "^13.5.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
