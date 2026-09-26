@@ -26,6 +26,18 @@ export interface Page {
   bodyMd: string;
 }
 
+export interface License {
+  name: string;
+  url: string | null;
+}
+
+export interface Site {
+  title: string;
+  author: string | null;
+  license: License | null;
+  homeMd: string | null;
+}
+
 export async function loadDb(): Promise<Database> {
   const manifestRes = await fetch("/db/manifest.json", { cache: "no-cache" });
   if (!manifestRes.ok) {
@@ -122,4 +134,25 @@ export function getPage(db: Database, slug: string): Page | null {
   }
   const [s, title, bodyMd] = row;
   return { slug: s as string, title: title as string, bodyMd: bodyMd as string };
+}
+
+export function getSite(db: Database): Site {
+  const row = selectOne(
+    db,
+    "SELECT title, author, license_name, license_url, home_md FROM site WHERE id = 1",
+    [],
+  );
+  if (!row) {
+    throw new Error("site テーブルが空です");
+  }
+  const [title, author, licenseName, licenseUrl, homeMd] = row;
+  return {
+    title: title as string,
+    author: (author as string | null) ?? null,
+    license:
+      licenseName === null
+        ? null
+        : { name: licenseName as string, url: (licenseUrl as string | null) ?? null },
+    homeMd: (homeMd as string | null) ?? null,
+  };
 }

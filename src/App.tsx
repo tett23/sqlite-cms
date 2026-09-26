@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, Route, Routes, useLocation, useParams } from "react-router";
 import type { Database } from "sql.js";
-import { getArticle, getPage, getPost, listArticles, listPosts, loadDb } from "./db";
+import { getArticle, getPage, getPost, getSite, listArticles, listPosts, loadDb } from "./db";
 import { MarkdownBody } from "./MarkdownBody";
-
-const SITE_TITLE = "tett23の記事置き場";
 
 let dbPromise: Promise<Database> | null = null;
 function getDb(): Promise<Database> {
@@ -27,13 +25,12 @@ function useDb(): { db?: Database; error?: string } {
   return state;
 }
 
-function useDocumentTitle(title: string | null) {
+function useDocumentTitle(db: Database | undefined, title: string | null) {
   useEffect(() => {
-    document.title = title ? `${title} - ${SITE_TITLE}` : SITE_TITLE;
-    return () => {
-      document.title = SITE_TITLE;
-    };
-  }, [title]);
+    if (!db) return;
+    const siteTitle = getSite(db).title;
+    document.title = title ? `${title} - ${siteTitle}` : siteTitle;
+  }, [db, title]);
 }
 
 function Loading({ error }: { error?: string }) {
@@ -42,17 +39,16 @@ function Loading({ error }: { error?: string }) {
 
 function Home() {
   const { db, error } = useDb();
-  useDocumentTitle(null);
+  useDocumentTitle(db, null);
   if (!db) return <Loading error={error} />;
 
+  const { homeMd } = getSite(db);
   const articles = listArticles(db);
   const posts = listPosts(db);
 
   return (
     <div>
-      <p className="mb-8">
-        tett23 の記事置き場。長めの読み物は記事に、日々の雑多なものはブログに置いている。
-      </p>
+      {homeMd && <MarkdownBody source={homeMd} className="mb-8" />}
 
       <section className="mb-10">
         <h2 className="mb-3 text-lg font-bold">記事</h2>
@@ -96,7 +92,7 @@ function PostPage() {
   const { slug } = useParams<{ slug: string }>();
   const { db, error } = useDb();
   const post = db && slug ? getPost(db, slug) : null;
-  useDocumentTitle(post?.title ?? null);
+  useDocumentTitle(db, post?.title ?? null);
   if (!db) return <Loading error={error} />;
   if (!post) return <NotFound />;
 
@@ -115,7 +111,7 @@ function ArticlePage() {
   const { slug } = useParams<{ slug: string }>();
   const { db, error } = useDb();
   const article = db && slug ? getArticle(db, slug) : null;
-  useDocumentTitle(article?.title ?? null);
+  useDocumentTitle(db, article?.title ?? null);
   if (!db) return <Loading error={error} />;
   if (!article) return <NotFound />;
 
@@ -134,7 +130,7 @@ function ArticlePage() {
 function AboutPage() {
   const { db, error } = useDb();
   const page = db ? getPage(db, "about") : null;
-  useDocumentTitle(page?.title ?? null);
+  useDocumentTitle(db, page?.title ?? null);
   if (!db) return <Loading error={error} />;
   if (!page) return <NotFound />;
 
@@ -147,10 +143,14 @@ function AboutPage() {
 }
 
 function NotFound() {
+  const { db } = useDb();
+  useDocumentTitle(db, "見つかりません");
   return <p>見つかりません。</p>;
 }
 
 export default function App() {
+  const { db } = useDb();
+  const site = db ? getSite(db) : null;
   const location = useLocation();
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -160,7 +160,7 @@ export default function App() {
     <div className="mx-auto max-w-2xl px-4 py-8">
       <header className="mb-8 flex items-baseline justify-between border-b border-black pb-2">
         <Link to="/" className="site-title text-xl font-bold">
-          {SITE_TITLE}
+          {site?.title ?? "\u00a0"}
         </Link>
         <nav className="space-x-4 text-sm">
           <Link to="/">トップ</Link>
@@ -176,9 +176,17 @@ export default function App() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
-      <footer className="mt-16 border-t border-gray-400 pt-2 text-sm text-gray-600">
-        <p>tett23</p>
-      </footer>
+      {(site?.author || site?.license) && (
+        <footer className="mt-16 border-t border-gray-400 pt-2 text-sm text-gray-600">
+          {site.author && <p>{site.author}</p>}
+          {site.license && (
+            <p>
+              ライセンス:{" "}
+              {site.license.url ? <a href={site.license.url}>{site.license.name}</a> : site.license.name}
+            </p>
+          )}
+        </footer>
+      )}
     </div>
   );
 }

@@ -21,9 +21,9 @@ const components: Components = {
   },
 };
 
-export function MarkdownBody({ source }: { source: string }) {
+export function MarkdownBody({ source, className = "mt-6" }: { source: string; className?: string }) {
   return (
-    <div className="article-body mt-6">
+    <div className={`article-body ${className}`}>
       <Markdown
         remarkPlugins={remarkPlugins}
         remarkRehypeOptions={remarkRehypeOptions}
