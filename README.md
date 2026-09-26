@@ -310,3 +310,9 @@ workers.dev のサブドメインは、アカウントで一度だけ、ダッ�
 `example/.github/workflows/deploy.yml` を記事リポジトリの `.github/workflows/` にコピーし、記事リポジトリのシークレットに `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` を設定する。
 `main` に push するたびに、最新の `sqlite-cms` を取ってきて公開する。
 CI には `.sqlite-cms-cache/` がないので、リンクカードの画像は公開のたびに取り直す。
+
+## ライセンス
+
+[MIT](LICENSE)。
+
+`example/` の記事の文章は、見本のサイトのフッターに書いたとおり CC0 1.0 とする。

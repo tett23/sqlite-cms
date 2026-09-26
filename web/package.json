@@ -2,6 +2,7 @@
   "name": "sqlite-cms-web",
   "private": true,
   "version": "0.0.2",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "data": "cargo run --quiet --manifest-path ../cli/Cargo.toml -- build \"${SITE_DIR:-../example}\" --data-only --out public",
