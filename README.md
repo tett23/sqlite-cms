@@ -146,6 +146,7 @@ Markdown では書けない表現のために、次の HTML のタグだけを�
 
 ```sh
 sqlite-cms new post hello --title はじめまして   # content/posts/hello.md の雛形を作る
+sqlite-cms new post                             # content/posts/<今日の日付>.md の雛形を作る
 sqlite-cms serve    # http://127.0.0.1:8080/ でプレビュー（記事を変えたら再起動）
 sqlite-cms build    # dist/ に配信用の一式を書き出す
 sqlite-cms deploy   # Cloudflare に公開する
@@ -154,7 +155,12 @@ sqlite-cms deploy   # Cloudflare に公開する
 `new` の種別は `post`、`article`、`page` のどれか。
 日付は今日が入り、`--date 2026-09-26` で変えられる。
 今日の日付は `site.toml` の `timezone` のタイムゾーンで決まる。省略すると、実行した環境のタイムゾーンになる（CI など、手元と違うタイムゾーンで動かすときは指定しておくとよい）。
-同じ名前のファイルがあるときは上書きせずにエラーになる。
+slug（ファイル名と URL になる名前）を省くと、記事の日付（`2026-09-26` など）が slug になる。
+同じ日付の記事がすでにあれば、`2026-09-26-2`、`2026-09-26-3` と枝番が付く。
+page は日付を持たないので、slug を省けない。
+slug を指定して、同じ名前のファイルがすでにあるときは、上書きせずにエラーになる。
+
+slug を省いて別の場所の記事リポジトリを指すときは、`./blog` や `../blog` のようにパスとわかる形で書く（`/` を含むか `.` で始まる引数は、slug ではなく記事リポジトリとみなす）。
 
 詳しいオプションは `sqlite-cms --help` で確認できる。
 

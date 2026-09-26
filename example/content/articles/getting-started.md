@@ -35,6 +35,15 @@ sqlite-cms new post first-post --title "最初の記事"
 `content/posts/first-post.md` に雛形ができるので、本文を書き足します。
 日付は今日が入ります。タイムゾーンは `site.toml` の `timezone` で決められます。
 
+日々のメモなら、名前を考えずに作れます。
+
+```sh
+sqlite-cms new post
+```
+
+名前（slug）を省くと、日付が名前になります（`content/posts/2026-09-26.md`）。
+同じ日にもう一本作ると、`2026-09-26-2.md` になります。
+
 | 種別 | 置き場所 | URL | 向いているもの |
 |---|---|---|---|
 | `post` | `content/posts/` | `/posts/<slug>` | 日々のメモ |

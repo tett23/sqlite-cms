@@ -163,8 +163,8 @@ SPA が remark（react-markdown）で本文を描画する。
 ```
 sqlite-cms init [SITE_DIR] [--title <TITLE>] [--force]
                                                -- 記事リポジトリに必要なファイルを作る（ADR 0016）
-sqlite-cms new <post|article|page> <SLUG> [SITE_DIR] [--title <TITLE>] [--date <YYYY-MM-DD>]
-                                               -- 記事の雛形を作る（ADR 0015）
+sqlite-cms new <post|article|page> [SLUG] [SITE_DIR] [--title <TITLE>] [--date <YYYY-MM-DD>]
+                                               -- 記事の雛形を作る（ADR 0015、0020）
 sqlite-cms serve  [SITE_DIR] [--port <PORT>]   -- 手元でプレビューする
 sqlite-cms build  [SITE_DIR] [--out <DIR>]     -- 配信用のディレクトリに書き出す
 sqlite-cms deploy [SITE_DIR]                   -- Cloudflare Workers に公開する
