@@ -9,7 +9,8 @@
     "dev": "npm run data && vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "lighthouse": "node scripts/lighthouse.mjs"
+    "lighthouse": "node scripts/lighthouse.mjs",
+    "e2e": "node scripts/e2e.mjs"
   },
   "dependencies": {
     "@shikijs/langs": "^4.4.3",

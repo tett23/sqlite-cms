@@ -3,7 +3,10 @@ name: ci
 on:
   push:
     branches: [main]
+    # ドキュメントだけの変更では動かさない（ADR 0044）。見本の記事（example/ の Markdown）は計測とテストに使うので動かす。
+    paths: ["**", "!docs/**", "!README.md", "!DEVELOPMENT.md"]
   pull_request:
+    paths: ["**", "!docs/**", "!README.md", "!DEVELOPMENT.md"]
 
 permissions:
   contents: read
@@ -13,6 +16,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # 一つのジョブで順に行う。Rust のテストは埋め込んだ SPA を使うので、ジョブを分けても SPA のビルドを待つことになり、
+  # ジョブごとのセットアップの分だけかえって遅くなる（ADR 0044）。速く終わる検査を先に置き、失敗を早く知らせる。
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -41,9 +46,22 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
 
+      # cargo test が作った CLI（target/debug/sqlite-cms）で配信し、cargo run で組み立て直すのを省く。
+      - name: E2E
+        timeout-minutes: 5
+        run: npm run e2e
+        working-directory: web
+        env:
+          SQLITE_CMS_BIN: ${{ github.workspace }}/target/debug/sqlite-cms
+
       - name: Lighthouse
+        timeout-minutes: 8
         run: npm run lighthouse
         working-directory: web
+        env:
+          SQLITE_CMS_BIN: ${{ github.workspace }}/target/debug/sqlite-cms
+          # ページを分けて 3 つの Chrome で並行して計測する。パフォーマンスの点数は揺れるが、記録するだけなので許す。
+          LIGHTHOUSE_CONCURRENCY: 3
 
       - uses: actions/upload-artifact@v7
         if: always()

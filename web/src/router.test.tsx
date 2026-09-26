@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "preact-render-to-string";
-import { describe, expect, it } from "vitest";
-import { Link, matchPath, Router, shouldNavigateInApp, usePath, useSearch, type ClickLike } from "./router";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Link, matchPath, navigate, Router, shouldNavigateInApp, usePath, useSearch, type ClickLike } from "./router";
 
 describe("matchPath", () => {
   it("固定のパスは完全一致だけを受け付ける", () => {
@@ -80,5 +80,90 @@ describe("Router と Link", () => {
       </Link>,
     );
     expect(html).toBe('<a href="/about" class="nav">自己紹介</a>');
+  });
+});
+
+/** history と、ページを移ったことの知らせを記録する、偽の window。 */
+function stubWindow(): string[] {
+  const calls: string[] = [];
+  vi.stubGlobal("window", {
+    history: {
+      pushState: (_state: unknown, _title: string, url: string) => calls.push(`push ${url}`),
+      replaceState: (_state: unknown, _title: string, url: string) => calls.push(`replace ${url}`),
+    },
+    dispatchEvent: (event: Event) => calls.push(`event ${event.type}`),
+  });
+  return calls;
+}
+
+describe("navigate", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("履歴を足して移り、ルーターに知らせる", () => {
+    const calls = stubWindow();
+    navigate("/search?q=a");
+    expect(calls).toEqual(["push /search?q=a", "event sqlite-cms:navigate"]);
+  });
+
+  it("replace なら履歴を増やさずに置き換え、ルーターに知らせる（ADR 0042）", () => {
+    const calls = stubWindow();
+    navigate("/search?q=b", { replace: true });
+    expect(calls).toEqual(["replace /search?q=b", "event sqlite-cms:navigate"]);
+  });
+});
+
+describe("Link を押したとき", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  type Click = ClickLike & { preventDefault(): void };
+  function click(overrides: Partial<ClickLike> = {}): Click {
+    const event = {
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      defaultPrevented: false,
+      ...overrides,
+      preventDefault() {
+        event.defaultPrevented = true;
+      },
+    };
+    return event;
+  }
+
+  /** Link が描く a 要素の onClick を呼ぶ。 */
+  function press(link: ReturnType<typeof Link>, event: Click) {
+    (link as unknown as { props: { onClick(event: Click): void } }).props.onClick(event);
+  }
+
+  it("普通に押すと、ページを読み直さずに移る", () => {
+    const calls = stubWindow();
+    const event = click();
+    press(Link({ to: "/about", children: "自己紹介" }), event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(calls).toEqual(["push /about", "event sqlite-cms:navigate"]);
+  });
+
+  it("修飾キー付き、中ボタン、新しいタブ（target）では、ブラウザに任せる", () => {
+    const calls = stubWindow();
+    for (const event of [click({ metaKey: true }), click({ ctrlKey: true }), click({ shiftKey: true }), click({ button: 1 })]) {
+      press(Link({ to: "/about" }), event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    press(Link({ to: "/about", target: "_blank" }), click());
+    expect(calls).toEqual([]);
+  });
+
+  it("渡した onClick を先に呼び、そこで既定の動きを止めたら移らない", () => {
+    const calls = stubWindow();
+    const onClick = vi.fn((event: Click) => event.preventDefault());
+    press(Link({ to: "/about", onClick }), click());
+    expect(onClick).toHaveBeenCalledOnce();
+    expect(calls).toEqual([]);
   });
 });

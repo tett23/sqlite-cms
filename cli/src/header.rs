@@ -35,3 +35,36 @@ pub fn render(template: &str, config: &SiteConfig) -> Result<String, mustache::E
     let partials = BTreeMap::from([("search".to_string(), SEARCH_PARTIAL.to_string())]);
     mustache::render(template, &site_values(config), &partials)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::site::parse_site_config;
+
+    #[test]
+    fn values_come_from_site_toml() {
+        let config = parse_site_config(
+            "title = \"A*B\"\nauthor = \"tett23\"\ndescription = \"説明\"\nurl = \"https://example.com\"\n[license]\nname = \"CC0 1.0\"\nurl = \"https://creativecommons.org/publicdomain/zero/1.0/\"\n",
+        )
+        .unwrap();
+        let template = "{{title}}|{{author}}|{{description}}|{{url}}|{{license.name}}|{{{license.url}}}";
+        // url は / で終わる形にそろえ、{{…}} は Markdown の記号をエスケープする。
+        assert_eq!(
+            render(template, &config).unwrap(),
+            "A\\*B|tett23|説明|https://example.com/|CC0 1.0|https://creativecommons.org/publicdomain/zero/1.0/"
+        );
+    }
+
+    #[test]
+    fn missing_values_are_empty_and_description_has_a_default() {
+        let config = parse_site_config("title = \"記事置き場\"\n").unwrap();
+        let template = "{{^author}}作者なし{{/author}}{{#license}}{{name}}{{/license}}{{url}}|{{description}}";
+        assert_eq!(render(template, &config).unwrap(), "作者なし|記事置き場。記事とブログを置いているサイトです。");
+    }
+
+    #[test]
+    fn search_partial_becomes_a_separate_html_block() {
+        let config = parse_site_config("title = \"t\"\n").unwrap();
+        assert_eq!(render("a\n{{> search}}\nb\n", &config).unwrap(), format!("a\n{SEARCH_PARTIAL}b\n"));
+    }
+}
