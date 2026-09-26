@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "preact-render-to-string";
 import { describe, expect, it } from "vitest";
-import { Link, matchPath, Router, shouldNavigateInApp, usePath, type ClickLike } from "./router";
+import { Link, matchPath, Router, shouldNavigateInApp, usePath, useSearch, type ClickLike } from "./router";
 
 describe("matchPath", () => {
   it("固定のパスは完全一致だけを受け付ける", () => {
@@ -61,6 +61,16 @@ describe("Router と Link", () => {
       </Router>,
     );
     expect(html).toBe("<span>/posts/hello</span>");
+  });
+
+  it("渡した問い合わせ（?q=）を配る。渡さなければ空", () => {
+    function ShowSearch() {
+      return <span>{useSearch()}</span>;
+    }
+    expect(renderToStaticMarkup(<Router path="/search" search="?q=%E8%A8%98%E4%BA%8B"><ShowSearch /></Router>)).toBe(
+      "<span>?q=%E8%A8%98%E4%BA%8B</span>",
+    );
+    expect(renderToStaticMarkup(<Router path="/search"><ShowSearch /></Router>)).toBe("<span></span>");
   });
 
   it("Link は href と属性を持つ a 要素になる", () => {

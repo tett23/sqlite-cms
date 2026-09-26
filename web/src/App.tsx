@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { Database } from "sql.js";
 import { getArticle, getLinkCardImages, getPage, getPost, getSite, listAll, listArticles, listPosts, loadDb } from "./db";
 import { pageDescription, setMetaDescription } from "./documentMeta";
 import { MarkdownBody } from "./MarkdownBody";
 import { withBasePath } from "./base";
-import { Link, matchPath, navigate, usePath } from "./router";
+import { Link, matchPath, navigate, usePath, useSearch } from "./router";
 import { search, searchPath, type SearchKind } from "./search";
+import { moveActive, suggest } from "./suggest";
 
 let dbPromise: Promise<Database> | null = null;
 function getDb(): Promise<Database> {
@@ -158,25 +159,27 @@ function NotFound() {
 
 const KIND_LABELS: Record<SearchKind, string> = { post: "ブログ", article: "記事", page: "ページ" };
 
-function initialQuery(): string {
-  return typeof window === "undefined" ? "" : (new URLSearchParams(window.location.search).get("q") ?? "");
-}
-
 /** 全文検索（ADR 0031）。入力に合わせて結果を出し、言葉を URL（?q=）に残す。 */
 function SearchPage() {
   const { db, error } = useDb();
-  const [query, setQuery] = useState(initialQuery);
+  const urlQuery = new URLSearchParams(useSearch()).get("q") ?? "";
+  const [query, setQuery] = useState(urlQuery);
   useDocumentMeta(db, "検索");
   const results = useMemo(() => (db && query.trim() ? search(db, query) : null), [db, query]);
 
+  // 入力に合わせて、履歴を増やさずに URL（?q=）を変える。
   useEffect(() => {
-    window.history.replaceState(null, "", withBasePath(searchPath(query)));
+    navigate(searchPath(query), { replace: true });
   }, [query]);
+  // ヘッダの検索ボックスやブラウザの戻るで URL が変わったときは、入力欄をそれに合わせる（ADR 0042）。
+  useEffect(() => {
+    setQuery((current) => (current.trim() === urlQuery ? current : urlQuery));
+  }, [urlQuery]);
 
   return (
     <div>
       <h1 className="mb-4 text-xl font-bold">検索</h1>
-      <form role="search" onSubmit={(event) => event.preventDefault()} className="mb-6">
+      <form role="search" aria-label="検索の条件" onSubmit={(event) => event.preventDefault()} className="mb-6">
         <label htmlFor="search-query" className="mr-2 text-sm">
           探す言葉
         </label>
@@ -214,22 +217,57 @@ function SearchPage() {
   );
 }
 
+const SUGGESTIONS_ID = "header-search-suggestions";
+const suggestionId = (index: number) => `header-search-suggestion-${index}`;
+
 /**
- * ヘッダーの検索ボックス（ADR 0041）。送ると検索のページ（/search?q=…）に移る。
+ * ヘッダの検索ボックス（ADR 0041、0042）。送ると検索のページ（/search?q=…）に移る。
  * JS が動かなくても、フォームとして /search?q=… を開けば同じ結果になる。
+ * 入力中は、候補を SUGGESTION_LIMIT 件まで出し、なければないことを出す（WAI-ARIA のコンボボックス）。
+ * 矢印のキーで候補を選び、Enter でその記事に移る。候補を選んでいなければ、検索のページに移る。Escape で候補を閉じる。
  */
 function HeaderSearch() {
+  const { db } = useDb();
   const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const suggestions = useMemo(() => (db ? suggest(db, query) : []), [db, query]);
+  const trimmed = query.trim();
+  const shown = open && db !== undefined && trimmed !== "";
+
+  const go = (to: string) => {
+    setQuery("");
+    setOpen(false);
+    setActive(-1);
+    navigate(to);
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setOpen(true);
+      setActive(moveActive(active, event.key === "ArrowDown" ? 1 : -1, suggestions.length));
+    } else if (event.key === "Enter" && shown && active >= 0) {
+      event.preventDefault();
+      go(suggestions[active].path);
+    } else if (event.key === "Escape" && shown) {
+      event.preventDefault();
+      setOpen(false);
+      setActive(-1);
+    }
+  };
+
   return (
     <form
       role="search"
+      aria-label="サイトの中を検索"
       action={withBasePath("/search")}
       method="get"
       onSubmit={(event) => {
         event.preventDefault();
-        navigate(searchPath(query));
+        go(searchPath(query));
       }}
-      className="flex items-center gap-1"
+      className="relative flex items-center gap-1"
     >
       <label htmlFor="header-search" className="sr-only">
         サイトの中を検索
@@ -238,13 +276,57 @@ function HeaderSearch() {
         id="header-search"
         type="search"
         name="q"
+        role="combobox"
+        autoComplete="off"
+        aria-autocomplete="list"
+        aria-expanded={shown && suggestions.length > 0}
+        aria-controls={SUGGESTIONS_ID}
+        aria-activedescendant={shown && active >= 0 ? suggestionId(active) : undefined}
         value={query}
-        onChange={(event) => setQuery(event.currentTarget.value)}
+        onChange={(event) => {
+          setQuery(event.currentTarget.value);
+          setOpen(true);
+          setActive(-1);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={onKeyDown}
         className="w-36 border border-gray-500 px-1"
       />
       <button type="submit" className="border border-gray-500 bg-gray-100 px-2">
         検索
       </button>
+      {/* 候補を押しても入力欄から焦点を外さない（外すと、押す前に候補が閉じる）。 */}
+      <div
+        hidden={!shown}
+        onMouseDown={(event) => event.preventDefault()}
+        className="absolute top-full left-0 z-10 mt-1 w-72 max-w-[calc(100vw-2rem)] border border-gray-500 bg-white sm:right-0 sm:left-auto"
+      >
+        <ul id={SUGGESTIONS_ID} role="listbox" aria-label="候補" hidden={suggestions.length === 0}>
+          {suggestions.map((result, index) => (
+            <li
+              key={result.path}
+              id={suggestionId(index)}
+              role="option"
+              aria-selected={index === active}
+              onClick={() => go(result.path)}
+              onMouseEnter={() => setActive(index)}
+              className={`cursor-pointer px-2 py-1 ${index === active ? "bg-gray-200" : ""}`}
+            >
+              <span className="block text-blue-800 underline">{result.title}</span>
+              <span className="block text-xs text-gray-600">
+                {KIND_LABELS[result.kind]}
+                {result.date && ` ${result.date}`}
+              </span>
+            </li>
+          ))}
+        </ul>
+        {suggestions.length === 0 && <p className="px-2 py-1">「{trimmed}」に一致する記事はありません。</p>}
+      </div>
+      {/* 候補の数を読み上げる。 */}
+      <p role="status" className="sr-only">
+        {shown ? (suggestions.length > 0 ? `候補が ${suggestions.length} 件あります` : "一致する記事はありません") : ""}
+      </p>
     </form>
   );
 }
@@ -330,8 +412,7 @@ export default function App() {
             <Link to="/about">自己紹介</Link>
             <Link to="/search">検索</Link>
           </nav>
-          {/* 検索のページには自分の検索欄があるので、ヘッダーの検索ボックスは出さない。 */}
-          {!matchPath("/search", path) && <HeaderSearch />}
+          <HeaderSearch />
         </div>
       </header>
       <main>

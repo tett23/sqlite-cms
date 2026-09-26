@@ -12,14 +12,38 @@ import { stripBasePath, withBasePath } from "./base";
 
 const NAVIGATE_EVENT = "sqlite-cms:navigate";
 
-const PathContext = createContext("/");
+/** いまの場所。path はサイトを置くパスを除いたパス、search は `?q=…` などの問い合わせ（なければ空）。 */
+interface Location {
+  path: string;
+  search: string;
+}
 
-export function Router({ path: fixedPath, children }: { path?: string; children: ReactNode }) {
-  const [path, setPath] = useState(() => fixedPath ?? stripBasePath(window.location.pathname));
+const LocationContext = createContext<Location>({ path: "/", search: "" });
+
+function currentLocation(): Location {
+  return { path: stripBasePath(window.location.pathname), search: window.location.search };
+}
+
+export function Router({
+  path: fixedPath,
+  search: fixedSearch = "",
+  children,
+}: {
+  path?: string;
+  search?: string;
+  children: ReactNode;
+}) {
+  const [location, setLocation] = useState<Location>(() =>
+    fixedPath !== undefined ? { path: fixedPath, search: fixedSearch } : currentLocation(),
+  );
 
   useEffect(() => {
     if (fixedPath !== undefined) return;
-    const sync = () => setPath(stripBasePath(window.location.pathname));
+    const sync = () =>
+      setLocation((previous) => {
+        const next = currentLocation();
+        return previous.path === next.path && previous.search === next.search ? previous : next;
+      });
     window.addEventListener("popstate", sync);
     window.addEventListener(NAVIGATE_EVENT, sync);
     return () => {
@@ -28,16 +52,26 @@ export function Router({ path: fixedPath, children }: { path?: string; children:
     };
   }, [fixedPath]);
 
-  return <PathContext value={fixedPath ?? path}>{children}</PathContext>;
+  return <LocationContext value={location}>{children}</LocationContext>;
 }
 
 export function usePath(): string {
-  return useContext(PathContext);
+  return useContext(LocationContext).path;
 }
 
-/** サイトの中のパス（"/about" など）に移る。URL にはサイトを置くパスを付ける。 */
-export function navigate(to: string) {
-  window.history.pushState(null, "", withBasePath(to));
+/** URL の問い合わせ（`?q=…`）。ページを移ったときと、navigate で置き換えたときに変わる（ADR 0042）。 */
+export function useSearch(): string {
+  return useContext(LocationContext).search;
+}
+
+/**
+ * サイトの中のパス（"/about" など）に移る。URL にはサイトを置くパスを付ける。
+ * replace のときは履歴を増やさずに URL を置き換える（検索のページで、入力に合わせて ?q= を変えるときなど）。
+ */
+export function navigate(to: string, { replace = false }: { replace?: boolean } = {}) {
+  const url = withBasePath(to);
+  if (replace) window.history.replaceState(null, "", url);
+  else window.history.pushState(null, "", url);
   window.dispatchEvent(new Event(NAVIGATE_EVENT));
 }
 
