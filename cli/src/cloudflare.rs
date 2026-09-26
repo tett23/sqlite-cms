@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 pub const DEFAULT_API_BASE: &str = "https://api.cloudflare.com/client/v4";
 
@@ -64,10 +64,20 @@ pub struct ManifestEntry {
     pub size: usize,
 }
 
+/// 値が null でも、項目がないときと同じく既定値（空の配列など）として読む。
+/// Cloudflare の API は、成功した応答の `errors` や空の `buckets` を null で返すことがある。
+fn null_as_default<'de, D, T>(deserializer: D) -> std::result::Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
 #[derive(Debug, Deserialize)]
 pub struct UploadSession {
     pub jwt: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub buckets: Vec<Vec<String>>,
 }
 
@@ -96,9 +106,9 @@ pub struct UploadFile<'a> {
 
 #[derive(Deserialize)]
 struct Envelope<T> {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     success: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     errors: Vec<ApiMessage>,
     result: Option<T>,
 }
@@ -409,6 +419,21 @@ pub mod tests {
         assert!(err.contains("HTTP 403"), "{err}");
         assert!(err.contains("[10000] Authentication error"), "{err}");
         assert!(!err.contains("secret-token"));
+    }
+
+    #[test]
+    fn null_errors_and_buckets_are_read_as_empty() {
+        let http = FakeHttp::new(vec![(
+            200,
+            r#"{"success":true,"errors":null,"messages":null,"result":{"jwt":"done","buckets":null}}"#,
+        )]);
+        let session = client(&http).start_upload_session("blog", &BTreeMap::new()).unwrap();
+        assert_eq!(session.jwt, "done");
+        assert!(session.buckets.is_empty());
+
+        let http = FakeHttp::new(vec![(403, r#"{"success":false,"errors":null,"result":null}"#)]);
+        let err = client(&http).account_subdomain().unwrap_err().to_string();
+        assert!(err.contains("HTTP 403"), "{err}");
     }
 
     #[test]
