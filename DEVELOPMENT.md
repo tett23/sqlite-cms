@@ -26,6 +26,13 @@ docs/        仕様書と ADR
 npm がプラットフォーム用のバイナリを自動で入れるので、Go を別に入れる必要はない。
 7 系は JavaScript のコンパイラ API を持たないので、TypeScript の API に依存するツールはそのままでは使えない。
 
+## JS の依存の方針
+
+`web/` の依存は必要なものに絞る（ADR 0013）。
+数十行で書けるものは自前で実装し、ライブラリを足さない。
+ルーター（`web/src/router.tsx`）と sql.js の型（`web/src/types/sql.js.d.ts`）はこの方針で自前にしている。
+sql.js の API を新しく使うときは、型の宣言も足す。
+
 ## ビルド
 
 CLI は `web/dist` を埋め込むので、SPA を先にビルドする。
