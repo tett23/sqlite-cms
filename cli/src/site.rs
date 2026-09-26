@@ -4,6 +4,8 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
+use crate::date::{parse_timezone, TimeZone};
+
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SiteConfig {
@@ -11,6 +13,14 @@ pub struct SiteConfig {
     pub author: Option<String>,
     pub license: Option<License>,
     pub deploy: Option<DeployConfig>,
+    pub timezone: Option<String>,
+}
+
+impl SiteConfig {
+    /// `timezone` の指定。書式は読み込み時に検査済み。
+    pub fn timezone(&self) -> Option<TimeZone> {
+        self.timezone.as_deref().and_then(|s| parse_timezone(s).ok())
+    }
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -54,6 +64,9 @@ pub fn parse_site_config(raw: &str) -> Result<SiteConfig> {
             }
         }
     }
+    if let Some(timezone) = &config.timezone {
+        parse_timezone(timezone).map_err(|e| anyhow::anyhow!("site.toml の timezone が不正です: {e}"))?;
+    }
     if let Some(deploy) = &config.deploy {
         if !is_valid_worker_name(&deploy.worker) {
             bail!(
@@ -79,6 +92,7 @@ mod tests {
                 author: Some("tett23".into()),
                 license: None,
                 deploy: None,
+                timezone: None,
             }
         );
     }
@@ -120,6 +134,21 @@ mod tests {
         let err =
             parse_site_config("title = \"t\"\n[license]\nname = \"x\"\nurl = \"javascript:alert(1)\"\n").unwrap_err();
         assert!(err.to_string().contains("license.url"));
+    }
+
+    #[test]
+    fn reads_timezone() {
+        let config = parse_site_config("title = \"t\"\ntimezone = \"Asia/Tokyo\"\n").unwrap();
+        assert_eq!(config.timezone(), Some(TimeZone::Named("Asia/Tokyo".into())));
+        let config = parse_site_config("title = \"t\"\ntimezone = \"+09:00\"\n").unwrap();
+        assert_eq!(config.timezone(), Some(TimeZone::Offset(540)));
+        assert_eq!(parse_site_config("title = \"t\"").unwrap().timezone(), None);
+    }
+
+    #[test]
+    fn invalid_timezone_is_error() {
+        let err = parse_site_config("title = \"t\"\ntimezone = \"+9\"\n").unwrap_err();
+        assert!(err.to_string().contains("timezone が不正です"), "{err}");
     }
 
     #[test]

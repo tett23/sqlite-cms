@@ -1,5 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 
+use crate::date::is_valid_date;
 use crate::frontmatter::{self, Frontmatter};
 
 #[derive(Debug, PartialEq)]
@@ -66,21 +67,12 @@ fn parse_doc(slug: &str, raw: &str) -> Result<Doc> {
     })
 }
 
-fn is_date(s: &str) -> bool {
-    let b = s.as_bytes();
-    b.len() == 10
-        && b.iter().enumerate().all(|(i, c)| match i {
-            4 | 7 => *c == b'-',
-            _ => c.is_ascii_digit(),
-        })
-}
-
 fn value<'a>(frontmatter: &'a Frontmatter, key: &str) -> Option<&'a str> {
     frontmatter.get(key).and_then(|v| v.as_deref())
 }
 
 fn date_field(frontmatter: &Frontmatter, key: &str) -> Option<String> {
-    value(frontmatter, key).filter(|s| is_date(s)).map(str::to_string)
+    value(frontmatter, key).filter(|s| is_valid_date(s)).map(str::to_string)
 }
 
 fn require_date(slug: &str, frontmatter: &Frontmatter) -> Result<String> {
@@ -169,6 +161,12 @@ mod tests {
     #[test]
     fn post_with_malformed_date_is_error() {
         let err = parse_post("bad", "---\ntitle: t\ndate: 2026/01/01\n---\n本文").unwrap_err();
+        assert!(err.to_string().contains("date"));
+    }
+
+    #[test]
+    fn post_with_impossible_date_is_error() {
+        let err = parse_post("bad", "---\ntitle: t\ndate: 2026-02-30\n---\n本文").unwrap_err();
         assert!(err.to_string().contains("date"));
     }
 

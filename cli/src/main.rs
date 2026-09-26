@@ -1,6 +1,7 @@
 mod base64;
 mod cloudflare;
 mod content;
+mod date;
 mod db;
 mod deploy;
 mod frontmatter;
@@ -8,6 +9,7 @@ mod media;
 mod migrations;
 mod mime;
 mod output;
+mod scaffold;
 mod serve;
 mod site;
 mod spa;
@@ -23,29 +25,35 @@ use std::process::ExitCode;
 use anyhow::{anyhow, bail, Context, Result};
 
 use output::SiteOutput;
+use scaffold::Kind;
 
-const USAGE: &str = "usage: sqlite-cms <build|serve|deploy> [SITE_DIR] [オプション]";
+const USAGE: &str = "usage: sqlite-cms <new|serve|build|deploy> [引数] [オプション]";
 
 const HELP: &str = "\
 sqlite-cms: 記事リポジトリの Markdown からサイトを組み立て、プレビューし、Cloudflare に公開する
 
-usage: sqlite-cms <コマンド> [SITE_DIR] [オプション]
+usage: sqlite-cms <コマンド> [引数] [オプション]
 
 コマンド:
-  serve   サイトを組み立てて手元でプレビューする
-  build   サイトを組み立てて配信用のディレクトリに書き出す
-  deploy  サイトを組み立てて Cloudflare Workers に公開する
+  new <種別> <SLUG> [SITE_DIR]  記事の雛形を作る（種別は post、article、page）
+  serve [SITE_DIR]              サイトを組み立てて手元でプレビューする
+  build [SITE_DIR]              サイトを組み立てて配信用のディレクトリに書き出す
+  deploy [SITE_DIR]             サイトを組み立てて Cloudflare Workers に公開する
 
 引数:
   SITE_DIR  記事リポジトリのディレクトリ（既定: .）
+  SLUG      ファイル名と URL になる名前（文字、数字、-、_）
 
 オプション:
-  serve --port <PORT>  待ち受けるポート（既定: 8080。0 なら空いているポート）
-  build --out <DIR>    書き出し先（既定: dist）。前回の書き出しは消して作り直す
-  -h, --help           このヘルプを表示して終了する
+  new --title <TITLE>      タイトル（既定: SLUG）
+  new --date <YYYY-MM-DD>  日付（既定: site.toml の timezone での今日。page では使えない）
+  serve --port <PORT>      待ち受けるポート（既定: 8080。0 なら空いているポート）
+  build --out <DIR>        書き出し先（既定: dist）。前回の書き出しは消して作り直す
+  -h, --help               このヘルプを表示して終了する
 
 記事リポジトリの構成:
-  site.toml       サイトのメタデータ（必須）
+  site.toml       サイトのメタデータ（必須）。timezone で new の日付のタイムゾーンを
+                  指定できる（Asia/Tokyo や +09:00。既定は環境のタイムゾーン）
   content/
     index.md      トップページの本文（任意）
     posts/        post の Markdown
@@ -59,13 +67,15 @@ deploy に要るもの:
   環境変数 CLOUDFLARE_ACCOUNT_ID  Cloudflare のアカウント ID
 
 例:
-  sqlite-cms serve                 カレントディレクトリの記事リポジトリをプレビューする
-  sqlite-cms build --out public    public/ に書き出す
-  sqlite-cms deploy ../blog        ../blog の記事リポジトリを公開する";
+  sqlite-cms new post hello --title はじめまして  content/posts/hello.md を作る
+  sqlite-cms serve                               カレントディレクトリの記事リポジトリをプレビューする
+  sqlite-cms build --out public                  public/ に書き出す
+  sqlite-cms deploy ../blog                      ../blog の記事リポジトリを公開する";
 
 #[derive(Debug, PartialEq)]
 enum Command {
     Help,
+    New { kind: Kind, slug: String, site_dir: PathBuf, title: Option<String>, date: Option<String> },
     Build { site_dir: PathBuf, out_dir: PathBuf, data_only: bool },
     Serve { site_dir: PathBuf, port: u16 },
     Deploy { site_dir: PathBuf },
@@ -73,6 +83,12 @@ enum Command {
 
 fn usage_error(message: impl std::fmt::Display) -> anyhow::Error {
     anyhow!("{message}\n\n{USAGE}\n詳しくは sqlite-cms --help を参照してください")
+}
+
+fn option_value(args: &mut impl Iterator<Item = OsString>, flag: &str, what: &str) -> Result<String> {
+    args.next()
+        .map(|v| v.to_string_lossy().into_owned())
+        .ok_or_else(|| usage_error(format_args!("{flag} に{what}を指定してください")))
 }
 
 fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command> {
@@ -84,46 +100,91 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command> {
     let mut args = args.into_iter();
     let command = args.next().ok_or_else(|| usage_error("コマンドを指定してください"))?;
     let command = command.to_string_lossy().into_owned();
-    if !["build", "serve", "deploy"].contains(&command.as_str()) {
+    if !["new", "build", "serve", "deploy"].contains(&command.as_str()) {
         return Err(usage_error(format_args!("不明なコマンドです: {command}")));
     }
 
-    let mut site_dir = None;
+    let mut positionals: Vec<OsString> = Vec::new();
     let mut out_dir = PathBuf::from("dist");
     let mut data_only = false;
     let mut port: u16 = 8080;
+    let mut title = None;
+    let mut date = None;
 
     while let Some(arg) = args.next() {
         let flag = arg.to_string_lossy().into_owned();
         match (command.as_str(), flag.as_str()) {
-            ("build", "--out") => {
-                out_dir = args
-                    .next()
-                    .map(PathBuf::from)
-                    .ok_or_else(|| usage_error("--out に書き出し先を指定してください"))?;
-            }
+            ("build", "--out") => out_dir = PathBuf::from(option_value(&mut args, "--out", "書き出し先")?),
             ("build", "--data-only") => data_only = true,
             ("serve", "--port") => {
-                let value = args.next().ok_or_else(|| usage_error("--port にポート番号を指定してください"))?;
-                port = value
-                    .to_string_lossy()
-                    .parse()
-                    .map_err(|_| usage_error(format_args!("ポート番号が不正です: {}", value.to_string_lossy())))?;
+                let value = option_value(&mut args, "--port", "ポート番号")?;
+                port = value.parse().map_err(|_| usage_error(format_args!("ポート番号が不正です: {value}")))?;
+            }
+            ("new", "--title") => title = Some(option_value(&mut args, "--title", "タイトル")?),
+            ("new", "--date") => {
+                let value = option_value(&mut args, "--date", "日付")?;
+                if !date::is_valid_date(&value) {
+                    return Err(usage_error(format_args!("日付は実在する YYYY-MM-DD で指定してください: {value}")));
+                }
+                date = Some(value);
             }
             (_, f) if f.starts_with('-') => {
                 return Err(usage_error(format_args!("{command} では使えないオプションです: {f}")));
             }
-            _ if site_dir.is_none() => site_dir = Some(PathBuf::from(arg)),
-            _ => return Err(usage_error(format_args!("余分な引数があります: {flag}"))),
+            _ => positionals.push(arg),
         }
     }
 
-    let site_dir = site_dir.unwrap_or_else(|| PathBuf::from("."));
+    let max_positionals = if command == "new" { 3 } else { 1 };
+    if let Some(extra) = positionals.get(max_positionals) {
+        return Err(usage_error(format_args!("余分な引数があります: {}", extra.to_string_lossy())));
+    }
+    let mut positionals = positionals.into_iter();
+
+    if command == "new" {
+        let kind = positionals
+            .next()
+            .ok_or_else(|| usage_error("記事の種別（post、article、page）を指定してください"))?
+            .to_string_lossy()
+            .into_owned();
+        let kind = Kind::parse(&kind)
+            .ok_or_else(|| usage_error(format_args!("不明な種別です: {kind}（post、article、page のどれか）")))?;
+        let slug = positionals
+            .next()
+            .ok_or_else(|| usage_error("slug（ファイル名と URL になる名前）を指定してください"))?
+            .to_string_lossy()
+            .into_owned();
+        if kind == Kind::Page && date.is_some() {
+            return Err(usage_error("page は日付を持たないので --date は使えません"));
+        }
+        let site_dir = positionals.next().map_or_else(|| PathBuf::from("."), PathBuf::from);
+        return Ok(Command::New { kind, slug, site_dir, title, date });
+    }
+
+    let site_dir = positionals.next().map_or_else(|| PathBuf::from("."), PathBuf::from);
     Ok(match command.as_str() {
         "build" => Command::Build { site_dir, out_dir, data_only },
         "serve" => Command::Serve { site_dir, port },
         _ => Command::Deploy { site_dir },
     })
+}
+
+fn new_document(kind: Kind, slug: String, site_dir: PathBuf, title: Option<String>, date: Option<String>) -> Result<()> {
+    let title = title.unwrap_or_else(|| slug.clone());
+    let date = match date {
+        Some(date) => date,
+        None => {
+            let timezone = if site_dir.join("site.toml").is_file() {
+                site::read_site_config(&site_dir)?.timezone()
+            } else {
+                None
+            };
+            date::today_in(timezone.as_ref())?
+        }
+    };
+    let path = scaffold::create(&site_dir, kind, &slug, &title, &date)?;
+    println!("{} を作りました", path.display());
+    Ok(())
 }
 
 fn build(site_dir: PathBuf, out_dir: PathBuf, data_only: bool) -> Result<()> {
@@ -191,6 +252,7 @@ fn run() -> Result<()> {
             println!("{HELP}");
             Ok(())
         }
+        Command::New { kind, slug, site_dir, title, date } => new_document(kind, slug, site_dir, title, date),
         Command::Build { site_dir, out_dir, data_only } => build(site_dir, out_dir, data_only),
         Command::Serve { site_dir, port } => serve(site_dir, port),
         Command::Deploy { site_dir } => deploy(site_dir),
@@ -275,6 +337,40 @@ mod tests {
         assert!(err(&["serve", "--port"]).contains("--port"));
         assert!(err(&["serve", "--port", "http"]).contains("ポート番号が不正です"));
         assert!(err(&["serve", "--port", "70000"]).contains("ポート番号が不正です"));
+    }
+
+    #[test]
+    fn new_with_kind_slug_and_defaults() {
+        assert_eq!(
+            parse(&["new", "post", "hello"]).unwrap(),
+            Command::New { kind: Kind::Post, slug: "hello".into(), site_dir: ".".into(), title: None, date: None }
+        );
+    }
+
+    #[test]
+    fn new_with_all_options() {
+        assert_eq!(
+            parse(&["new", "article", "long", "../blog", "--title", "長い読み物", "--date", "2026-09-26"]).unwrap(),
+            Command::New {
+                kind: Kind::Article,
+                slug: "long".into(),
+                site_dir: "../blog".into(),
+                title: Some("長い読み物".into()),
+                date: Some("2026-09-26".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn new_argument_errors() {
+        assert!(err(&["new"]).contains("記事の種別"));
+        assert!(err(&["new", "blog", "x"]).contains("不明な種別です: blog"));
+        assert!(err(&["new", "post"]).contains("slug"));
+        assert!(err(&["new", "post", "x", "site", "extra"]).contains("余分な引数があります: extra"));
+        assert!(err(&["new", "post", "x", "--date", "2026-02-30"]).contains("実在する YYYY-MM-DD"));
+        assert!(err(&["new", "page", "about", "--date", "2026-09-26"]).contains("page は日付を持たない"));
+        assert!(err(&["new", "post", "x", "--title"]).contains("--title にタイトル"));
+        assert!(err(&["build", "--title", "x"]).contains("build では使えないオプションです: --title"));
     }
 
     #[test]

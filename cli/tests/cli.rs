@@ -363,3 +363,116 @@ fn deploy_requires_deploy_section_and_credentials() {
     assert!(!output.status.success());
     assert!(stderr(&output).contains("CLOUDFLARE_API_TOKEN"));
 }
+
+fn empty_site(tmp: &Path) -> PathBuf {
+    let site = tmp.join("site");
+    fs::create_dir_all(&site).unwrap();
+    fs::write(site.join("site.toml"), "title = \"t\"\n").unwrap();
+    site
+}
+
+#[test]
+fn new_creates_a_document_that_builds() {
+    let tmp = testutil::tempdir();
+    let site = empty_site(tmp.path());
+
+    let output = run(
+        &["new", "post", "hello", "--title", "[はじめまして] \"引用\"", "--date", "2026-09-26"],
+        &site,
+    );
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("hello.md を作りました"));
+    let written = fs::read_to_string(site.join("content/posts/hello.md")).unwrap();
+    assert!(written.starts_with("---\ntitle: \"[はじめまして] \\\"引用\\\"\"\ndate: 2026-09-26\n---\n"));
+
+    for (kind, slug) in [("article", "long"), ("page", "about")] {
+        let output = run(&["new", kind, slug], &site);
+        assert!(output.status.success(), "{}", stderr(&output));
+    }
+
+    let out = tmp.path().join("public");
+    let output = run(&["build", "--data-only", "--out", out.to_str().unwrap()], &site);
+    assert!(output.status.success(), "{}", stderr(&output));
+}
+
+#[test]
+fn new_refuses_to_overwrite() {
+    let tmp = testutil::tempdir();
+    let site = empty_site(tmp.path());
+    assert!(run(&["new", "post", "hello", "--title", "一本目"], &site).status.success());
+
+    let output = run(&["new", "post", "hello", "--title", "二本目"], &site);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("すでにあります"));
+    assert!(fs::read_to_string(site.join("content/posts/hello.md")).unwrap().contains("一本目"));
+}
+
+#[test]
+fn new_requires_a_site() {
+    let tmp = testutil::tempdir();
+    let output = run(&["new", "post", "hello"], tmp.path());
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("site.toml がありません"));
+    assert!(!tmp.path().join("content").exists());
+}
+
+/// 記事リポジトリの timezone（任意）と環境変数 TZ を与えて new を実行し、既定の日付を返す。
+fn default_date(site_timezone: Option<&str>, env_tz: &str) -> String {
+    let tmp = testutil::tempdir();
+    let site = empty_site(tmp.path());
+    if let Some(timezone) = site_timezone {
+        fs::write(site.join("site.toml"), format!("title = \"t\"\ntimezone = \"{timezone}\"\n")).unwrap();
+    }
+    let output = sqlite_cms().args(["new", "post", "x"]).env("TZ", env_tz).current_dir(&site).output().unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    let written = fs::read_to_string(site.join("content/posts/x.md")).unwrap();
+    written.lines().find_map(|l| l.strip_prefix("date: ")).unwrap().to_string()
+}
+
+// UTC+14（Pacific/Kiritimati）と UTC-12（Etc/GMT+12）は 26 時間ずれているので、いつ実行しても日付が異なる。
+const EAST: &str = "Pacific/Kiritimati";
+const WEST: &str = "Etc/GMT+12";
+
+#[cfg(unix)]
+#[test]
+fn new_uses_the_environment_time_zone_by_default() {
+    assert_ne!(default_date(None, EAST), default_date(None, WEST));
+}
+
+#[cfg(unix)]
+#[test]
+fn site_timezone_overrides_the_environment() {
+    let east = default_date(None, EAST);
+    let west = default_date(None, WEST);
+    assert_eq!(default_date(Some(EAST), WEST), east);
+    assert_eq!(default_date(Some(WEST), EAST), west);
+}
+
+#[test]
+fn site_timezone_accepts_fixed_offsets() {
+    #[cfg(unix)]
+    {
+        assert_eq!(default_date(Some("+14:00"), WEST), default_date(None, EAST));
+        assert_eq!(default_date(Some("-12:00"), EAST), default_date(None, WEST));
+    }
+    let _ = default_date(Some("UTC"), "UTC");
+}
+
+#[test]
+fn unknown_timezone_fails_new_but_not_build() {
+    let tmp = testutil::tempdir();
+    let site = empty_site(tmp.path());
+    fs::write(site.join("site.toml"), "title = \"t\"\ntimezone = \"Mars/Olympus_Mons\"\n").unwrap();
+
+    let output = run(&["new", "post", "x"], &site);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("Mars/Olympus_Mons"), "{}", stderr(&output));
+    assert!(!site.join("content/posts/x.md").exists());
+
+    let output = run(&["new", "post", "x", "--date", "2026-09-26"], &site);
+    assert!(output.status.success(), "{}", stderr(&output));
+
+    let out = tmp.path().join("public");
+    let output = run(&["build", "--data-only", "--out", out.to_str().unwrap()], &site);
+    assert!(output.status.success(), "{}", stderr(&output));
+}

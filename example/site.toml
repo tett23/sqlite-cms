@@ -1,6 +1,9 @@
 title = "tett23の記事置き場"
 author = "tett23"
 
+# new が入れる日付のタイムゾーン。省略すると実行した環境のタイムゾーンになる
+# timezone = "Asia/Tokyo"
+
 [license]
 name = "CC0 1.0"
 url = "https://creativecommons.org/publicdomain/zero/1.0/"
