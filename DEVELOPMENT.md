@@ -9,7 +9,7 @@
 
 ```
 cli/         CLI sqlite-cms（Rust）。利用者が使うのはこれだけ
-web/         SPA（React + Vite + Tailwind）。ビルド結果は CLI に埋め込まれる
+web/         SPA（Preact + Vite + Tailwind）。ビルド結果は CLI に埋め込まれる
 migrations/  SQLite のマイグレーション。CLI に埋め込まれる
 example/     記事リポジトリのサンプル。動作確認とテストに使う
 docs/        仕様書と ADR
@@ -103,6 +103,7 @@ npm --prefix web run dev
 ```
 
 `sqlite-cms build --data-only` で DB と画像を `web/public` に書き出してから、Vite の開発サーバを起動する。
+SPA は Preact で描くので（ADR 0039）、部品を変えると状態を保った差し替え（Fast Refresh）ではなく、ページ全体を読み直す。
 記事は既定で `example/` のものを使う。別の記事リポジトリで試すときは `SITE_DIR` で指定する。
 
 ```sh

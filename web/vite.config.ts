@@ -1,6 +1,5 @@
 /// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from "vite";
-import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 /**
@@ -49,7 +48,17 @@ function inlineEntryCss(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), katexWoff2Only(), inlineEntryCss()],
+  plugins: [tailwindcss(), katexWoff2Only(), inlineEntryCss()],
+  // React の代わりに Preact（preact/compat）を使う。ソースと依存（react-markdown）は react から import したままにする。
+  resolve: {
+    alias: [
+      { find: /^react-dom\/client$/, replacement: "preact/compat/client" },
+      { find: /^react-dom$/, replacement: "preact/compat" },
+      { find: /^react\/jsx-runtime$/, replacement: "preact/compat/jsx-runtime" },
+      { find: /^react\/jsx-dev-runtime$/, replacement: "preact/compat/jsx-dev-runtime" },
+      { find: /^react$/, replacement: "preact/compat" },
+    ],
+  },
   // 相対のパスで出力し、どのパスに置いても読めるようにする。index.html のパスは CLI が base_path に合わせて書き換える（ADR 0030）。
   base: "./",
   build: {
@@ -62,5 +71,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // react-markdown も Preact で描くよう、Vite で変換して別名を効かせる。
+    server: { deps: { inline: ["react-markdown"] } },
   },
 });

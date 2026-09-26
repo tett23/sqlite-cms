@@ -1,4 +1,4 @@
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup } from "preact-render-to-string";
 import { beforeAll, describe, expect, it } from "vitest";
 import { highlightLoader } from "../highlightLoader";
 import { MarkdownBody } from "../MarkdownBody";
@@ -13,13 +13,13 @@ function render(source: string): string {
 describe(":::message と :::details", () => {
   it("メッセージを枠にする", () => {
     expect(render(":::message\nメッセージ **強調**\n:::")).toBe(
-      '<div class="message" role="note"><p>メッセージ <strong>強調</strong></p></div>',
+      '<div role="note" class="message"><p>メッセージ <strong>強調</strong></p></div>',
     );
   });
 
   it("alert を付けると警告の枠にする", () => {
     expect(render(":::message alert\n警告\n:::")).toBe(
-      '<div class="message message-alert" role="note"><p>警告</p></div>',
+      '<div role="note" class="message message-alert"><p>警告</p></div>',
     );
   });
 
@@ -36,28 +36,28 @@ describe(":::message と :::details", () => {
 
   it("外側のコロンを増やすと入れ子にできる", () => {
     expect(render("::::details 外\n:::message\n内\n:::\n\n後\n::::")).toBe(
-      '<details><summary>外</summary><div class="message" role="note"><p>内</p></div><p>後</p></details>',
+      '<details><summary>外</summary><div role="note" class="message"><p>内</p></div><p>後</p></details>',
     );
   });
 
   it("同じ長さの ::: は外側を閉じる（Zenn と同じ）。内側は閉じのないまま外側の中身の終わりまで続く", () => {
     expect(render(":::details 外\n:::message\n内\n:::\n:::")).toBe(
-      '<details><summary>外</summary><div class="message" role="note"><p>内</p></div></details>\n<p>:::</p>',
+      '<details><summary>外</summary><div role="note" class="message"><p>内</p></div></details>\n<p>:::</p>',
     );
   });
 
   it("リストの項目の中にも書ける", () => {
     expect(render("- 項目\n  :::message\n  中\n  :::\n- 次")).toContain(
-      '<li>項目\n<div class="message" role="note"><p>中</p></div>\n</li>',
+      '<li>項目\n<div role="note" class="message"><p>中</p></div>\n</li>',
     );
   });
 
   it("段落の直後にも書ける", () => {
-    expect(render("段落\n:::message\n中\n:::")).toBe('<p>段落</p>\n<div class="message" role="note"><p>中</p></div>');
+    expect(render("段落\n:::message\n中\n:::")).toBe('<p>段落</p>\n<div role="note" class="message"><p>中</p></div>');
   });
 
   it("閉じがなければ文書の終わりまでを中身にする", () => {
-    expect(render(":::message\n中\n\n続き")).toBe('<div class="message" role="note"><p>中</p><p>続き</p></div>');
+    expect(render(":::message\n中\n\n続き")).toBe('<div role="note" class="message"><p>中</p><p>続き</p></div>');
   });
 
   it("知らない名前やコロンが足りないものは段落のまま", () => {
@@ -154,7 +154,7 @@ describe("コードブロックの情報文字列", () => {
 
     it("mermaid のコードブロックには色を付けない", () => {
       expect(render("```mermaid\ngraph TB\n  A --> B\n```")).toBe(
-        '<pre><code class="language-mermaid">graph TB\n  A --&gt; B</code></pre>',
+        '<pre><code class="language-mermaid">graph TB\n  A --> B</code></pre>',
       );
     });
   });
@@ -188,13 +188,13 @@ describe("画像の幅", () => {
   it("=250x で幅を指定する（サイト内と外部の URL）", () => {
     expect(render("![図](/media/a.png =250x)")).toContain('<img src="/media/a.png" alt="図" width="250"/>');
     expect(render("![](https://example.com/a.png =120x) 後")).toContain(
-      '<p><img src="https://example.com/a.png" alt="" width="120"/> 後</p>',
+      '<p><img src="https://example.com/a.png" alt width="120"/> 後</p>',
     );
   });
 
   it("リンクの中の画像にも使える", () => {
     expect(render("[![](/a.png =100x)](https://example.com)")).toContain(
-      '<a href="https://example.com"><img src="/a.png" alt="" width="100"/></a>',
+      '<a href="https://example.com"><img src="/a.png" alt width="100"/></a>',
     );
   });
 
@@ -219,7 +219,7 @@ describe("リンクカード", () => {
     const images = new Map([["https://example.com/path", "/link-cards/0123456789abcdef.png"]]);
     const html = renderToStaticMarkup(<MarkdownBody source={"https://example.com/path\n\nhttps://example.com/other"} linkCardImages={images} />);
     expect(html).toContain(
-      '<span class="link-card-url">https://example.com/path</span></span><img src="/link-cards/0123456789abcdef.png" alt="" class="link-card-image" loading="lazy"/></a>',
+      '<span class="link-card-url">https://example.com/path</span></span><img src="/link-cards/0123456789abcdef.png" alt loading="lazy" class="link-card-image"/></a>',
     );
     // 画像のない URL のカードには img を付けない。
     expect(html.match(/<img /g)).toHaveLength(1);
@@ -228,7 +228,7 @@ describe("リンクカード", () => {
   it("本文に HTML で書いた img の class と loading は、カードのものだけを残す", () => {
     const html = render('<img src="/a.png" alt="a" class="evil" loading="eager"> <img src="/b.png" alt="b" class="link-card-image" loading="lazy">');
     expect(html).toContain('<img src="/a.png" alt="a"/>');
-    expect(html).toContain('<img src="/b.png" alt="b" class="link-card-image" loading="lazy"/>');
+    expect(html).toContain('<img src="/b.png" alt="b" loading="lazy" class="link-card-image"/>');
   });
 
   it("文中の URL、リンク文字列のあるリンク、www. で始まるものはカードにしない", () => {

@@ -185,7 +185,7 @@ function SearchPage() {
           id="search-query"
           type="search"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => setQuery(event.currentTarget.value)}
           className="w-64 border border-gray-500 px-2 py-1"
         />
       </form>

@@ -88,7 +88,7 @@ export function shouldNavigateInApp(event: ClickLike, target: string | undefined
 export function Link({ to, onClick, ...props }: { to: string } & AnchorHTMLAttributes<HTMLAnchorElement>) {
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
     onClick?.(event);
-    if (!shouldNavigateInApp(event, props.target)) return;
+    if (!shouldNavigateInApp(event, typeof props.target === "string" ? props.target : undefined)) return;
     event.preventDefault();
     navigate(to);
   };

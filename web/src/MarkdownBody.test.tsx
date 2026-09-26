@@ -1,4 +1,4 @@
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup } from "preact-render-to-string";
 import { describe, expect, it } from "vitest";
 import { MarkdownBody } from "./MarkdownBody";
 
@@ -26,7 +26,7 @@ describe("MarkdownBody", () => {
   it("GFM のタスクリストを描画する", () => {
     const html = render("- [x] 済\n- [ ] 未");
     expect(html).toContain('class="contains-task-list"');
-    expect(html).toMatch(/<input type="checkbox" disabled="" [^>]*checked=""\/>/);
+    expect(html).toMatch(/<input type="checkbox" checked disabled[^>]*\/>/);
   });
 
   it("GFM の自動リンクを描画する", () => {

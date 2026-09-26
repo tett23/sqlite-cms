@@ -1,4 +1,4 @@
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup } from "preact-render-to-string";
 import { beforeAll, describe, expect, it } from "vitest";
 import { highlightLoader } from "./highlightLoader";
 import { MarkdownBody } from "./MarkdownBody";
@@ -17,7 +17,7 @@ describe("本文の HTML", () => {
 
   it("details の open と、summary の中の strong と code を残す", () => {
     const html = render("<details open>\n<summary><strong>補足</strong>と<code>x</code></summary>\n\n本文\n\n</details>");
-    expect(html).toContain('<details open="">');
+    expect(html).toContain('<details open>');
     expect(html).toContain("<summary><strong>補足</strong>と<code>x</code></summary>");
   });
 
@@ -84,7 +84,7 @@ describe("本文の HTML", () => {
 
   it("タスクリストのチェックボックスを残し、項目の文章を読み上げ用の名前にする", () => {
     const html = render("- [x] 済んだこと\n- [ ] まだのこと\n  - [ ] 入れ子");
-    expect(html).toMatch(/<input type="checkbox" disabled="" aria-label="済んだこと" checked=""\/>/);
+    expect(html).toMatch(/<input type="checkbox" checked disabled aria-label="済んだこと"\/>/);
     expect(html).toContain('aria-label="まだのこと"');
     expect(html).toContain('aria-label="入れ子"');
   });
