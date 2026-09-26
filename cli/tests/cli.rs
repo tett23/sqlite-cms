@@ -516,3 +516,45 @@ fn init_refuses_existing_site_unless_forced() {
     assert!(!fs::read_to_string(tmp.path().join("site.toml")).unwrap().contains("編集済み"));
     assert!(tmp.path().join("content/posts/hello.md").is_file());
 }
+
+#[test]
+fn new_without_slug_uses_the_date_and_suffixes() {
+    let tmp = testutil::tempdir();
+    let site = empty_site(tmp.path());
+
+    let first = run(&["new", "post", "--date", "2026-09-26"], &site);
+    assert!(first.status.success(), "{}", stderr(&first));
+    assert!(stdout(&first).contains("2026-09-26.md を作りました"));
+    let second = run(&["new", "post", "--date", "2026-09-26", "--title", "二本目"], &site);
+    assert!(second.status.success(), "{}", stderr(&second));
+    assert!(stdout(&second).contains("2026-09-26-2.md を作りました"));
+
+    let out = tmp.path().join("public");
+    let output = run(&["build", "--data-only", "--out", out.to_str().unwrap()], &site);
+    assert!(output.status.success(), "{}", stderr(&output));
+}
+
+#[test]
+fn new_without_slug_names_the_file_after_the_date_it_writes() {
+    let tmp = testutil::tempdir();
+    let site = empty_site(tmp.path());
+    fs::write(site.join("site.toml"), "title = \"t\"\ntimezone = \"+14:00\"\n").unwrap();
+
+    let output = sqlite_cms().args(["new", "article"]).env("TZ", "Etc/GMT+12").current_dir(&site).output().unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+
+    let entries: Vec<PathBuf> = fs::read_dir(site.join("content/articles")).unwrap().map(|e| e.unwrap().path()).collect();
+    assert_eq!(entries.len(), 1);
+    let stem = entries[0].file_stem().unwrap().to_str().unwrap().to_string();
+    let written = fs::read_to_string(&entries[0]).unwrap();
+    assert!(written.contains(&format!("\ndate: {stem}\n")), "{stem}: {written}");
+}
+
+#[test]
+fn new_without_slug_accepts_a_site_path() {
+    let tmp = testutil::tempdir();
+    let site = empty_site(tmp.path());
+    let output = run(&["new", "post", "./site", "--date", "2026-09-26"], tmp.path());
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(site.join("content/posts/2026-09-26.md").is_file());
+}

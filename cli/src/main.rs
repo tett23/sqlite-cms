@@ -36,14 +36,16 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
 
 コマンド:
   init [SITE_DIR]               記事リポジトリに必要な site.toml と content/ を作る
-  new <種別> <SLUG> [SITE_DIR]  記事の雛形を作る（種別は post、article、page）
+  new <種別> [SLUG] [SITE_DIR]  記事の雛形を作る（種別は post、article、page）
   serve [SITE_DIR]              サイトを組み立てて手元でプレビューする
   build [SITE_DIR]              サイトを組み立てて配信用のディレクトリに書き出す
   deploy [SITE_DIR]             サイトを組み立てて Cloudflare Workers に公開する
 
 引数:
   SITE_DIR  記事リポジトリのディレクトリ（既定: .）
-  SLUG      ファイル名と URL になる名前（文字、数字、-、_）
+  SLUG      ファイル名と URL になる名前（文字、数字、-、_）。省くと記事の日付（YYYY-MM-DD）に
+            なり、同じ日付があれば -2、-3 と枝番を付ける。page では省けない
+            new の引数が一つで、/ を含むか . で始まるときは、SLUG ではなく SITE_DIR とみなす
 
 オプション:
   init --title <TITLE>     サイト名（既定: ディレクトリ名）
@@ -73,6 +75,7 @@ deploy に要るもの:
 例:
   sqlite-cms init my-blog                        my-blog/ に記事リポジトリを作る
   sqlite-cms new post hello --title はじめまして  content/posts/hello.md を作る
+  sqlite-cms new post                            content/posts/<今日の日付>.md を作る
   sqlite-cms serve                               カレントディレクトリの記事リポジトリをプレビューする
   sqlite-cms build --out public                  public/ に書き出す
   sqlite-cms deploy ../blog                      ../blog の記事リポジトリを公開する";
@@ -81,7 +84,7 @@ deploy に要るもの:
 enum Command {
     Help,
     Init { site_dir: PathBuf, title: Option<String>, force: bool },
-    New { kind: Kind, slug: String, site_dir: PathBuf, title: Option<String>, date: Option<String> },
+    New { kind: Kind, slug: Option<String>, site_dir: PathBuf, title: Option<String>, date: Option<String> },
     Build { site_dir: PathBuf, out_dir: PathBuf, data_only: bool },
     Serve { site_dir: PathBuf, port: u16 },
     Deploy { site_dir: PathBuf },
@@ -95,6 +98,12 @@ fn option_value(args: &mut impl Iterator<Item = OsString>, flag: &str, what: &st
     args.next()
         .map(|v| v.to_string_lossy().into_owned())
         .ok_or_else(|| usage_error(format_args!("{flag} に{what}を指定してください")))
+}
+
+/// SLUG に使えない文字（/ や先頭の .）を含むなら、ディレクトリを指している。
+fn looks_like_path(arg: &OsString) -> bool {
+    let arg = arg.to_string_lossy();
+    arg.contains('/') || arg.contains('\\') || arg.starts_with('.')
 }
 
 fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command> {
@@ -157,15 +166,19 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command> {
             .into_owned();
         let kind = Kind::parse(&kind)
             .ok_or_else(|| usage_error(format_args!("不明な種別です: {kind}（post、article、page のどれか）")))?;
-        let slug = positionals
-            .next()
-            .ok_or_else(|| usage_error("slug（ファイル名と URL になる名前）を指定してください"))?
-            .to_string_lossy()
-            .into_owned();
+        let rest: Vec<OsString> = positionals.collect();
+        let (slug, site_dir) = match rest.as_slice() {
+            [] => (None, PathBuf::from(".")),
+            [only] if looks_like_path(only) => (None, PathBuf::from(only)),
+            [only] => (Some(only.to_string_lossy().into_owned()), PathBuf::from(".")),
+            [slug, site_dir, ..] => (Some(slug.to_string_lossy().into_owned()), PathBuf::from(site_dir)),
+        };
         if kind == Kind::Page && date.is_some() {
             return Err(usage_error("page は日付を持たないので --date は使えません"));
         }
-        let site_dir = positionals.next().map_or_else(|| PathBuf::from("."), PathBuf::from);
+        if kind == Kind::Page && slug.is_none() {
+            return Err(usage_error("page は日付を持たないので、slug を省略できません"));
+        }
         return Ok(Command::New { kind, slug, site_dir, title, date });
     }
 
@@ -192,8 +205,13 @@ fn init(site_dir: PathBuf, title: Option<String>, force: bool) -> Result<()> {
     Ok(())
 }
 
-fn new_document(kind: Kind, slug: String, site_dir: PathBuf, title: Option<String>, date: Option<String>) -> Result<()> {
-    let title = title.unwrap_or_else(|| slug.clone());
+fn new_document(
+    kind: Kind,
+    slug: Option<String>,
+    site_dir: PathBuf,
+    title: Option<String>,
+    date: Option<String>,
+) -> Result<()> {
     let date = match date {
         Some(date) => date,
         None => {
@@ -205,7 +223,7 @@ fn new_document(kind: Kind, slug: String, site_dir: PathBuf, title: Option<Strin
             date::today_in(timezone.as_ref())?
         }
     };
-    let path = scaffold::create(&site_dir, kind, &slug, &title, &date)?;
+    let path = scaffold::create(&site_dir, kind, slug.as_deref(), title.as_deref(), &date)?;
     println!("{} を作りました", path.display());
     Ok(())
 }
@@ -379,7 +397,7 @@ mod tests {
     fn new_with_kind_slug_and_defaults() {
         assert_eq!(
             parse(&["new", "post", "hello"]).unwrap(),
-            Command::New { kind: Kind::Post, slug: "hello".into(), site_dir: ".".into(), title: None, date: None }
+            Command::New { kind: Kind::Post, slug: Some("hello".into()), site_dir: ".".into(), title: None, date: None }
         );
     }
 
@@ -389,7 +407,7 @@ mod tests {
             parse(&["new", "article", "long", "../blog", "--title", "長い読み物", "--date", "2026-09-26"]).unwrap(),
             Command::New {
                 kind: Kind::Article,
-                slug: "long".into(),
+                slug: Some("long".into()),
                 site_dir: "../blog".into(),
                 title: Some("長い読み物".into()),
                 date: Some("2026-09-26".into()),
@@ -398,10 +416,31 @@ mod tests {
     }
 
     #[test]
+    fn new_slug_is_optional() {
+        let new = |args: &[&str]| match parse(args).unwrap() {
+            Command::New { slug, site_dir, .. } => (slug, site_dir),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(new(&["new", "post"]), (None, ".".into()));
+        assert_eq!(new(&["new", "post", "hello"]), (Some("hello".into()), ".".into()));
+        assert_eq!(new(&["new", "post", "blog"]), (Some("blog".into()), ".".into()));
+        assert_eq!(new(&["new", "post", "../blog"]), (None, "../blog".into()));
+        assert_eq!(new(&["new", "post", "./blog"]), (None, "./blog".into()));
+        assert_eq!(new(&["new", "post", "blog/"]), (None, "blog/".into()));
+        assert_eq!(new(&["new", "post", "."]), (None, ".".into()));
+        assert_eq!(new(&["new", "article", "hello", "../blog"]), (Some("hello".into()), "../blog".into()));
+    }
+
+    #[test]
+    fn page_requires_a_slug() {
+        assert!(err(&["new", "page"]).contains("slug を省略できません"));
+        assert!(err(&["new", "page", "../blog"]).contains("slug を省略できません"));
+    }
+
+    #[test]
     fn new_argument_errors() {
         assert!(err(&["new"]).contains("記事の種別"));
         assert!(err(&["new", "blog", "x"]).contains("不明な種別です: blog"));
-        assert!(err(&["new", "post"]).contains("slug"));
         assert!(err(&["new", "post", "x", "site", "extra"]).contains("余分な引数があります: extra"));
         assert!(err(&["new", "post", "x", "--date", "2026-02-30"]).contains("実在する YYYY-MM-DD"));
         assert!(err(&["new", "page", "about", "--date", "2026-09-26"]).contains("page は日付を持たない"));

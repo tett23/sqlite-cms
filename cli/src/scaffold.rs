@@ -63,10 +63,33 @@ pub fn template(kind: Kind, title: &str, date: &str) -> String {
     }
 }
 
-pub fn create(site_dir: &Path, kind: Kind, slug: &str, title: &str, date: &str) -> Result<PathBuf> {
-    validate_slug(slug)?;
-    if title.trim().is_empty() {
+/// slug を省略したときに付ける枝番の上限。
+const MAX_SUFFIX: u32 = 1000;
+
+/// 雛形のファイルを作る。作れたら true、同じ名前のファイルがすでにあれば false。
+fn write_new(path: &Path, body: &str) -> Result<bool> {
+    match OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(mut file) => {
+            file.write_all(body.as_bytes())?;
+            Ok(true)
+        }
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok(false),
+        Err(e) => Err(e).with_context(|| format!("{} を作れません", path.display())),
+    }
+}
+
+/// 記事の雛形を作る。
+/// `slug` を省くと記事の日付を slug にし、同じ名前があれば `-2`、`-3` と枝番を付ける。
+/// `title` を省くと slug をタイトルにする。
+pub fn create(site_dir: &Path, kind: Kind, slug: Option<&str>, title: Option<&str>, date: &str) -> Result<PathBuf> {
+    if let Some(slug) = slug {
+        validate_slug(slug)?;
+    }
+    if title.is_some_and(|title| title.trim().is_empty()) {
         bail!("タイトルが空です");
+    }
+    if slug.is_none() && kind == Kind::Page {
+        bail!("page は日付を持たないので、slug を省略できません");
     }
     if !site_dir.join("site.toml").is_file() {
         bail!(
@@ -77,17 +100,23 @@ pub fn create(site_dir: &Path, kind: Kind, slug: &str, title: &str, date: &str) 
 
     let dir = site_dir.join("content").join(kind.dir());
     fs::create_dir_all(&dir).with_context(|| format!("{} を作れません", dir.display()))?;
-    let path = dir.join(format!("{slug}.md"));
 
-    let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
-        Ok(file) => file,
-        Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-            bail!("{} はすでにあります。別の slug を指定してください", path.display())
+    if let Some(slug) = slug {
+        let path = dir.join(format!("{slug}.md"));
+        if !write_new(&path, &template(kind, title.unwrap_or(slug), date))? {
+            bail!("{} はすでにあります。別の slug を指定してください", path.display());
         }
-        Err(e) => return Err(e).with_context(|| format!("{} を作れません", path.display())),
-    };
-    file.write_all(template(kind, title, date).as_bytes())?;
-    Ok(path)
+        return Ok(path);
+    }
+
+    for n in 1..=MAX_SUFFIX {
+        let slug = if n == 1 { date.to_string() } else { format!("{date}-{n}") };
+        let path = dir.join(format!("{slug}.md"));
+        if write_new(&path, &template(kind, title.unwrap_or(&slug), date))? {
+            return Ok(path);
+        }
+    }
+    bail!("{date} の記事が多すぎて、枝番を付けられません（-{MAX_SUFFIX} まで使われています）。slug を指定してください")
 }
 
 const SITE_TOML_REST: &str = r#"
@@ -335,17 +364,63 @@ mod tests {
     #[test]
     fn creates_file_in_kind_directory() {
         let site = site();
-        let path = create(site.path(), Kind::Article, "long-read", "長い読み物", "2026-09-26").unwrap();
+        let path = create(site.path(), Kind::Article, Some("long-read"), Some("長い読み物"), "2026-09-26").unwrap();
         assert_eq!(path, site.path().join("content/articles/long-read.md"));
         let written = fs::read_to_string(&path).unwrap();
         assert_eq!(parse_article("long-read", &written).unwrap().title, "長い読み物");
     }
 
     #[test]
+    fn omitted_slug_uses_the_date_and_adds_suffixes() {
+        let site = site();
+        let first = create(site.path(), Kind::Post, None, None, "2026-09-26").unwrap();
+        let second = create(site.path(), Kind::Post, None, Some("二本目"), "2026-09-26").unwrap();
+        let third = create(site.path(), Kind::Post, None, None, "2026-09-26").unwrap();
+        let dir = site.path().join("content/posts");
+        assert_eq!([first, second.clone(), third], [
+            dir.join("2026-09-26.md"),
+            dir.join("2026-09-26-2.md"),
+            dir.join("2026-09-26-3.md"),
+        ]);
+
+        let post = parse_post("2026-09-26", &fs::read_to_string(dir.join("2026-09-26.md")).unwrap()).unwrap();
+        assert_eq!(post.title, "2026-09-26");
+        assert_eq!(post.published_at, "2026-09-26");
+        assert_eq!(parse_post("x", &fs::read_to_string(second).unwrap()).unwrap().title, "二本目");
+    }
+
+    #[test]
+    fn omitted_slug_skips_files_written_by_hand() {
+        let site = site();
+        let dir = site.path().join("content/articles");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("2026-09-26.md"), "手で書いた").unwrap();
+        let path = create(site.path(), Kind::Article, None, None, "2026-09-26").unwrap();
+        assert_eq!(path, dir.join("2026-09-26-2.md"));
+        assert_eq!(fs::read_to_string(dir.join("2026-09-26.md")).unwrap(), "手で書いた");
+    }
+
+    #[test]
+    fn suffixes_are_counted_per_kind() {
+        let site = site();
+        let post = create(site.path(), Kind::Post, None, None, "2026-09-26").unwrap();
+        let article = create(site.path(), Kind::Article, None, None, "2026-09-26").unwrap();
+        assert!(post.ends_with("posts/2026-09-26.md"));
+        assert!(article.ends_with("articles/2026-09-26.md"));
+    }
+
+    #[test]
+    fn page_requires_a_slug() {
+        let site = site();
+        let err = create(site.path(), Kind::Page, None, None, "").unwrap_err();
+        assert!(err.to_string().contains("slug を省略できません"));
+    }
+
+    #[test]
     fn refuses_to_overwrite_existing_file() {
         let site = site();
-        create(site.path(), Kind::Post, "hello", "一本目", "2026-09-26").unwrap();
-        let err = create(site.path(), Kind::Post, "hello", "二本目", "2026-09-27").unwrap_err();
+        create(site.path(), Kind::Post, Some("hello"), Some("一本目"), "2026-09-26").unwrap();
+        let err = create(site.path(), Kind::Post, Some("hello"), Some("二本目"), "2026-09-27").unwrap_err();
         assert!(err.to_string().contains("すでにあります"));
         let written = fs::read_to_string(site.path().join("content/posts/hello.md")).unwrap();
         assert!(written.contains("一本目"));
@@ -354,14 +429,14 @@ mod tests {
     #[test]
     fn same_slug_in_different_kinds_is_allowed() {
         let site = site();
-        create(site.path(), Kind::Post, "about", "t", "2026-09-26").unwrap();
-        create(site.path(), Kind::Page, "about", "t", "2026-09-26").unwrap();
+        create(site.path(), Kind::Post, Some("about"), Some("t"), "2026-09-26").unwrap();
+        create(site.path(), Kind::Page, Some("about"), Some("t"), "2026-09-26").unwrap();
     }
 
     #[test]
     fn requires_site_toml() {
         let dir = crate::testutil::tempdir();
-        let err = create(dir.path(), Kind::Post, "hello", "t", "2026-09-26").unwrap_err();
+        let err = create(dir.path(), Kind::Post, Some("hello"), Some("t"), "2026-09-26").unwrap_err();
         assert!(err.to_string().contains("site.toml がありません"));
         assert!(!dir.path().join("content").exists());
     }
@@ -369,8 +444,8 @@ mod tests {
     #[test]
     fn rejects_empty_title_and_bad_slug() {
         let site = site();
-        assert!(create(site.path(), Kind::Post, "hello", "  ", "2026-09-26").unwrap_err().to_string().contains("タイトル"));
-        assert!(create(site.path(), Kind::Post, "../escape", "t", "2026-09-26").is_err());
+        assert!(create(site.path(), Kind::Post, Some("hello"), Some("  "), "2026-09-26").unwrap_err().to_string().contains("タイトル"));
+        assert!(create(site.path(), Kind::Post, Some("../escape"), Some("t"), "2026-09-26").is_err());
         assert!(!site.path().join("content/escape.md").exists());
     }
 }
