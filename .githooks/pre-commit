@@ -1,22 +1,15 @@
 #!/bin/sh
-# git の pre-commit フック。コミット済みの ADR（HEAD にある docs/adr/ のファイル）を書き換え、消し、
-# 名前を変えるコミットを止める。新しい ADR を足すのはよい。
-# 判断を改めるときは、次の番号で新しい ADR を書く（DEVELOPMENT.md の「ADR」）。
+# git の pre-commit フック。コミット済みの ADR を書き換え、消し、名前を変えるコミットを止める。
+# 「状態」の節だけの変更と、新しい ADR を足すのはよい（DEVELOPMENT.md の「ADR」）。
 # 有効にするには、リポジトリで一度 `git config core.hooksPath .githooks` を実行する。
-set -eu
+set -u
 
-# 最初のコミット（HEAD がない）では調べない。
-git rev-parse --verify --quiet HEAD >/dev/null || exit 0
-
-# コミットする中身（インデックス）のうち、HEAD にある ADR の書き換えと削除。
-# 名前の変更は、元の ADR の削除として数える（--no-renames）。日本語のファイル名はそのまま出す。
-changed=$(git -c core.quotepath=false diff --cached --no-renames --name-only --diff-filter=MDT HEAD -- docs/adr)
-[ -n "$changed" ] || exit 0
-
-{
-  echo "pre-commit: コミット済みの ADR は書き換えません。次の変更をコミットできません。"
-  echo "$changed" | sed 's/^/  - /'
-  echo "変更を取り消し（git restore --source=HEAD --staged --worktree -- <ファイル>）、"
-  echo "判断を改めるときは、次の番号で新しい ADR を書いてください。"
-} >&2
-exit 1
+if ! violations=$(sh "$(dirname "$0")/check-adr.sh" --staged 2>&1); then
+  {
+    echo "pre-commit: コミット済みの ADR は、状態の節のほかは書き換えません。次の変更をコミットできません。"
+    echo "$violations"
+    echo "変更を取り消し（git restore --source=HEAD --staged --worktree -- <ファイル>）、"
+    echo "判断を改めるときは、次の番号で新しい ADR を書いてください。"
+  } >&2
+  exit 1
+fi
