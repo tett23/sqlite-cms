@@ -40,6 +40,7 @@ cli/target/release/sqlite-cms [SITE_DIR] [--public <DIR>]   # SITE_DIR の既定
 ```
 
 記事リポジトリの中で実行するなら、引数は要らない。
+`sqlite-cms --help` で、記事リポジトリの構成と書き出すものの一覧を確認できる。
 npm スクリプトは `SITE_DIR` 環境変数（未指定なら `example/`）を常に引数として渡す。
 
 DB を `<public>/db/` に、`content/media/` を `<public>/media/` に書き出す。
