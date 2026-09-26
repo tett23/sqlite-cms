@@ -1,5 +1,7 @@
 # sqlite-cms
 
+[![ci](https://github.com/tett23/sqlite-cms/actions/workflows/ci.yml/badge.svg)](https://github.com/tett23/sqlite-cms/actions/workflows/ci.yml)
+
 Markdown で書いた記事から、軽い個人サイトを作って Cloudflare に公開するツール。
 記事は全部まとめて一つの SQLite に入り、ブラウザはそれを一度読み込むだけで、あとはページを移るたびにサーバへ記事を取りに行かない（画像は除く）。
 見た目は白背景に黒文字、青い下線のリンクだけの、古いウェブサイトのようなものになる。

@@ -83,7 +83,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: gh release download --repo tett23/sqlite-cms --pattern 'sqlite-cms-x86_64-unknown-linux-gnu.tar.gz' --output - | tar -xz
         env:
           GH_TOKEN: ${{ github.token }}

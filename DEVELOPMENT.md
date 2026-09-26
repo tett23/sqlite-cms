@@ -89,6 +89,15 @@ cargo run -- serve example
 ビルドスクリプトが自動で埋め込むので、コードの変更は要らない。
 スキーマを変えたら、`web/src/db.ts` のクエリも合わせて直す。
 
+## CI
+
+`main` への push と PR のたびに、`.github/workflows/ci.yml` が次を実行する。
+
+1. SPA のビルド（型検査を含む）と vitest
+2. SPA を埋め込んだ `cargo clippy --all-targets -- -D warnings` と `cargo test`（結合テストを含む）
+
+同じ PR に続けて push したときは、古い実行を取り消す。`main` への push は取り消さない。
+
 ## リリース
 
 `v*` のタグを push すると、`.github/workflows/release.yml` が次を行う。
@@ -96,5 +105,7 @@ cargo run -- serve example
 1. SPA をビルドし、テストを実行する
 2. Linux x86_64 と macOS arm64 のバイナリをビルドする
 3. `sqlite-cms-<target>.tar.gz` を GitHub Release に添付する
+
+タグを付けずに試すときは、`gh workflow run release.yml` で手動実行する。ビルドと梱包までを行い、Release は作らない（成果物は実行結果の Artifacts から取れる）。
 
 記事リポジトリの公開ワークフロー（雛形は `example/.github/workflows/deploy.yml`）は、最新のリリースからバイナリを取得する。
