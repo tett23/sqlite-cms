@@ -8,6 +8,7 @@ mod dotenv;
 mod favicon;
 mod frontmatter;
 mod gzip;
+mod linkcard;
 mod media;
 mod migrations;
 mod mime;
@@ -73,6 +74,12 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
     media/        画像など（任意。/media/ で配信する）
   .env            deploy の認証情報（任意。Git に入れない。init が .gitignore に書く）
   .env.example    .env の見本（init が作る）
+  .sqlite-cms-cache/  リンクカードの画像など、ビルドのときに取得したもの（Git に入れない）
+
+リンクカードの画像:
+  build、serve、deploy は、本文の URL だけの行のページから OGP の画像を取得して配信する。
+  取得したものは .sqlite-cms-cache/ に保存し、次からはそれを使う。
+  環境変数 SQLITE_CMS_OFFLINE=1 を付けると取得しない（保存したものだけを使う）
 
 deploy に要るもの:
   site.toml の [deploy] worker    公開先の Worker 名
@@ -207,7 +214,7 @@ fn init(site_dir: PathBuf, title: Option<String>, force: bool) -> Result<()> {
         println!("{} を{verb}", path.display());
     }
     for path in &report.appended {
-        println!("{} に .env を足しました", path.display());
+        println!("{} に行を足しました", path.display());
     }
     let target = if site_dir == Path::new(".") { String::new() } else { format!(" {}", site_dir.display()) };
     println!();
@@ -242,11 +249,11 @@ fn new_document(
 
 fn build(site_dir: PathBuf, out_dir: PathBuf, data_only: bool) -> Result<()> {
     if data_only {
-        let output = SiteOutput::data(&site_dir)?;
+        let output = SiteOutput::data(&site_dir, linkcard::fetcher_from_env().as_ref())?;
         output.write_data(&out_dir)?;
         println!("{}（{} ファイル、DB とメディアのみ）", out_dir.display(), output.files.len());
     } else {
-        let output = SiteOutput::site(&site_dir, spa::embedded())?;
+        let output = SiteOutput::site(&site_dir, spa::embedded(), linkcard::fetcher_from_env().as_ref())?;
         output.write_site(&out_dir)?;
         println!("{}（{} ファイル、{} バイト）", out_dir.display(), output.files.len(), output.total_bytes());
     }
@@ -254,7 +261,7 @@ fn build(site_dir: PathBuf, out_dir: PathBuf, data_only: bool) -> Result<()> {
 }
 
 fn serve(site_dir: PathBuf, port: u16) -> Result<()> {
-    let output = SiteOutput::site(&site_dir, spa::embedded())?;
+    let output = SiteOutput::site(&site_dir, spa::embedded(), linkcard::fetcher_from_env().as_ref())?;
     let listener =
         TcpListener::bind(("127.0.0.1", port)).with_context(|| format!("ポート {port} で待ち受けられません"))?;
     let address = listener.local_addr()?;
@@ -284,7 +291,7 @@ fn deploy(site_dir: PathBuf) -> Result<()> {
     }
     let api_base = env.get("CLOUDFLARE_API_BASE_URL").unwrap_or_else(|| cloudflare::DEFAULT_API_BASE.to_string());
 
-    let output = SiteOutput::site(&site_dir, spa::embedded())?;
+    let output = SiteOutput::site(&site_dir, spa::embedded(), linkcard::fetcher_from_env().as_ref())?;
     println!("{} ファイル（{} バイト）を Worker {worker} に公開します", output.files.len(), output.total_bytes());
 
     let http = cloudflare::UreqHttp::new();

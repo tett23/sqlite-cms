@@ -199,13 +199,15 @@ function isAutolink(link: Link): boolean {
 export const LINK_CARD_CLASS = "link-card";
 export const LINK_CARD_HOST_CLASS = "link-card-host";
 export const LINK_CARD_URL_CLASS = "link-card-url";
+export const LINK_CARD_TEXT_CLASS = "link-card-text";
+export const LINK_CARD_IMAGE_CLASS = "link-card-image";
 
 /**
- * URL だけの段落をリンクカードにする。
- * ページの題名や画像は取得しない（ブラウザからほかのサイトの HTML は読めず、外部と通信しないため）。
- * カードにはホスト名と URL を表示する。
+ * URL だけの段落をリンクカードにする。カードにはホスト名と URL を表示する。
+ * ブラウザからはほかのサイトの HTML を読めないので、画像は CLI がビルドのときに取得して DB に登録したもの（ADR 0028）を
+ * linkCardImage で引いて表示する。画像はサイトの中のパスなので、閲覧のときに外部と通信しない。
  */
-export function transformLinkCards(tree: Root) {
+export function transformLinkCards(tree: Root, linkCardImage?: (url: string) => string | undefined) {
   eachParent(tree, (parent) => {
     for (const child of parent.children) {
       if (child.type !== "paragraph") continue;
@@ -219,14 +221,24 @@ export function transformLinkCards(tree: Root) {
         continue;
       }
       if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+      const image = linkCardImage?.(link.url);
+      const text: PhrasingContent = {
+        type: "emphasis",
+        data: { hName: "span", hProperties: { className: [LINK_CARD_TEXT_CLASS] } },
+        children: [
+          { type: "emphasis", data: { hName: "span", hProperties: { className: [LINK_CARD_HOST_CLASS] } }, children: [{ type: "text", value: url.host }] },
+          { type: "emphasis", data: { hName: "span", hProperties: { className: [LINK_CARD_URL_CLASS] } }, children: [{ type: "text", value: link.url }] },
+        ],
+      };
+      // 画像はリンクの文字列（ホスト名と URL）を補う飾りなので、代替テキストは空にする。
+      const thumbnail: PhrasingContent[] = image
+        ? [{ type: "image", url: image, alt: "", data: { hProperties: { className: [LINK_CARD_IMAGE_CLASS], loading: "lazy" } } }]
+        : [];
       child.children = [
         {
           ...link,
           data: { hProperties: { className: [LINK_CARD_CLASS] } },
-          children: [
-            { type: "emphasis", data: { hName: "span", hProperties: { className: [LINK_CARD_HOST_CLASS] } }, children: [{ type: "text", value: url.host }] },
-            { type: "emphasis", data: { hName: "span", hProperties: { className: [LINK_CARD_URL_CLASS] } }, children: [{ type: "text", value: link.url }] },
-          ],
+          children: [text, ...thumbnail],
         },
       ];
     }

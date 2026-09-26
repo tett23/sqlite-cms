@@ -4,6 +4,7 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 
+use crate::linkcard::{self, Fetcher};
 use crate::{db, favicon, media, site};
 
 pub const HEADERS: &str = "\
@@ -33,8 +34,10 @@ pub struct SiteOutput {
 }
 
 impl SiteOutput {
-    pub fn data(site_dir: &Path) -> Result<Self> {
-        let bytes = db::build_db_bytes(site_dir)?;
+    /// DB、マニフェスト、画像、favicon、リンクカードの画像を組み立てる。リンクカードの画像は fetcher で取得する。
+    pub fn data(site_dir: &Path, fetcher: &dyn Fetcher) -> Result<Self> {
+        let cards = linkcard::collect(site_dir, &db::markdown_sources(site_dir)?, fetcher);
+        let bytes = db::build_db_bytes(site_dir, &cards)?;
         let db_path = format!("/db/{}", db::db_file_name(&bytes));
 
         let mut files = BTreeMap::new();
@@ -44,17 +47,20 @@ impl SiteOutput {
             files.insert(format!("/media/{path}"), bytes);
         }
         files.insert("/favicon.svg".to_string(), read_favicon(site_dir)?);
+        for card in cards {
+            files.insert(card.path, card.bytes);
+        }
         Ok(Self { files })
     }
 
-    pub fn site(site_dir: &Path, spa: &[(&str, &[u8])]) -> Result<Self> {
+    pub fn site(site_dir: &Path, spa: &[(&str, &[u8])], fetcher: &dyn Fetcher) -> Result<Self> {
         if !spa.iter().any(|(path, _)| *path == "/index.html") {
             bail!(
                 "この sqlite-cms は SPA を含まずにビルドされています。\
                  リリースのバイナリを使うか、開発者向けの手順（DEVELOPMENT.md）でビルドし直してください"
             );
         }
-        let mut output = Self::data(site_dir)?;
+        let mut output = Self::data(site_dir, fetcher)?;
         for (path, bytes) in spa {
             output.files.entry(path.to_string()).or_insert_with(|| bytes.to_vec());
         }
@@ -84,7 +90,7 @@ impl SiteOutput {
     }
 
     pub fn write_data(&self, out_dir: &Path) -> Result<()> {
-        for dir in ["db", "media"] {
+        for dir in ["db", "media", linkcard::PATH_PREFIX.trim_matches('/')] {
             let dir = out_dir.join(dir);
             if dir.exists() {
                 fs::remove_dir_all(&dir)?;
@@ -142,7 +148,7 @@ mod tests {
     #[test]
     fn data_contains_db_manifest_and_media() {
         let site = site_fixture();
-        let output = SiteOutput::data(site.path()).unwrap();
+        let output = SiteOutput::data(site.path(), &linkcard::Offline).unwrap();
         let paths = paths(&output);
         assert_eq!(paths.len(), 4);
         assert!(paths[0].starts_with("/db/articles-"));
@@ -154,18 +160,18 @@ mod tests {
     #[test]
     fn favicon_comes_from_content_or_falls_back_to_a_placeholder() {
         let site = site_fixture();
-        let output = SiteOutput::data(site.path()).unwrap();
+        let output = SiteOutput::data(site.path(), &linkcard::Offline).unwrap();
         assert_eq!(output.files["/favicon.svg"], crate::favicon::placeholder("t").into_bytes());
 
         fs::write(site.path().join("content/favicon.svg"), b"<svg>mine</svg>").unwrap();
-        let output = SiteOutput::data(site.path()).unwrap();
+        let output = SiteOutput::data(site.path(), &linkcard::Offline).unwrap();
         assert_eq!(output.files["/favicon.svg"], b"<svg>mine</svg>");
     }
 
     #[test]
     fn site_adds_spa_files() {
         let site = site_fixture();
-        let output = SiteOutput::site(site.path(), SPA).unwrap();
+        let output = SiteOutput::site(site.path(), SPA, &linkcard::Offline).unwrap();
         assert!(output.files.contains_key("/index.html"));
         assert!(output.files.contains_key("/assets/app.js"));
         assert!(output.files.contains_key("/db/manifest.json"));
@@ -174,7 +180,7 @@ mod tests {
     #[test]
     fn site_without_spa_is_error() {
         let site = site_fixture();
-        let err = SiteOutput::site(site.path(), &[]).err().unwrap();
+        let err = SiteOutput::site(site.path(), &[], &linkcard::Offline).err().unwrap();
         assert!(err.to_string().contains("SPA を含まずに"));
     }
 
@@ -183,7 +189,7 @@ mod tests {
         let site = site_fixture();
         let out = crate::testutil::tempdir();
         let out_dir = out.path().join("dist");
-        SiteOutput::site(site.path(), SPA).unwrap().write_site(&out_dir).unwrap();
+        SiteOutput::site(site.path(), SPA, &linkcard::Offline).unwrap().write_site(&out_dir).unwrap();
 
         let files = files_under(&out_dir);
         for expected in [".sqlite-cms", "_headers", "assets/app.js", "db/manifest.json", "favicon.svg", "index.html", "media/a.png"] {
@@ -197,7 +203,7 @@ mod tests {
         let site = site_fixture();
         let out = crate::testutil::tempdir();
         let out_dir = out.path().join("dist");
-        let output = SiteOutput::site(site.path(), SPA).unwrap();
+        let output = SiteOutput::site(site.path(), SPA, &linkcard::Offline).unwrap();
         output.write_site(&out_dir).unwrap();
         fs::write(out_dir.join("stale.js"), b"old").unwrap();
 
@@ -211,7 +217,7 @@ mod tests {
         let out = crate::testutil::tempdir();
         fs::write(out.path().join("important.txt"), b"keep").unwrap();
 
-        let err = SiteOutput::site(site.path(), SPA).unwrap().write_site(out.path()).unwrap_err();
+        let err = SiteOutput::site(site.path(), SPA, &linkcard::Offline).unwrap().write_site(out.path()).unwrap_err();
         assert!(err.to_string().contains("sqlite-cms の出力先でもありません"));
         assert_eq!(fs::read(out.path().join("important.txt")).unwrap(), b"keep");
     }
@@ -224,7 +230,7 @@ mod tests {
         fs::write(out.path().join("db/articles-0000000000000000.sqlite"), b"old").unwrap();
         fs::write(out.path().join("keep.txt"), b"keep").unwrap();
 
-        SiteOutput::data(site.path()).unwrap().write_data(out.path()).unwrap();
+        SiteOutput::data(site.path(), &linkcard::Offline).unwrap().write_data(out.path()).unwrap();
 
         let files = files_under(out.path());
         assert!(files.contains(&"keep.txt".to_string()));

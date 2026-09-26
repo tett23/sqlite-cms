@@ -74,7 +74,7 @@ mod tests {
     fn embeds_versions_and_names_in_file_name_order() {
         let migrations = repo_migrations();
         let versions: Vec<&str> = migrations.iter().map(|m| m.version.as_str()).collect();
-        assert_eq!(versions, ["0001", "0002", "0003", "0004", "0005"]);
+        assert_eq!(versions, ["0001", "0002", "0003", "0004", "0005", "0006"]);
         assert_eq!(migrations[0].name, "initial");
         assert_eq!(migrations[1].name, "content_types");
     }
@@ -90,7 +90,7 @@ mod tests {
     fn applies_all_to_empty_db_and_records_them() {
         let conn = Connection::open_in_memory().unwrap();
         let applied = apply_migrations(&conn, &repo_migrations()).unwrap();
-        assert_eq!(applied, ["0001", "0002", "0003", "0004", "0005"]);
+        assert_eq!(applied, ["0001", "0002", "0003", "0004", "0005", "0006"]);
 
         let recorded: Vec<(String, String)> = conn
             .prepare("SELECT version, name FROM schema_migrations ORDER BY version")
@@ -107,6 +107,7 @@ mod tests {
                 ("0003".into(), "markdown_body".into()),
                 ("0004".into(), "site".into()),
                 ("0005".into(), "site_description".into()),
+                ("0006".into(), "link_cards".into()),
             ]
         );
 
@@ -128,6 +129,6 @@ mod tests {
         let migrations = repo_migrations();
         apply_migrations(&conn, &migrations[..1]).unwrap();
         let applied = apply_migrations(&conn, &migrations).unwrap();
-        assert_eq!(applied, ["0002", "0003", "0004", "0005"]);
+        assert_eq!(applied, ["0002", "0003", "0004", "0005", "0006"]);
     }
 }

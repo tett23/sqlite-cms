@@ -210,9 +210,25 @@ describe("画像の幅", () => {
 describe("リンクカード", () => {
   it("URL だけの段落をカードにする", () => {
     expect(render("https://example.com/path")).toBe(
-      '<p><a href="https://example.com/path" class="link-card"><span class="link-card-host">example.com</span><span class="link-card-url">https://example.com/path</span></a></p>',
+      '<p><a href="https://example.com/path" class="link-card"><span class="link-card-text"><span class="link-card-host">example.com</span><span class="link-card-url">https://example.com/path</span></span></a></p>',
     );
     expect(render("<https://example.com>")).toContain('class="link-card"');
+  });
+
+  it("ビルドのときに取得した画像があれば、カードに表示する（代替テキストは空）", () => {
+    const images = new Map([["https://example.com/path", "/link-cards/0123456789abcdef.png"]]);
+    const html = renderToStaticMarkup(<MarkdownBody source={"https://example.com/path\n\nhttps://example.com/other"} linkCardImages={images} />);
+    expect(html).toContain(
+      '<span class="link-card-url">https://example.com/path</span></span><img src="/link-cards/0123456789abcdef.png" alt="" class="link-card-image" loading="lazy"/></a>',
+    );
+    // 画像のない URL のカードには img を付けない。
+    expect(html.match(/<img /g)).toHaveLength(1);
+  });
+
+  it("本文に HTML で書いた img の class と loading は、カードのものだけを残す", () => {
+    const html = render('<img src="/a.png" alt="a" class="evil" loading="eager"> <img src="/b.png" alt="b" class="link-card-image" loading="lazy">');
+    expect(html).toContain('<img src="/a.png" alt="a"/>');
+    expect(html).toContain('<img src="/b.png" alt="b" class="link-card-image" loading="lazy"/>');
   });
 
   it("文中の URL、リンク文字列のあるリンク、www. で始まるものはカードにしない", () => {

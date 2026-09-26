@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { Database } from "sql.js";
-import { getArticle, getPage, getPost, getSite, listArticles, listPosts, loadDb } from "./db";
+import { getArticle, getLinkCardImages, getPage, getPost, getSite, listArticles, listPosts, loadDb } from "./db";
 import { pageDescription, setMetaDescription } from "./documentMeta";
 import { MarkdownBody } from "./MarkdownBody";
 import { Link, matchPath, usePath } from "./router";
@@ -56,7 +56,7 @@ function Home() {
 
   return (
     <div>
-      {homeMd && <MarkdownBody source={homeMd} className="mb-8" />}
+      {homeMd && <MarkdownBody source={homeMd} className="mb-8" linkCardImages={getLinkCardImages(db)} />}
 
       <section className="mb-10">
         <h2 className="mb-3 text-lg font-bold">記事</h2>
@@ -109,7 +109,7 @@ function PostPage({ slug }: { slug: string }) {
       <p className="mt-1 text-gray-600">
         <time>{post.publishedAt}</time>
       </p>
-      <MarkdownBody source={post.bodyMd} />
+      <MarkdownBody source={post.bodyMd} linkCardImages={getLinkCardImages(db)} />
     </article>
   );
 }
@@ -128,7 +128,7 @@ function ArticlePage({ slug }: { slug: string }) {
         <time>{article.publishedAt}</time>
         {article.updatedAt && <span className="ml-3">（{article.updatedAt} 改稿）</span>}
       </p>
-      <MarkdownBody source={article.bodyMd} />
+      <MarkdownBody source={article.bodyMd} linkCardImages={getLinkCardImages(db)} />
     </article>
   );
 }
@@ -143,7 +143,7 @@ function AboutPage() {
   return (
     <article>
       <h1 className="text-2xl font-bold">{page.title}</h1>
-      <MarkdownBody source={page.bodyMd} />
+      <MarkdownBody source={page.bodyMd} linkCardImages={getLinkCardImages(db)} />
     </article>
   );
 }

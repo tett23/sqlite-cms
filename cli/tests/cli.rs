@@ -15,6 +15,8 @@ fn sqlite_cms() -> Command {
     for name in ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_BASE_URL"] {
         command.env_remove(name);
     }
+    // 見本の記事のリンクカードの画像を、テストのたびに外部から取得しない。
+    command.env("SQLITE_CMS_OFFLINE", "1");
     command
 }
 
@@ -642,4 +644,81 @@ fn new_without_slug_accepts_a_site_path() {
     let output = run(&["new", "post", "./site", "--date", "2026-09-26"], tmp.path());
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(site.join("content/posts/2026-09-26.md").is_file());
+}
+
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\n fake png";
+
+/// リンクカードの取得先の偽のサイト。/page は og:image を持つページ、/og.png はその画像を返す。
+fn start_mock_site() -> (String, Arc<Mutex<Vec<String>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let requested = Arc::new(Mutex::new(Vec::new()));
+    let shared = Arc::clone(&requested);
+    thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line).unwrap();
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap() == 0 || line == "\r\n" {
+                    break;
+                }
+            }
+            let path = request_line.split_whitespace().nth(1).unwrap_or("/").to_string();
+            shared.lock().unwrap().push(path.clone());
+            let (status, content_type, body): (&str, &str, Vec<u8>) = match path.as_str() {
+                "/page" => ("200 OK", "text/html", br#"<html><head><meta property="og:image" content="/og.png"></head></html>"#.to_vec()),
+                "/og.png" => ("200 OK", "image/png", PNG.to_vec()),
+                _ => ("404 Not Found", "text/plain", b"not found".to_vec()),
+            };
+            let mut stream = stream;
+            write!(stream, "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+            stream.write_all(&body).unwrap();
+        }
+    });
+    (origin, requested)
+}
+
+#[test]
+fn build_fetches_link_card_images_and_reuses_the_cache() {
+    require_spa();
+    let tmp = testutil::tempdir();
+    let site = tmp.path().join("site");
+    assert!(run(&["init", site.to_str().unwrap()], tmp.path()).status.success());
+    let (origin, requested) = start_mock_site();
+    fs::write(
+        site.join("content/posts/cards.md"),
+        format!("---\ntitle: カード\ndate: 2026-09-26\n---\n\n{origin}/page\n\n{origin}/missing\n"),
+    )
+    .unwrap();
+
+    let dist = tmp.path().join("dist");
+    let output = sqlite_cms()
+        .args(["build", site.to_str().unwrap(), "--out", dist.to_str().unwrap()])
+        .env_remove("SQLITE_CMS_OFFLINE")
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stderr(&output).contains(&format!("警告: リンクカードの画像を取得できませんでした: {origin}/missing")), "{}", stderr(&output));
+
+    let images: Vec<PathBuf> = fs::read_dir(dist.join("link-cards")).unwrap().map(|e| e.unwrap().path()).collect();
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0].extension().unwrap(), "png");
+    assert_eq!(fs::read(&images[0]).unwrap(), PNG);
+    let db = fs::read_dir(dist.join("db")).unwrap().map(|e| e.unwrap().path()).find(|p| p.extension().is_some_and(|e| e == "sqlite")).unwrap();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let (url, image_path): (String, String) =
+        conn.query_row("SELECT url, image_path FROM link_cards", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+    assert_eq!(url, format!("{origin}/page"));
+    assert_eq!(image_path, format!("/link-cards/{}", images[0].file_name().unwrap().to_string_lossy()));
+    assert!(fs::read_to_string(site.join(".gitignore")).unwrap().lines().any(|line| line == ".sqlite-cms-cache/"));
+
+    // 二度目は保存した結果を使い、オフラインでも画像が入る。
+    requested.lock().unwrap().clear();
+    let output = run(&["build", site.to_str().unwrap(), "--out", dist.to_str().unwrap()], tmp.path());
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(requested.lock().unwrap().is_empty());
+    assert_eq!(fs::read_dir(dist.join("link-cards")).unwrap().count(), 1);
 }

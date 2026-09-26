@@ -61,6 +61,10 @@ cargo clippy --all-targets -- -D warnings
 
 結合テスト（`cli/tests/cli.rs`）は実際のバイナリを起動する。
 `deploy` のテストは、テスト内に立てた偽の Cloudflare API に向けて実行する（`CLOUDFLARE_API_BASE_URL`）。
+結合テストは `SQLITE_CMS_OFFLINE=1` で起動し、見本の記事のリンクカードの画像を外部から取得しない。リンクカードの取得のテストは、テスト内に立てた偽のサイトから取得する。
+テストは `example/.env` を一時ディレクトリに写さない（本物の認証情報で公開しないため）。
+
+`serve` や Lighthouse の計測で見本を配信すると、リンクカードの画像を取得して `example/.sqlite-cms-cache/` に保存する（Git には入れない）。
 
 ## SPA の開発
 

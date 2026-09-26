@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, useMemo } from "react";
 import Markdown, { type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
@@ -12,7 +12,7 @@ import { remarkExtensions } from "./markdown/remarkExtensions";
 import { sanitizeSchema, unwrapPlainElements } from "./sanitize";
 import { Link } from "./router";
 
-const remarkPlugins: Options["remarkPlugins"] = [remarkGfm, remarkExtensions];
+const NO_LINK_CARD_IMAGES: ReadonlyMap<string, string> = new Map();
 
 const remarkRehypeOptions: Options["remarkRehypeOptions"] = {
   allowDangerousHtml: true,
@@ -94,8 +94,21 @@ const components: Components = {
   },
 };
 
-export function MarkdownBody({ source, className = "mt-6" }: { source: string; className?: string }) {
+export function MarkdownBody({
+  source,
+  className = "mt-6",
+  linkCardImages = NO_LINK_CARD_IMAGES,
+}: {
+  source: string;
+  className?: string;
+  /** リンクカードの URL と画像のパス（DB の link_cards、ADR 0028）。 */
+  linkCardImages?: ReadonlyMap<string, string>;
+}) {
   const highlight = useLazy(highlightLoader, logHighlightError);
+  const remarkPlugins = useMemo<Options["remarkPlugins"]>(
+    () => [remarkGfm, [remarkExtensions, { linkCardImage: (url: string) => linkCardImages.get(url) }]],
+    [linkCardImages],
+  );
   return (
     <div className={`article-body ${className}`}>
       <Markdown

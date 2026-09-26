@@ -153,33 +153,48 @@ fn default_title(site_dir: &Path) -> String {
 pub struct InitReport {
     pub written: Vec<PathBuf>,
     pub overwritten: Vec<PathBuf>,
-    /// `.env` の行を足した既存の `.gitignore`。
+    /// 行を足した既存の `.gitignore`。
     pub appended: Vec<PathBuf>,
 }
 
 const GITIGNORE: &str = ".gitignore";
-const GITIGNORE_BODY: &str = "# deploy の認証情報（sqlite-cms deploy が読む）\n.env\n";
 
-/// `.env` が Git に入らないよう、`.gitignore` に書く。
-/// なければ作り、あって `.env` の行がなければ末尾に足す。すでにあれば何もしない。
-fn ignore_dotenv(site_dir: &Path, report: &mut InitReport) -> Result<()> {
+/// `.gitignore` に書く行と、その前に置く注釈。
+const IGNORED: &[(&str, &str)] = &[
+    (".env", "# deploy の認証情報（sqlite-cms deploy が読む）"),
+    (".sqlite-cms-cache/", "# リンクカードの画像など、ビルドのときに取得したもの（sqlite-cms が作る）"),
+];
+
+/// `.env` と取得したもののキャッシュが Git に入らないよう、`.gitignore` に書く。
+/// なければ作り、あって行がなければ末尾に足す。すでにあれば何もしない。
+fn write_gitignore(site_dir: &Path, report: &mut InitReport) -> Result<()> {
     let path = site_dir.join(GITIGNORE);
     let existing = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            fs::write(&path, GITIGNORE_BODY).with_context(|| format!("{} に書き込めません", path.display()))?;
-            report.written.push(path);
-            return Ok(());
-        }
+        Ok(text) => Some(text),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => return Err(error).with_context(|| format!("{} を読めません", path.display())),
     };
-    if existing.lines().any(|line| matches!(line.trim(), ".env" | "/.env")) {
+    let text = existing.as_deref().unwrap_or("");
+    let present = |entry: &str| {
+        let bare = entry.trim_end_matches('/');
+        text.lines().map(str::trim).any(|line| {
+            let line = line.trim_start_matches('/');
+            line == bare || line == format!("{bare}/")
+        })
+    };
+    let missing: Vec<String> =
+        IGNORED.iter().filter(|(entry, _)| !present(entry)).map(|(entry, comment)| format!("{comment}\n{entry}\n")).collect();
+    if missing.is_empty() {
         return Ok(());
     }
-    let separator = if existing.is_empty() || existing.ends_with('\n') { "" } else { "\n" };
-    fs::write(&path, format!("{existing}{separator}{GITIGNORE_BODY}"))
+    let separator = if text.is_empty() || text.ends_with('\n') { "" } else { "\n" };
+    fs::write(&path, format!("{text}{separator}{}", missing.join("")))
         .with_context(|| format!("{} に書き込めません", path.display()))?;
-    report.appended.push(path);
+    if existing.is_some() {
+        report.appended.push(path);
+    } else {
+        report.written.push(path);
+    }
     Ok(())
 }
 
@@ -230,7 +245,7 @@ pub fn init(site_dir: &Path, title: Option<&str>, force: bool) -> Result<InitRep
         fs::write(&path, body).with_context(|| format!("{} に書き込めません", path.display()))?;
         report.written.push(path);
     }
-    ignore_dotenv(site_dir, &mut report)?;
+    write_gitignore(site_dir, &mut report)?;
     Ok(report)
 }
 
@@ -289,7 +304,7 @@ mod tests {
         assert_eq!(fs::read_to_string(site.join("content/favicon.svg")).unwrap(), crate::favicon::placeholder("my-blog"));
         assert_eq!(config.deploy, None);
 
-        let output = crate::output::SiteOutput::data(&site).unwrap();
+        let output = crate::output::SiteOutput::data(&site, &crate::linkcard::Offline).unwrap();
         assert!(output.files.contains_key("/db/manifest.json"));
         assert!(!output.files.keys().any(|path| path.contains(".gitkeep")));
     }
@@ -357,6 +372,7 @@ mod tests {
         let gitignore = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         assert!(gitignore.starts_with("dist/\n"), "{gitignore}");
         assert!(gitignore.lines().any(|line| line == ".env"), "{gitignore}");
+        assert!(gitignore.lines().any(|line| line == ".sqlite-cms-cache/"), "{gitignore}");
         assert_eq!(report.appended, [tmp.path().join(".gitignore")]);
 
         // 二度目は足さない。

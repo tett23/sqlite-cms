@@ -103,6 +103,7 @@ content/
   media/       -- 画像など（任意。/media/ で配信する）
 .env           -- deploy の認証情報（任意。Git に入れず、配信もしない。ADR 0027）
 .env.example   -- .env の見本（init が作る）
+.sqlite-cms-cache/ -- ビルドのときに取得したもの（リンクカードの画像。Git に入れない。ADR 0028）
 ```
 
 `sqlite-cms` は、`site.toml` と `content/` から次の一式を組み立てる。
@@ -154,6 +155,7 @@ SPA が remark（react-markdown）で本文を描画する。
 コードブロックは、言語名が登録済みの言語なら Shiki で色を付け、それ以外は色なしで表示する（ADR 0017）。
 本文中の HTML は、許可したタグと属性だけを残す（ADR 0018）。
 Zenn を参考にした拡張（`:::message`、`:::details`、コードのファイル名と `diff 言語`、数式、mermaid の図、画像の幅と説明、インラインの脚注、URL だけの行のリンクカード）を加える（ADR 0025）。記法の解析は自前の remark のプラグインで行い、数式は KaTeX、図は mermaid を、それぞれ必要なページでだけ非同期に読み込んで描く。
+リンクカードの画像は、CLI がサイトを組み立てるときに各ページの `og:image` を取得して `/link-cards/` から配信し、URL との対応を DB の `link_cards` に入れる（ADR 0028）。
 許可するのは Markdown では書けない表現のためのタグ（`details`、`summary`、`kbd`、`sub`、`sup`、`ruby`、`rt`、`rp`、`mark`、`abbr`、`dl`、`dt`、`dd`、`br`）で、それ以外のタグは外して中身の文字を残す。
 `script`、`iframe`、`style` とコメントは中身ごと取り除き、`class`、`style`、イベント属性、脚注以外の `id` は取り除く。
 

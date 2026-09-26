@@ -158,3 +158,17 @@ export function getSite(db: Database): Site {
     description: (description as string | null) ?? (title as string),
   };
 }
+
+const linkCardImageCache = new WeakMap<Database, ReadonlyMap<string, string>>();
+
+/** リンクカードの URL と、その画像のパス（ADR 0028）。同じ DB では一度だけ読む。 */
+export function getLinkCardImages(db: Database): ReadonlyMap<string, string> {
+  let images = linkCardImageCache.get(db);
+  if (!images) {
+    images = new Map(
+      selectAll(db, "SELECT url, image_path FROM link_cards").map(([url, path]) => [url as string, path as string]),
+    );
+    linkCardImageCache.set(db, images);
+  }
+  return images;
+}

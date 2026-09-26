@@ -240,11 +240,27 @@ a.site-title:visited {
 }
 
 .article-body a.link-card {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
   border: 1px solid #999999;
   padding: 0.5rem 0.75rem;
   line-height: 1.6;
   text-decoration: none;
+}
+
+.article-body .link-card-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* OGP の画像は 1.91:1 が多い。大きさを固定して、読み込んだときに本文がずれないようにする。 */
+.article-body img.link-card-image {
+  flex: none;
+  width: 7.5rem;
+  height: 3.9rem;
+  object-fit: cover;
+  border: 1px solid #dddddd;
 }
 
 .article-body a.link-card:hover {

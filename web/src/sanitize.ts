@@ -1,7 +1,13 @@
 import { defaultSchema, type Options as Schema } from "rehype-sanitize";
 import { MESSAGE_ALERT_CLASS, MESSAGE_CLASS } from "./markdown/container";
 import { MATH_DISPLAY_CLASS, MATH_INLINE_CLASS } from "./markdown/math";
-import { LINK_CARD_CLASS, LINK_CARD_HOST_CLASS, LINK_CARD_URL_CLASS } from "./markdown/transforms";
+import {
+  LINK_CARD_CLASS,
+  LINK_CARD_HOST_CLASS,
+  LINK_CARD_IMAGE_CLASS,
+  LINK_CARD_TEXT_CLASS,
+  LINK_CARD_URL_CLASS,
+} from "./markdown/transforms";
 
 /** Markdown と GFM が作る要素。外すと Markdown の出力が壊れる。 */
 const MARKDOWN_TAGS = [
@@ -93,7 +99,8 @@ export const sanitizeSchema: Schema = {
       ["className", MESSAGE_CLASS, MESSAGE_ALERT_CLASS, MATH_DISPLAY_CLASS],
       ["role", "note"],
     ],
-    span: [["className", MATH_INLINE_CLASS, LINK_CARD_HOST_CLASS, LINK_CARD_URL_CLASS]],
+    span: [["className", MATH_INLINE_CLASS, LINK_CARD_TEXT_CLASS, LINK_CARD_HOST_CLASS, LINK_CARD_URL_CLASS]],
+    img: [...(baseAttributes.img ?? []), ["className", LINK_CARD_IMAGE_CLASS], ["loading", "lazy"]],
   },
   protocols: { ...defaultSchema.protocols, href: ["http", "https", "mailto"] },
 };
@@ -106,6 +113,7 @@ const UNWRAP_WITHOUT_CLASS = new Set(["div", "span"]);
 /**
  * sanitize の後に通す rehype のプラグイン。許可したクラスを持たない div と span のタグを外し、中身を残す。
  * 本文に HTML で書いた div と span を、ADR 0018 のとおり許可しないタグとして扱うためである。
+ * sanitize が許可しないクラスを取り除いた後に残る空の class も消す。
  */
 export function unwrapPlainElements() {
   function visit(parent: HastParent) {
@@ -113,6 +121,7 @@ export function unwrapPlainElements() {
       if (child.children) visit(child as HastParent);
       const className = child.properties?.className;
       const plain = !Array.isArray(className) || className.length === 0;
+      if (Array.isArray(className) && className.length === 0) delete child.properties!.className;
       return child.type === "element" && UNWRAP_WITHOUT_CLASS.has(child.tagName ?? "") && plain ? (child.children ?? []) : [child];
     });
   }

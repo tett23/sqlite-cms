@@ -1,6 +1,6 @@
 import initSqlJs, { type Database } from "sql.js";
 import { beforeAll, describe, expect, it } from "vitest";
-import { getArticle, getPage, getPost, getSite, listArticles, listPosts } from "./db";
+import { getArticle, getLinkCardImages, getPage, getPost, getSite, listArticles, listPosts } from "./db";
 
 let db: Database;
 
@@ -37,6 +37,15 @@ beforeAll(async () => {
     "トップの**導入**。",
     "組版の記事",
   ]);
+  db.run("INSERT INTO link_cards VALUES (?, ?)", ["https://example.com/", "/link-cards/0123456789abcdef.png"]);
+});
+
+describe("getLinkCardImages", () => {
+  it("リンクカードの URL と画像のパスを返し、同じ DB では同じ Map を使い回す", () => {
+    const images = getLinkCardImages(db);
+    expect([...images]).toEqual([["https://example.com/", "/link-cards/0123456789abcdef.png"]]);
+    expect(getLinkCardImages(db)).toBe(images);
+  });
 });
 
 describe("listPosts / getPost", () => {

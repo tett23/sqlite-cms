@@ -13,7 +13,12 @@ interface ParserData {
   fromMarkdownExtensions?: Array<FromMarkdownExtension | FromMarkdownExtension[]>;
 }
 
-export function remarkExtensions(this: Processor) {
+export interface ExtensionOptions {
+  /** リンクカードの URL に対応する画像のパス（ADR 0028）。なければ画像なしのカードにする。 */
+  linkCardImage?: (url: string) => string | undefined;
+}
+
+export function remarkExtensions(this: Processor, options: ExtensionOptions = {}) {
   const data = this.data() as ParserData;
   (data.micromarkExtensions ??= []).push(containerSyntax, mathSyntax);
   (data.fromMarkdownExtensions ??= []).push(containerFromMarkdown, mathFromMarkdown);
@@ -25,6 +30,6 @@ export function remarkExtensions(this: Processor) {
     transformCodeBlocks(tree);
     transformInlineFootnotes(tree);
     transformImageSize(tree);
-    transformLinkCards(tree);
+    transformLinkCards(tree, options.linkCardImage);
   };
 }
