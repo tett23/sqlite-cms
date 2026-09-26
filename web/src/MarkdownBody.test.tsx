@@ -1,14 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { MarkdownBody } from "./MarkdownBody";
 
 function render(source: string): string {
-  return renderToStaticMarkup(
-    <MemoryRouter>
-      <MarkdownBody source={source} />
-    </MemoryRouter>,
-  );
+  return renderToStaticMarkup(<MarkdownBody source={source} />);
 }
 
 describe("MarkdownBody", () => {

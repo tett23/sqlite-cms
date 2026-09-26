@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
-import { Link, Route, Routes, useLocation, useParams } from "react-router";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Database } from "sql.js";
 import { getArticle, getPage, getPost, getSite, listArticles, listPosts, loadDb } from "./db";
 import { MarkdownBody } from "./MarkdownBody";
+import { Link, matchPath, usePath } from "./router";
 
 let dbPromise: Promise<Database> | null = null;
 function getDb(): Promise<Database> {
@@ -88,10 +88,9 @@ function Home() {
   );
 }
 
-function PostPage() {
-  const { slug } = useParams<{ slug: string }>();
+function PostPage({ slug }: { slug: string }) {
   const { db, error } = useDb();
-  const post = db && slug ? getPost(db, slug) : null;
+  const post = db ? getPost(db, slug) : null;
   useDocumentTitle(db, post?.title ?? null);
   if (!db) return <Loading error={error} />;
   if (!post) return <NotFound />;
@@ -107,10 +106,9 @@ function PostPage() {
   );
 }
 
-function ArticlePage() {
-  const { slug } = useParams<{ slug: string }>();
+function ArticlePage({ slug }: { slug: string }) {
   const { db, error } = useDb();
-  const article = db && slug ? getArticle(db, slug) : null;
+  const article = db ? getArticle(db, slug) : null;
   useDocumentTitle(db, article?.title ?? null);
   if (!db) return <Loading error={error} />;
   if (!article) return <NotFound />;
@@ -148,13 +146,29 @@ function NotFound() {
   return <p>見つかりません。</p>;
 }
 
+const ROUTES: [string, (params: Record<string, string>) => ReactNode][] = [
+  ["/", () => <Home />],
+  ["/posts/:slug", ({ slug }) => <PostPage slug={slug} />],
+  ["/articles/:slug", ({ slug }) => <ArticlePage slug={slug} />],
+  ["/about", () => <AboutPage />],
+];
+
+function CurrentPage() {
+  const path = usePath();
+  for (const [pattern, render] of ROUTES) {
+    const params = matchPath(pattern, path);
+    if (params) return render(params);
+  }
+  return <NotFound />;
+}
+
 export default function App() {
   const { db } = useDb();
   const site = db ? getSite(db) : null;
-  const location = useLocation();
+  const path = usePath();
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, [location.pathname]);
+  }, [path]);
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
@@ -168,13 +182,7 @@ export default function App() {
         </nav>
       </header>
       <main>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/posts/:slug" element={<PostPage />} />
-          <Route path="/articles/:slug" element={<ArticlePage />} />
-          <Route path="/about" element={<AboutPage />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <CurrentPage />
       </main>
       {(site?.author || site?.license) && (
         <footer className="mt-16 border-t border-gray-400 pt-2 text-sm text-gray-600">

@@ -1,6 +1,6 @@
 import Markdown, { type Components, type Options } from "react-markdown";
-import { Link } from "react-router";
 import remarkGfm from "remark-gfm";
+import { Link } from "./router";
 
 const remarkPlugins: Options["remarkPlugins"] = [remarkGfm];
 

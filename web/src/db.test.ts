@@ -1,5 +1,3 @@
-import { readFileSync, readdirSync } from "node:fs";
-import path from "node:path";
 import initSqlJs, { type Database } from "sql.js";
 import { beforeAll, describe, expect, it } from "vitest";
 import { getArticle, getPage, getPost, getSite, listArticles, listPosts } from "./db";
@@ -9,9 +7,15 @@ let db: Database;
 beforeAll(async () => {
   const SQL = await initSqlJs();
   db = new SQL.Database();
-  const migrationsDir = path.resolve(import.meta.dirname, "../../migrations");
-  for (const file of readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort()) {
-    db.exec(readFileSync(path.join(migrationsDir, file), "utf8"));
+  const migrations = import.meta.glob<string>("../../migrations/*.sql", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  });
+  const files = Object.keys(migrations).sort();
+  expect(files.length).toBeGreaterThan(0);
+  for (const file of files) {
+    db.exec(migrations[file]);
   }
 
   db.run("INSERT INTO posts VALUES (?, ?, ?, ?)", ["old", "古い記事", "2026-01-01", "**old**"]);
