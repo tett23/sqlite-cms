@@ -90,10 +90,198 @@ pub fn create(site_dir: &Path, kind: Kind, slug: &str, title: &str, date: &str) 
     Ok(path)
 }
 
+const SITE_TOML_REST: &str = r#"
+# author = "名前"             # フッターに表示する
+# timezone = "Asia/Tokyo"     # new が入れる日付のタイムゾーン（"+09:00" の形も可）。省略すると環境のタイムゾーン
+
+# [license]                   # フッターに表示する
+# name = "CC0 1.0"
+# url = "https://creativecommons.org/publicdomain/zero/1.0/"
+
+# [deploy]                    # sqlite-cms deploy の公開先
+# worker = "my-blog"
+"#;
+
+const INDEX_MD: &str = "<!-- トップページの本文をここに Markdown で書く。このコメントは表示されない -->\n";
+
+fn site_toml(title: &str) -> String {
+    format!(
+        "# サイトの設定。書ける項目は sqlite-cms --help を参照\ntitle = {}\n{SITE_TOML_REST}",
+        toml::Value::String(title.to_string())
+    )
+}
+
+fn default_title(site_dir: &Path) -> String {
+    site_dir
+        .canonicalize()
+        .ok()
+        .and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "新しいサイト".to_string())
+}
+
+pub struct InitReport {
+    pub written: Vec<PathBuf>,
+    pub overwritten: Vec<PathBuf>,
+}
+
+/// ビルドに必要な site.toml と content/ を作る。
+/// すでにあるときは `force` がなければエラーにし、`force` なら init が作るファイルだけを作り直す（記事や画像は消さない）。
+pub fn init(site_dir: &Path, title: Option<&str>, force: bool) -> Result<InitReport> {
+    if title.is_some_and(|t| t.trim().is_empty()) {
+        bail!("タイトルが空です");
+    }
+    if site_dir.exists() && !site_dir.is_dir() {
+        bail!("{} はディレクトリではありません", site_dir.display());
+    }
+    let existing: Vec<&str> = ["site.toml", "content/"]
+        .into_iter()
+        .filter(|name| site_dir.join(name.trim_end_matches('/')).exists())
+        .collect();
+    if !existing.is_empty() && !force {
+        bail!(
+            "{} にはすでに {} があります。作り直すときは --force を付けてください（content/ の記事や画像は消しません）",
+            site_dir.display(),
+            existing.join("、")
+        );
+    }
+
+    fs::create_dir_all(site_dir).with_context(|| format!("{} を作れません", site_dir.display()))?;
+    let title = title.map_or_else(|| default_title(site_dir), str::to_string);
+    let files = [
+        ("site.toml", site_toml(&title)),
+        ("content/index.md", INDEX_MD.to_string()),
+        ("content/pages/about.md", template(Kind::Page, "自己紹介", "")),
+        ("content/posts/.gitkeep", String::new()),
+        ("content/articles/.gitkeep", String::new()),
+        ("content/media/.gitkeep", String::new()),
+    ];
+
+    let mut report = InitReport { written: Vec::new(), overwritten: Vec::new() };
+    for (relative, body) in files {
+        let path = site_dir.join(relative);
+        if path.is_dir() {
+            bail!("{} がディレクトリになっているので作れません", path.display());
+        }
+        if path.exists() {
+            report.overwritten.push(path.clone());
+        }
+        fs::create_dir_all(path.parent().unwrap()).with_context(|| format!("{} を作れません", path.display()))?;
+        fs::write(&path, body).with_context(|| format!("{} に書き込めません", path.display()))?;
+        report.written.push(path);
+    }
+    Ok(report)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::content::{parse_article, parse_page, parse_post};
+
+    use crate::site::parse_site_config;
+
+    fn files_under(dir: &Path) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            for entry in fs::read_dir(d).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else {
+                    out.push(path.strip_prefix(dir).unwrap().to_string_lossy().into_owned());
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn init_creates_a_site_that_builds() {
+        let tmp = crate::testutil::tempdir();
+        let site = tmp.path().join("my-blog");
+        let report = init(&site, None, false).unwrap();
+
+        assert_eq!(
+            files_under(&site),
+            [
+                "content/articles/.gitkeep",
+                "content/index.md",
+                "content/media/.gitkeep",
+                "content/pages/about.md",
+                "content/posts/.gitkeep",
+                "site.toml",
+            ]
+        );
+        assert_eq!(report.written.len(), 6);
+        assert!(report.overwritten.is_empty());
+
+        let config = parse_site_config(&fs::read_to_string(site.join("site.toml")).unwrap()).unwrap();
+        assert_eq!(config.title, "my-blog");
+        assert_eq!(config.deploy, None);
+
+        let output = crate::output::SiteOutput::data(&site).unwrap();
+        assert!(output.files.contains_key("/db/manifest.json"));
+        assert!(!output.files.keys().any(|path| path.contains(".gitkeep")));
+    }
+
+    #[test]
+    fn init_quotes_any_title() {
+        for title in ["tett23の記事置き場", "\"引用\" と \\ と # と [括弧]", "改行\nあり"] {
+            let tmp = crate::testutil::tempdir();
+            init(tmp.path(), Some(title), false).unwrap();
+            let config = parse_site_config(&fs::read_to_string(tmp.path().join("site.toml")).unwrap()).unwrap();
+            assert_eq!(config.title, title);
+        }
+    }
+
+    #[test]
+    fn init_refuses_existing_site_without_force() {
+        let tmp = crate::testutil::tempdir();
+        fs::write(tmp.path().join("site.toml"), "title = \"keep\"\n").unwrap();
+        let err = init(tmp.path(), None, false).err().unwrap().to_string();
+        assert!(err.contains("すでに site.toml があります"), "{err}");
+        assert!(err.contains("--force"));
+        assert_eq!(fs::read_to_string(tmp.path().join("site.toml")).unwrap(), "title = \"keep\"\n");
+        assert!(!tmp.path().join("content").exists());
+    }
+
+    #[test]
+    fn init_refuses_existing_content_without_force() {
+        let tmp = crate::testutil::tempdir();
+        fs::create_dir_all(tmp.path().join("content/posts")).unwrap();
+        let err = init(tmp.path(), None, false).err().unwrap().to_string();
+        assert!(err.contains("content/"), "{err}");
+        assert!(!tmp.path().join("site.toml").exists());
+    }
+
+    #[test]
+    fn init_with_force_recreates_init_files_but_keeps_articles() {
+        let tmp = crate::testutil::tempdir();
+        init(tmp.path(), Some("古い"), false).unwrap();
+        fs::write(tmp.path().join("content/pages/about.md"), "---\ntitle: 書いた自己紹介\n---\n").unwrap();
+        fs::write(tmp.path().join("content/posts/hello.md"), "---\ntitle: 記事\ndate: 2026-09-26\n---\n").unwrap();
+        fs::write(tmp.path().join("content/media/photo.png"), b"png").unwrap();
+
+        let report = init(tmp.path(), Some("新しい"), true).unwrap();
+
+        let config = parse_site_config(&fs::read_to_string(tmp.path().join("site.toml")).unwrap()).unwrap();
+        assert_eq!(config.title, "新しい");
+        assert!(fs::read_to_string(tmp.path().join("content/pages/about.md")).unwrap().contains("\"自己紹介\""));
+        assert!(tmp.path().join("content/posts/hello.md").is_file());
+        assert!(tmp.path().join("content/media/photo.png").is_file());
+        assert_eq!(report.overwritten.len(), 6);
+    }
+
+    #[test]
+    fn init_rejects_empty_title_and_non_directory() {
+        let tmp = crate::testutil::tempdir();
+        assert!(init(tmp.path(), Some(" "), false).err().unwrap().to_string().contains("タイトル"));
+        let file = tmp.path().join("file");
+        fs::write(&file, b"x").unwrap();
+        assert!(init(&file, None, false).err().unwrap().to_string().contains("ディレクトリではありません"));
+    }
 
     const TRICKY_TITLES: &[&str] = &[
         "ふつうのタイトル",

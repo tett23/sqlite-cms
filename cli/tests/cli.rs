@@ -476,3 +476,43 @@ fn unknown_timezone_fails_new_but_not_build() {
     let output = run(&["build", "--data-only", "--out", out.to_str().unwrap()], &site);
     assert!(output.status.success(), "{}", stderr(&output));
 }
+
+#[test]
+fn init_new_build_is_the_first_run_flow() {
+    require_spa();
+    let tmp = testutil::tempdir();
+
+    let output = run(&["init", "my-blog", "--title", "はじめてのサイト"], tmp.path());
+    assert!(output.status.success(), "{}", stderr(&output));
+    let out = stdout(&output);
+    assert!(out.contains("site.toml を作りました"), "{out}");
+    assert!(out.contains("sqlite-cms new post <SLUG> my-blog"), "{out}");
+
+    let site = tmp.path().join("my-blog");
+    assert!(run(&["new", "post", "hello", "--date", "2026-09-26"], &site).status.success());
+
+    let dist = tmp.path().join("dist");
+    let output = run(&["build", "--out", dist.to_str().unwrap()], &site);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(dist.join("index.html").is_file());
+    assert!(!dist.join("media/.gitkeep").exists());
+}
+
+#[test]
+fn init_refuses_existing_site_unless_forced() {
+    let tmp = testutil::tempdir();
+    assert!(run(&["init"], tmp.path()).status.success());
+    fs::write(tmp.path().join("content/posts/hello.md"), "---\ntitle: 記事\ndate: 2026-09-26\n---\n").unwrap();
+    fs::write(tmp.path().join("site.toml"), "title = \"編集済み\"\n").unwrap();
+
+    let output = run(&["init"], tmp.path());
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("--force"), "{}", stderr(&output));
+    assert_eq!(fs::read_to_string(tmp.path().join("site.toml")).unwrap(), "title = \"編集済み\"\n");
+
+    let output = run(&["init", "--force"], tmp.path());
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("site.toml を上書きしました"));
+    assert!(!fs::read_to_string(tmp.path().join("site.toml")).unwrap().contains("編集済み"));
+    assert!(tmp.path().join("content/posts/hello.md").is_file());
+}

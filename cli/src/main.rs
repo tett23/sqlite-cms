@@ -19,7 +19,7 @@ mod testutil;
 use std::ffi::OsString;
 use std::io::Write;
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -27,7 +27,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use output::SiteOutput;
 use scaffold::Kind;
 
-const USAGE: &str = "usage: sqlite-cms <new|serve|build|deploy> [引数] [オプション]";
+const USAGE: &str = "usage: sqlite-cms <init|new|serve|build|deploy> [引数] [オプション]";
 
 const HELP: &str = "\
 sqlite-cms: 記事リポジトリの Markdown からサイトを組み立て、プレビューし、Cloudflare に公開する
@@ -35,6 +35,7 @@ sqlite-cms: 記事リポジトリの Markdown からサイトを組み立て、�
 usage: sqlite-cms <コマンド> [引数] [オプション]
 
 コマンド:
+  init [SITE_DIR]               記事リポジトリに必要な site.toml と content/ を作る
   new <種別> <SLUG> [SITE_DIR]  記事の雛形を作る（種別は post、article、page）
   serve [SITE_DIR]              サイトを組み立てて手元でプレビューする
   build [SITE_DIR]              サイトを組み立てて配信用のディレクトリに書き出す
@@ -45,6 +46,9 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
   SLUG      ファイル名と URL になる名前（文字、数字、-、_）
 
 オプション:
+  init --title <TITLE>     サイト名（既定: ディレクトリ名）
+  init --force             site.toml や content/ があっても作り直す。init が作るファイル
+                           （site.toml、index.md、pages/about.md）は上書きし、記事や画像は消さない
   new --title <TITLE>      タイトル（既定: SLUG）
   new --date <YYYY-MM-DD>  日付（既定: site.toml の timezone での今日。page では使えない）
   serve --port <PORT>      待ち受けるポート（既定: 8080。0 なら空いているポート）
@@ -67,6 +71,7 @@ deploy に要るもの:
   環境変数 CLOUDFLARE_ACCOUNT_ID  Cloudflare のアカウント ID
 
 例:
+  sqlite-cms init my-blog                        my-blog/ に記事リポジトリを作る
   sqlite-cms new post hello --title はじめまして  content/posts/hello.md を作る
   sqlite-cms serve                               カレントディレクトリの記事リポジトリをプレビューする
   sqlite-cms build --out public                  public/ に書き出す
@@ -75,6 +80,7 @@ deploy に要るもの:
 #[derive(Debug, PartialEq)]
 enum Command {
     Help,
+    Init { site_dir: PathBuf, title: Option<String>, force: bool },
     New { kind: Kind, slug: String, site_dir: PathBuf, title: Option<String>, date: Option<String> },
     Build { site_dir: PathBuf, out_dir: PathBuf, data_only: bool },
     Serve { site_dir: PathBuf, port: u16 },
@@ -100,7 +106,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command> {
     let mut args = args.into_iter();
     let command = args.next().ok_or_else(|| usage_error("コマンドを指定してください"))?;
     let command = command.to_string_lossy().into_owned();
-    if !["new", "build", "serve", "deploy"].contains(&command.as_str()) {
+    if !["init", "new", "build", "serve", "deploy"].contains(&command.as_str()) {
         return Err(usage_error(format_args!("不明なコマンドです: {command}")));
     }
 
@@ -110,6 +116,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command> {
     let mut port: u16 = 8080;
     let mut title = None;
     let mut date = None;
+    let mut force = false;
 
     while let Some(arg) = args.next() {
         let flag = arg.to_string_lossy().into_owned();
@@ -120,7 +127,8 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command> {
                 let value = option_value(&mut args, "--port", "ポート番号")?;
                 port = value.parse().map_err(|_| usage_error(format_args!("ポート番号が不正です: {value}")))?;
             }
-            ("new", "--title") => title = Some(option_value(&mut args, "--title", "タイトル")?),
+            ("new" | "init", "--title") => title = Some(option_value(&mut args, "--title", "タイトル")?),
+            ("init", "--force") => force = true,
             ("new", "--date") => {
                 let value = option_value(&mut args, "--date", "日付")?;
                 if !date::is_valid_date(&value) {
@@ -163,10 +171,25 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command> {
 
     let site_dir = positionals.next().map_or_else(|| PathBuf::from("."), PathBuf::from);
     Ok(match command.as_str() {
+        "init" => Command::Init { site_dir, title, force },
         "build" => Command::Build { site_dir, out_dir, data_only },
         "serve" => Command::Serve { site_dir, port },
         _ => Command::Deploy { site_dir },
     })
+}
+
+fn init(site_dir: PathBuf, title: Option<String>, force: bool) -> Result<()> {
+    let report = scaffold::init(&site_dir, title.as_deref(), force)?;
+    for path in &report.written {
+        let verb = if report.overwritten.contains(path) { "上書きしました" } else { "作りました" };
+        println!("{} を{verb}", path.display());
+    }
+    let target = if site_dir == Path::new(".") { String::new() } else { format!(" {}", site_dir.display()) };
+    println!();
+    println!("次は記事を書いてプレビューする:");
+    println!("  sqlite-cms new post <SLUG>{target}");
+    println!("  sqlite-cms serve{target}");
+    Ok(())
 }
 
 fn new_document(kind: Kind, slug: String, site_dir: PathBuf, title: Option<String>, date: Option<String>) -> Result<()> {
@@ -252,6 +275,7 @@ fn run() -> Result<()> {
             println!("{HELP}");
             Ok(())
         }
+        Command::Init { site_dir, title, force } => init(site_dir, title, force),
         Command::New { kind, slug, site_dir, title, date } => new_document(kind, slug, site_dir, title, date),
         Command::Build { site_dir, out_dir, data_only } => build(site_dir, out_dir, data_only),
         Command::Serve { site_dir, port } => serve(site_dir, port),
@@ -337,6 +361,18 @@ mod tests {
         assert!(err(&["serve", "--port"]).contains("--port"));
         assert!(err(&["serve", "--port", "http"]).contains("ポート番号が不正です"));
         assert!(err(&["serve", "--port", "70000"]).contains("ポート番号が不正です"));
+    }
+
+    #[test]
+    fn init_defaults_and_options() {
+        assert_eq!(parse(&["init"]).unwrap(), Command::Init { site_dir: ".".into(), title: None, force: false });
+        assert_eq!(
+            parse(&["init", "my-blog", "--title", "記事置き場", "--force"]).unwrap(),
+            Command::Init { site_dir: "my-blog".into(), title: Some("記事置き場".into()), force: true }
+        );
+        assert!(err(&["init", "a", "b"]).contains("余分な引数があります: b"));
+        assert!(err(&["init", "--date", "2026-09-26"]).contains("init では使えないオプションです: --date"));
+        assert!(err(&["build", "--force"]).contains("build では使えないオプションです: --force"));
     }
 
     #[test]
