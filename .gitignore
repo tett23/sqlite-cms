@@ -3,3 +3,4 @@ dist/
 target/
 web/public/
 web/lighthouse-reports/
+.env
