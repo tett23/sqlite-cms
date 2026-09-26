@@ -111,7 +111,7 @@ Markdown では書けない表現のために、次の HTML のタグだけを�
 | `<dl>`、`<dt>`、`<dd>` | 定義リスト |
 | `<br>` | 表のセルの中の改行 |
 
-これ以外のタグ（`div`、`span` など）はタグだけが外れて中身の文字が残る。`<script>`、`<iframe>`、`<style>` とコメントは中身ごと表示されない。
+これ以外のタグ（`div`、`span` など）はタグだけが外れて中身の文字が残る（拡張の記法が使うクラスを付けた `div` と `span` は残る）。`<script>`、`<iframe>`、`<style>` とコメントは中身ごと表示されない。
 属性は `details` の `open` と `abbr` の `title` などに限られ、`class`、`style`、`id`、`onclick` などは取り除かれる。
 
 `<details>` の中で Markdown を使うときは、`<summary>` の後と `</details>` の前に空行を入れる。
@@ -147,6 +147,65 @@ Markdown では書けない表現のために、次の HTML のタグだけを�
 | TOML | `toml` |
 | TypeScript | `typescript`、`ts`、`cts`、`mts` |
 | YAML | `yaml`、`yml` |
+
+### 拡張の記法
+
+[Zenn の記法](https://zenn.dev/zenn/articles/markdown-guide)を参考にした拡張も使える。
+見本は `example/content/articles/extensions.md`。
+
+````markdown
+:::message
+補足。中には **Markdown** が書ける。
+:::
+
+:::message alert
+注意
+:::
+
+:::details 見出し
+押すと開く中身
+:::
+
+::::details 入れ子にするときは外側のコロンを増やす
+:::message
+内側
+:::
+::::
+
+```js:ファイル名.js
+const a = 1;
+```
+
+```diff js:ファイル名.js
+-let a = 1;
++const a = 1;
+```
+
+$$
+e^{i\theta} = \cos\theta + i\sin\theta
+$$
+
+インラインの数式は $a \ne 0$ のように書く。
+
+```mermaid
+graph LR
+  A --> B
+```
+
+![説明](/media/foo.png =250x)
+*画像の説明*
+
+インラインの脚注^[内容]。
+
+https://example.com/
+````
+
+- 数式は KaTeX、図は mermaid で描く。数式や図のあるページでだけ読み込むので、ほかのページは重くならない。
+- `$5 と $10` のような金額は数式にならない。開きの `$` の直後と閉じの `$` の直前に空白があるもの、閉じの `$` の直後が数字のものは数式にしない。
+- `diff js` のように `diff` と言語名を並べると、変更の行と言語の色分けを同時に付ける。
+- URL だけの行はリンクカード（枠で囲んだリンク）になる。ページの題名や画像は取得せず、ホスト名と URL を表示する。X や YouTube などの埋め込みもしない。
+- `@[gist](URL)` のような `@` で始まる埋め込みの記法には対応しない。
+- `:::` の中身は別の文書として読むので、外側に書いた脚注（`[^1]: ...`）を中から参照できない。中で使う脚注はインラインの脚注で書く。
 画像は `content/media/` に置き、`![説明](/media/foo.png)` のように参照する。
 
 ## 使い方

@@ -1,4 +1,7 @@
 import { defaultSchema, type Options as Schema } from "rehype-sanitize";
+import { MESSAGE_ALERT_CLASS, MESSAGE_CLASS } from "./markdown/container";
+import { MATH_DISPLAY_CLASS, MATH_INLINE_CLASS } from "./markdown/math";
+import { LINK_CARD_CLASS, LINK_CARD_HOST_CLASS, LINK_CARD_URL_CLASS } from "./markdown/transforms";
 
 /** Markdown と GFM が作る要素。外すと Markdown の出力が壊れる。 */
 const MARKDOWN_TAGS = [
@@ -33,6 +36,13 @@ const MARKDOWN_TAGS = [
   "ul",
 ];
 
+/**
+ * Markdown の拡張（ADR 0025）が作る要素。
+ * div と span は、拡張が付けるクラスを持つものだけを残す（sanitize の後に unwrapPlainElements でタグを外す）。
+ * 本文に HTML で同じクラスを書いても同じ見た目になるだけで、害はない。
+ */
+const EXTENSION_TAGS = ["div", "span", "figure", "figcaption"];
+
 /** Markdown では書けないので、本文に HTML で書くことを許す要素（ADR 0018）。 */
 export const EXTRA_TAGS = [
   "details",
@@ -66,15 +76,45 @@ const baseAttributes = withoutPlainId(defaultSchema.attributes ?? {});
 
 export const sanitizeSchema: Schema = {
   ...defaultSchema,
-  tagNames: [...new Set([...MARKDOWN_TAGS, ...EXTRA_TAGS])],
+  tagNames: [...new Set([...MARKDOWN_TAGS, ...EXTRA_TAGS, ...EXTENSION_TAGS])],
   // 脚注の ID には remark-rehype がすでに user-content- を付けている。ここで重ねて付けるとリンクが壊れる。
   clobberPrefix: "",
   attributes: {
     ...baseAttributes,
     // 本文の要素がページ内の要素と同じ ID を持たないよう、脚注が作る ID だけを許す。
     "*": [...(baseAttributes["*"] ?? []), ["id", /^user-content-/, "footnote-label"]],
+    a: [
+      ...(baseAttributes.a ?? []).filter((attribute) => !(Array.isArray(attribute) && attribute[0] === "className")),
+      ["className", "data-footnote-backref", LINK_CARD_CLASS],
+    ],
     abbr: ["title"],
     details: ["open"],
+    div: [
+      ["className", MESSAGE_CLASS, MESSAGE_ALERT_CLASS, MATH_DISPLAY_CLASS],
+      ["role", "note"],
+    ],
+    span: [["className", MATH_INLINE_CLASS, LINK_CARD_HOST_CLASS, LINK_CARD_URL_CLASS]],
   },
   protocols: { ...defaultSchema.protocols, href: ["http", "https", "mailto"] },
 };
+
+type HastParent = { children: HastChild[] };
+type HastChild = { type: string; tagName?: string; properties?: { className?: unknown }; children?: HastChild[] };
+
+const UNWRAP_WITHOUT_CLASS = new Set(["div", "span"]);
+
+/**
+ * sanitize の後に通す rehype のプラグイン。許可したクラスを持たない div と span のタグを外し、中身を残す。
+ * 本文に HTML で書いた div と span を、ADR 0018 のとおり許可しないタグとして扱うためである。
+ */
+export function unwrapPlainElements() {
+  function visit(parent: HastParent) {
+    parent.children = parent.children.flatMap((child) => {
+      if (child.children) visit(child as HastParent);
+      const className = child.properties?.className;
+      const plain = !Array.isArray(className) || className.length === 0;
+      return child.type === "element" && UNWRAP_WITHOUT_CLASS.has(child.tagName ?? "") && plain ? (child.children ?? []) : [child];
+    });
+  }
+  return (tree: HastParent) => visit(tree);
+}

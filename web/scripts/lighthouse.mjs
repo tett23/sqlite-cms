@@ -15,6 +15,7 @@ const outDir = path.resolve(webDir, process.env.LIGHTHOUSE_OUT ?? "lighthouse-re
 const PAGES = [
   ["top", "/"],
   ["article-syntax", "/articles/syntax"],
+  ["article-extensions", "/articles/extensions"],
   ["article-getting-started", "/articles/getting-started"],
   ["post-ruby", "/posts/ruby"],
   ["about", "/about"],

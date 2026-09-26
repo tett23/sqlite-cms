@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it } from "vitest";
-import { BACKGROUND, getHighlighter, LANGUAGES, THEME_REGISTRATION } from "./highlight";
+import { BACKGROUND, DIFF_BACKGROUNDS, getHighlighter, LANGUAGES, THEME_REGISTRATION } from "./highlight";
 import { highlightLoader } from "./highlightLoader";
 import { MarkdownBody } from "./MarkdownBody";
 
@@ -72,7 +72,7 @@ describe("シンタックスハイライト", () => {
     },
   );
 
-  it("テーマのすべての文字色が、背景色に対して 4.5:1 以上のコントラストを持つ", () => {
+  it("テーマのすべての文字色が、背景色と diff の行の背景色に対して 4.5:1 以上のコントラストを持つ", () => {
     const channel = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
     const luminance = (hex: string) => {
       const [r, g, b] = [1, 3, 5].map((i) => channel(parseInt(hex.slice(i, i + 2), 16) / 255));
@@ -89,7 +89,9 @@ describe("シンタックスハイライト", () => {
     ].filter((color): color is string => typeof color === "string");
     expect(foregrounds.length).toBeGreaterThan(10);
     for (const color of new Set(foregrounds.map((c) => c.slice(0, 7).toLowerCase()))) {
-      expect(contrast(color, BACKGROUND), color).toBeGreaterThanOrEqual(4.5);
+      for (const background of [BACKGROUND, ...DIFF_BACKGROUNDS]) {
+        expect(contrast(color, background), `${color} / ${background}`).toBeGreaterThanOrEqual(4.5);
+      }
     }
   });
 

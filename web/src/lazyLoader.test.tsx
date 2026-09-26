@@ -1,13 +1,14 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { createHighlightLoader, highlightLoader, type Highlight } from "./highlightLoader";
+import { highlightLoader, type Highlight } from "./highlightLoader";
+import { createLoader } from "./lazyLoader";
 import { MarkdownBody } from "./MarkdownBody";
 
 const fake: Highlight = { rehypePlugins: [] };
 
-describe("createHighlightLoader", () => {
+describe("createLoader", () => {
   it("読み込むまでは null で、読み込み後は結果を返す", async () => {
-    const loader = createHighlightLoader(async () => fake);
+    const loader = createLoader(async () => fake);
     expect(loader.loaded()).toBeNull();
     await expect(loader.load()).resolves.toBe(fake);
     expect(loader.loaded()).toBe(fake);
@@ -15,7 +16,7 @@ describe("createHighlightLoader", () => {
 
   it("同時に呼んでも読み込みは一度だけ", async () => {
     let calls = 0;
-    const loader = createHighlightLoader(async () => {
+    const loader = createLoader(async () => {
       calls += 1;
       return fake;
     });
@@ -27,7 +28,7 @@ describe("createHighlightLoader", () => {
 
   it("失敗したら次の呼び出しで読み込み直す", async () => {
     let calls = 0;
-    const loader = createHighlightLoader(async () => {
+    const loader = createLoader(async () => {
       calls += 1;
       if (calls === 1) throw new Error("network");
       return fake;

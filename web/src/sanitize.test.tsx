@@ -121,3 +121,18 @@ describe("本文の HTML", () => {
     });
   });
 });
+
+describe("本文の HTML の div と span（ADR 0025）", () => {
+  it("拡張が使うクラスを持たない div と span はタグを外して中身を残す", () => {
+    const html = render('<div class="evil" role="note">a</div>\n\n<span style="color:red">b</span>');
+    const body = html.replace(/^<div class="article-body mt-6">|<\/div>$/g, "");
+    expect(body).not.toMatch(/<div[ >]|<span[ >]/);
+    expect(html).toContain("a");
+    expect(html).toContain("b");
+  });
+
+  it("拡張と同じクラスを書いたものは残す（拡張と同じ見た目になるだけ）", () => {
+    const html = render('<div class="message evil">注意</div>');
+    expect(html).toContain('<div class="message">注意</div>');
+  });
+});
