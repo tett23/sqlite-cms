@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it } from "vitest";
-import { getHighlighter, LANGUAGES } from "./highlight";
+import { BACKGROUND, getHighlighter, LANGUAGES, THEME_REGISTRATION } from "./highlight";
 import { highlightLoader } from "./highlightLoader";
 import { MarkdownBody } from "./MarkdownBody";
 
@@ -56,7 +56,7 @@ describe("シンタックスハイライト", () => {
 
   it.each(Object.entries(SAMPLES))("%s を複数の色に分ける", (lang, code) => {
     const html = render(fence(lang, code));
-    expect(html).toContain('class="shiki github-light"');
+    expect(html).toContain('class="shiki github-light-high-contrast"');
     expect(colors(html).size).toBeGreaterThanOrEqual(2);
   });
 
@@ -68,9 +68,30 @@ describe("シンタックスハイライト", () => {
     "別名 %s でも色を付ける",
     (alias) => {
       const html = render(fence(alias, "x = 1"));
-      expect(html).toContain('class="shiki github-light"');
+      expect(html).toContain('class="shiki github-light-high-contrast"');
     },
   );
+
+  it("テーマのすべての文字色が、背景色に対して 4.5:1 以上のコントラストを持つ", () => {
+    const channel = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    const luminance = (hex: string) => {
+      const [r, g, b] = [1, 3, 5].map((i) => channel(parseInt(hex.slice(i, i + 2), 16) / 255));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const contrast = (a: string, b: string) => {
+      const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+      return (light + 0.05) / (dark + 0.05);
+    };
+    const theme = THEME_REGISTRATION;
+    const foregrounds = [
+      theme.colors?.["editor.foreground"],
+      ...(theme.tokenColors ?? []).filter((rule) => !rule.settings.background).map((rule) => rule.settings.foreground),
+    ].filter((color): color is string => typeof color === "string");
+    expect(foregrounds.length).toBeGreaterThan(10);
+    for (const color of new Set(foregrounds.map((c) => c.slice(0, 7).toLowerCase()))) {
+      expect(contrast(color, BACKGROUND), color).toBeGreaterThanOrEqual(4.5);
+    }
+  });
 
   it("コードブロックの背景色を本文の pre と揃える", () => {
     expect(render(fence("rust", "fn main() {}"))).toContain("background-color:#f5f5f5");

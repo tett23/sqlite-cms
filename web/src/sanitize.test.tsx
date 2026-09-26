@@ -82,9 +82,20 @@ describe("本文の HTML", () => {
     expect(html).not.toContain("user-content-user-content");
   });
 
-  it("タスクリストのチェックボックスを残す", () => {
-    const html = render("- [x] 済\n- [ ] 未");
-    expect(html).toContain('<input type="checkbox" disabled="" checked=""/>');
+  it("タスクリストのチェックボックスを残し、項目の文章を読み上げ用の名前にする", () => {
+    const html = render("- [x] 済んだこと\n- [ ] まだのこと\n  - [ ] 入れ子");
+    expect(html).toMatch(/<input type="checkbox" disabled="" aria-label="済んだこと" checked=""\/>/);
+    expect(html).toContain('aria-label="まだのこと"');
+    expect(html).toContain('aria-label="入れ子"');
+  });
+
+  it("タスクリストでない項目のチェックボックスには名前を付けない", () => {
+    expect(render("- 普通の項目")).not.toContain("aria-label");
+  });
+
+  it("脚注の戻りリンクの読み上げ用の名前に、見えている記号を含める", () => {
+    const html = render("本文[^1]\n\n[^1]: 注。");
+    expect(html).toMatch(/aria-label="↩︎ 本文に戻る"[^>]*>↩︎<\/a>/);
   });
 
   it("init が作るトップページのコメントは表示しない", () => {
@@ -99,14 +110,14 @@ describe("本文の HTML", () => {
 
     it("sanitize の後でも Shiki の色分けが残る", () => {
       const html = render("```rust\nfn main() {}\n```");
-      expect(html).toContain('class="shiki github-light"');
+      expect(html).toContain('class="shiki github-light-high-contrast"');
       expect(html).toMatch(/style="color:#/);
     });
 
     it("details の中のコードブロックにも色が付く", () => {
       const html = render("<details>\n<summary>コード</summary>\n\n```rust\nfn main() {}\n```\n\n</details>");
       expect(html).toContain("<details>");
-      expect(html).toContain('class="shiki github-light"');
+      expect(html).toContain('class="shiki github-light-high-contrast"');
     });
   });
 });

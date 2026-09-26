@@ -51,6 +51,6 @@ describe("MarkdownBody の非同期のハイライト", () => {
 
     await highlightLoader.load();
     const after = renderToStaticMarkup(<MarkdownBody source={source} />);
-    expect(after).toContain('class="shiki github-light"');
+    expect(after).toContain('class="shiki github-light-high-contrast"');
   });
 });

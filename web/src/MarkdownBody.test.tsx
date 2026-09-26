@@ -26,7 +26,7 @@ describe("MarkdownBody", () => {
   it("GFM のタスクリストを描画する", () => {
     const html = render("- [x] 済\n- [ ] 未");
     expect(html).toContain('class="contains-task-list"');
-    expect(html).toMatch(/<input type="checkbox" disabled="" checked=""\/>/);
+    expect(html).toMatch(/<input type="checkbox" disabled="" [^>]*checked=""\/>/);
   });
 
   it("GFM の自動リンクを描画する", () => {

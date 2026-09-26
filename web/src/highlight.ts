@@ -13,13 +13,14 @@ import toml from "@shikijs/langs/toml";
 import tsx from "@shikijs/langs/tsx";
 import typescript from "@shikijs/langs/typescript";
 import yaml from "@shikijs/langs/yaml";
-import githubLight from "@shikijs/themes/github-light";
+import githubLightHighContrast from "@shikijs/themes/github-light-high-contrast";
 import rehypeShikiFromHighlighter from "@shikijs/rehype/core";
 import type { Options } from "react-markdown";
 import { createHighlighterCoreSync, type HighlighterCore } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 
-export const THEME = "github-light";
+// 文字色がすべて本文の pre の背景（#f5f5f5）に対して 4.5:1 以上になるテーマ（ADR 0019）。
+export const THEME = "github-light-high-contrast";
 
 // 言語を足すとバンドルが大きくなる（1 言語あたり gzip 後で 1〜16 KB）。
 export const LANGUAGES = [
@@ -41,13 +42,15 @@ export const LANGUAGES = [
 ];
 
 // 本文の pre の背景色（index.css）とテーマの背景色を揃える。
-const COLOR_REPLACEMENTS = { "#fff": "#f5f5f5" };
+export const BACKGROUND = "#f5f5f5";
+export const THEME_REGISTRATION = githubLightHighContrast;
+const COLOR_REPLACEMENTS = { "#ffffff": BACKGROUND };
 
 let highlighter: HighlighterCore | null = null;
 
 export function getHighlighter(): HighlighterCore {
   highlighter ??= createHighlighterCoreSync({
-    themes: [githubLight],
+    themes: [githubLightHighContrast],
     langs: LANGUAGES,
     langAlias: { jsx: "tsx" },
     engine: createJavaScriptRegexEngine(),

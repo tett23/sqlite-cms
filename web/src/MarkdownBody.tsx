@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import Markdown, { type Components, type Options } from "react-markdown";
+import { createContext, useContext, useEffect, useState } from "react";
+import Markdown, { type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
@@ -13,7 +13,8 @@ const remarkRehypeOptions: Options["remarkRehypeOptions"] = {
   allowDangerousHtml: true,
   footnoteLabel: "脚注",
   footnoteLabelProperties: {},
-  footnoteBackLabel: "本文に戻る",
+  // 読み上げ用の名前に、見えている記号を含める（見た目と読み上げを一致させる）。
+  footnoteBackLabel: "↩︎ 本文に戻る",
   footnoteBackContent: "↩︎",
 };
 
@@ -42,9 +43,34 @@ function isInternal(href: string | undefined): href is string {
   return href !== undefined && href.startsWith("/") && !href.startsWith("//");
 }
 
+type HastNode = { type: string; value?: string; tagName?: string; children?: HastNode[] };
+
+/** 項目の文章。入れ子のリストの文章は含めない。 */
+function textOf(node: HastNode): string {
+  if (node.type === "text") return node.value ?? "";
+  if (node.tagName === "ul" || node.tagName === "ol") return "";
+  return (node.children ?? []).map(textOf).join("");
+}
+
+function isTaskListItem(node: ExtraProps["node"]): boolean {
+  const className = node?.properties?.className;
+  return Array.isArray(className) && className.includes("task-list-item");
+}
+
+/** タスクリストのチェックボックスに、項目の文章を読み上げ用の名前として渡す。 */
+const TaskLabel = createContext<string | undefined>(undefined);
+
 const components: Components = {
   a({ node: _node, href, ...props }) {
     return isInternal(href) ? <Link to={href} {...props} /> : <a href={href} {...props} />;
+  },
+  li({ node, ...props }) {
+    const item = <li {...props} />;
+    return isTaskListItem(node) ? <TaskLabel value={textOf(node as HastNode).trim()}>{item}</TaskLabel> : item;
+  },
+  input({ node: _node, ...props }) {
+    const label = useContext(TaskLabel);
+    return <input {...props} aria-label={props.type === "checkbox" ? label : undefined} />;
   },
 };
 
