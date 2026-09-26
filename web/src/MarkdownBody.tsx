@@ -25,6 +25,7 @@ export function MarkdownBody({ source, className = "mt-6" }: { source: string; c
   return (
     <div className={`article-body ${className}`}>
       <Markdown
+        skipHtml
         remarkPlugins={remarkPlugins}
         remarkRehypeOptions={remarkRehypeOptions}
         components={components}

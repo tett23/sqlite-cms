@@ -46,9 +46,13 @@ describe("MarkdownBody", () => {
     expect(html).toContain('href="https://example.com"');
   });
 
-  it("生の HTML は要素として描画しない", () => {
-    const html = render("<script>alert(1)</script>\n\n<span>生</span>");
+  it("生の HTML は要素にも文字にもせず、表示しない", () => {
+    const html = render("<script>alert(1)</script>\n\n本文と<span>生</span>の HTML\n\n<!-- コメント -->");
     expect(html).not.toContain("<script>");
     expect(html).not.toContain("<span>");
+    expect(html).not.toContain("alert(1)");
+    expect(html).not.toContain("&lt;");
+    expect(html).not.toContain("コメント");
+    expect(html).toContain("本文と");
   });
 });
