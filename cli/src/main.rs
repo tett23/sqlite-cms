@@ -6,6 +6,7 @@ mod db;
 mod deploy;
 mod dotenv;
 mod favicon;
+mod feed;
 mod frontmatter;
 mod gzip;
 mod linkcard;
@@ -66,7 +67,8 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
   -h, --help               このヘルプを表示して終了する
 
 記事リポジトリの構成:
-  site.toml       サイトのメタデータ（必須）。timezone で new の日付のタイムゾーンを
+  site.toml       サイトのメタデータ（必須）。url を書くと RSS のフィード（/rss.xml）を作る。
+                  timezone で new の日付のタイムゾーンを
                   指定できる（Asia/Tokyo や +09:00。既定は環境のタイムゾーン）。
                   description でページの meta description を指定できる
   content/

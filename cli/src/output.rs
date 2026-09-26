@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 
 use crate::linkcard::{self, Fetcher};
-use crate::{db, favicon, media, site};
+use crate::{db, favicon, feed, media, site};
 
 pub const HEADERS: &str = "\
 /db/*.sqlite
@@ -45,6 +45,16 @@ pub fn apply_base_path(html: &str, base_path: &str) -> String {
     }
 }
 
+/// index.html に、RSS のフィードの案内（`<link rel="alternate">`）を入れる。SPA はこれを見てフッターにリンクを出す。
+pub fn add_feed_link(html: &str, base_path: &str, title: &str) -> String {
+    let title = title.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;");
+    let link = format!("<link rel=\"alternate\" type=\"application/rss+xml\" title=\"{title}\" href=\"{base_path}rss.xml\" />\n    ");
+    match html.find("<title>") {
+        Some(index) => format!("{}{link}{}", &html[..index], &html[index..]),
+        None => html.replacen("</head>", &format!("{link}</head>"), 1),
+    }
+}
+
 pub struct SiteOutput {
     pub files: BTreeMap<String, Vec<u8>>,
 }
@@ -76,12 +86,21 @@ impl SiteOutput {
                  リリースのバイナリを使うか、開発者向けの手順（DEVELOPMENT.md）でビルドし直してください"
             );
         }
-        let base_path = site::read_site_config(site_dir)?.base_path();
+        let config = site::read_site_config(site_dir)?;
+        let base_path = config.base_path();
         let mut output = Self::data(site_dir, fetcher)?;
         for (path, bytes) in spa {
             output.files.entry(path.to_string()).or_insert_with(|| bytes.to_vec());
         }
-        let index = apply_base_path(&String::from_utf8_lossy(&output.files["/index.html"]), &base_path).into_bytes();
+        let mut index = apply_base_path(&String::from_utf8_lossy(&output.files["/index.html"]), &base_path);
+        // url を書いたときは RSS のフィードを作り、index.html に案内を入れる（ADR 0033）。
+        if let Some(url) = config.url() {
+            let (posts, articles) = db::posts_and_articles(site_dir)?;
+            let rss = feed::rss(&config, &url, &feed::items(&posts, &articles));
+            output.files.insert("/rss.xml".to_string(), rss.into_bytes());
+            index = add_feed_link(&index, &base_path, &config.title);
+        }
+        let index = index.into_bytes();
         // SPA のフォールバックの設定がない配信先（GitHub Pages など）では、知らないパスに 404.html が返る。
         output.files.insert("/404.html".to_string(), index.clone());
         output.files.insert("/index.html".to_string(), index);
@@ -180,6 +199,27 @@ mod tests {
         assert!(sub.contains("href=\"/my-blog/assets/index.css\""), "{sub}");
         assert!(sub.contains("href=\"/my-blog/favicon.svg\""), "{sub}");
         assert!(sub.contains("content=\"/my-blog/\""), "{sub}");
+    }
+
+    #[test]
+    fn rss_is_written_only_when_the_url_is_set() {
+        let site = site_fixture();
+        let spa: &[(&str, &[u8])] = &[("/index.html", b"<head><title></title></head>")];
+        let output = SiteOutput::site(site.path(), spa, &linkcard::Offline).unwrap();
+        assert!(!output.files.contains_key("/rss.xml"));
+        assert!(!String::from_utf8_lossy(&output.files["/index.html"]).contains("rss.xml"));
+
+        fs::write(site.path().join("site.toml"), "title = \"A & B\"\nurl = \"https://example.com\"\n").unwrap();
+        fs::write(site.path().join("content/posts/hello.md"), "---\ntitle: こんにちは\ndate: 2026-09-26\n---\n\n本文。\n").unwrap();
+        let output = SiteOutput::site(site.path(), spa, &linkcard::Offline).unwrap();
+        let rss = String::from_utf8(output.files["/rss.xml"].clone()).unwrap();
+        assert!(rss.contains("<link>https://example.com/posts/hello</link>"), "{rss}");
+        let index = String::from_utf8(output.files["/index.html"].clone()).unwrap();
+        assert!(
+            index.contains("<link rel=\"alternate\" type=\"application/rss+xml\" title=\"A &amp; B\" href=\"/rss.xml\" />"),
+            "{index}"
+        );
+        assert_eq!(output.files["/404.html"], output.files["/index.html"]);
     }
 
     #[test]

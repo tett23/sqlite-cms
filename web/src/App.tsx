@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { Database } from "sql.js";
-import { getArticle, getLinkCardImages, getPage, getPost, getSite, listArticles, listPosts, loadDb } from "./db";
+import { getArticle, getLinkCardImages, getPage, getPost, getSite, listAll, listArticles, listPosts, loadDb } from "./db";
 import { pageDescription, setMetaDescription } from "./documentMeta";
 import { MarkdownBody } from "./MarkdownBody";
 import { Link, matchPath, usePath } from "./router";
@@ -154,11 +154,53 @@ function NotFound() {
   return <p>見つかりません。</p>;
 }
 
+/** 種別をまたいだ統合一覧（ADR 0033）。post と article を、年ごとに新しい順に並べる。 */
+function ArchivePage() {
+  const { db, error } = useDb();
+  useDocumentMeta(db, "すべての記事");
+  if (!db) return <Loading error={error} />;
+
+  const entries = listAll(db);
+  const years = [...new Set(entries.map((entry) => entry.publishedAt.slice(0, 4)))];
+  return (
+    <div>
+      <h1 className="mb-4 text-xl font-bold">すべての記事</h1>
+      {entries.length === 0 && <p>まだ記事がありません。</p>}
+      {years.map((year) => (
+        <section key={year} className="mb-8">
+          <h2 className="mb-3 border-b border-gray-300 pb-1 text-lg font-bold">{year}</h2>
+          <ul className="space-y-2">
+            {entries
+              .filter((entry) => entry.publishedAt.startsWith(year))
+              .map((entry) => (
+                <li key={`${entry.kind}/${entry.slug}`}>
+                  <span className="mr-2 text-sm text-gray-600">{entry.publishedAt}</span>
+                  <Link to={entry.kind === "post" ? `/posts/${entry.slug}` : `/articles/${entry.slug}`}>{entry.title}</Link>
+                  <span className="ml-2 text-sm text-gray-600">{entry.kind === "post" ? "ブログ" : "記事"}</span>
+                  {entry.description && <p className="text-sm text-gray-700">{entry.description}</p>}
+                </li>
+              ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/** CLI が index.html に入れた RSS のフィードの案内（ADR 0033）。なければ null。 */
+function feedHref(): string | null {
+  if (typeof document === "undefined") return null;
+  return document.querySelector('link[rel="alternate"][type="application/rss+xml"]')?.getAttribute("href") ?? null;
+}
+
+const FEED_HREF = feedHref();
+
 const ROUTES: [string, (params: Record<string, string>) => ReactNode][] = [
   ["/", () => <Home />],
   ["/posts/:slug", ({ slug }) => <PostPage slug={slug} />],
   ["/articles/:slug", ({ slug }) => <ArticlePage slug={slug} />],
   ["/about", () => <AboutPage />],
+  ["/archive", () => <ArchivePage />],
 ];
 
 function CurrentPage() {
@@ -186,19 +228,25 @@ export default function App() {
         </Link>
         <nav className="space-x-4 text-sm">
           <Link to="/">トップ</Link>
+          <Link to="/archive">一覧</Link>
           <Link to="/about">自己紹介</Link>
         </nav>
       </header>
       <main>
         <CurrentPage />
       </main>
-      {(site?.author || site?.license) && (
+      {(site?.author || site?.license || FEED_HREF) && (
         <footer className="mt-16 border-t border-gray-400 pt-2 text-sm text-gray-600">
-          {site.author && <p>{site.author}</p>}
-          {site.license && (
+          {site?.author && <p>{site.author}</p>}
+          {site?.license && (
             <p>
               ライセンス:{" "}
               {site.license.url ? <a href={site.license.url}>{site.license.name}</a> : site.license.name}
+            </p>
+          )}
+          {FEED_HREF && (
+            <p>
+              <a href={FEED_HREF}>RSS</a>
             </p>
           )}
         </footer>

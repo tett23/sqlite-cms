@@ -100,6 +100,7 @@ author = "tett23"              # 任意。フッターに表示
 timezone = "Asia/Tokyo"        # 任意。new が入れる日付のタイムゾーン（"+09:00" の形も可）。省略すると環境のタイムゾーン
 description = "サイトの説明"    # 任意。ページの meta description。省略すると「<サイト名>。記事とブログを置いているサイトです。」
 base_path = "/my-blog/"        # 任意。サイトを置くパス。省略すると "/"（公開の節を参照）
+url = "https://example.com/"   # 任意。公開したサイトの URL。書くと RSS のフィード（/rss.xml）を作る
 
 [license]                      # 任意。フッターに表示
 name = "CC0 1.0"               # [license] を書くなら必須
@@ -109,7 +110,7 @@ url = "https://creativecommons.org/publicdomain/zero/1.0/"  # 任意。書けば
 worker = "my-blog"             # Cloudflare の Worker 名（英小文字、数字、ハイフン）
 ```
 
-`base_path` などの表より前に書くキー（`title` から `base_path` まで）は、`[license]` や `[deploy]` より前に書く。
+`base_path` などの表より前に書くキー（`title` から `url` まで）は、`[license]` や `[deploy]` より前に書く。
 
 知らないキーはエラーになる（綴りの誤りを見逃さないため）。
 
@@ -281,6 +282,15 @@ slug を指定して、同じ名前のファイルがすでにあるときは、
 slug を省いて別の場所の記事リポジトリを指すときは、`./blog` や `../blog` のようにパスとわかる形で書く（`/` を含むか `.` で始まる引数は、slug ではなく記事リポジトリとみなす）。
 
 詳しいオプションは `sqlite-cms --help` で確認できる。
+
+### 一覧と RSS
+
+ヘッダの「一覧」（`/archive`）に、post と article をまとめて、年ごとに新しい順に並べる。
+
+`site.toml` に `url`（公開したサイトの URL）を書くと、`build`、`serve`、`deploy` が RSS 2.0 のフィード（`/rss.xml`）を作る。
+新しい順に 20 件を載せ、article は要約を、post は本文の書き出しを説明にする（本文は載せない）。
+フッターに RSS のリンクが出て、ページの head にもフィードの案内が入る。
+`url` のパスは `base_path` と同じにする（`https://<user>.github.io/my-blog/` なら `base_path = "/my-blog/"`）。
 
 ## 公開
 

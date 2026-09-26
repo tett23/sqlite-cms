@@ -19,6 +19,7 @@ const PAGES = [
   ["article-getting-started", "/articles/getting-started"],
   ["post-ruby", "/posts/ruby"],
   ["about", "/about"],
+  ["archive", "/archive"],
 ];
 
 const CATEGORIES = ["performance", "accessibility", "best-practices", "seo"];
