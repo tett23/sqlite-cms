@@ -24,21 +24,13 @@ pub(crate) fn extension(path: &str) -> &str {
 }
 
 pub fn asset_hash(path: &str, bytes: &[u8]) -> String {
-    use base64::Engine;
-    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    let encoded = crate::base64::encode(bytes);
     let digest = blake3::hash(format!("{encoded}{}", extension(path)).as_bytes());
     digest.to_hex()[..32].to_string()
 }
 
 pub fn content_type(path: &str) -> String {
-    if extension(path) == "sqlite" {
-        return "application/vnd.sqlite3".to_string();
-    }
-    match mime_guess::from_path(path).first() {
-        Some(mime) if mime.type_() == "text" => format!("{}; charset=utf-8", mime.essence_str()),
-        Some(mime) => mime.essence_str().to_string(),
-        None => "application/null".to_string(),
-    }
+    crate::mime::by_extension(extension(path)).unwrap_or("application/null").to_string()
 }
 
 pub fn deploy(client: &Client, worker: &str, output: &SiteOutput) -> Result<DeployReport> {
@@ -124,8 +116,7 @@ mod tests {
     }
 
     fn jwt_with(payload: &str) -> String {
-        use base64::Engine;
-        format!("h.{}.s", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload))
+        format!("h.{}.s", crate::base64::encode_url_safe_no_pad(payload.as_bytes()))
     }
 
     fn body_of(http: &FakeHttp, index: usize) -> String {

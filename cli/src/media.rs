@@ -38,7 +38,7 @@ mod tests {
 
     #[test]
     fn reads_nested_files_and_skips_dotfiles() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = crate::testutil::tempdir();
         let src = tmp.path().join("media");
         fs::create_dir_all(src.join("2026")).unwrap();
         fs::write(src.join("a.png"), b"a").unwrap();
@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     fn missing_source_is_empty() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = crate::testutil::tempdir();
         assert!(read_media(&tmp.path().join("media")).unwrap().is_empty());
     }
 }

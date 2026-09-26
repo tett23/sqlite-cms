@@ -3,7 +3,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
 
-use crate::deploy::{content_type, extension};
+use crate::deploy::extension;
 use crate::output::SiteOutput;
 
 pub struct Response {
@@ -47,6 +47,10 @@ fn percent_decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+fn content_type(path: &str) -> String {
+    crate::mime::by_extension(extension(path)).unwrap_or("application/octet-stream").to_string()
 }
 
 fn text(status: u16) -> Response {

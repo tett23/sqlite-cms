@@ -7,6 +7,9 @@ use std::process::{Child, Command, Output, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+#[path = "../src/testutil.rs"]
+mod testutil;
+
 fn sqlite_cms() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_sqlite-cms"));
     for name in ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_BASE_URL"] {
@@ -54,7 +57,7 @@ fn copy_dir(src: &Path, dst: &Path) {
 
 #[test]
 fn help_prints_to_stdout_and_exits_successfully() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = testutil::tempdir();
     let output = run(&["--help"], tmp.path());
 
     assert!(output.status.success());
@@ -69,13 +72,13 @@ fn help_prints_to_stdout_and_exits_successfully() {
 
 #[test]
 fn short_help_is_the_same_as_long_help() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = testutil::tempdir();
     assert_eq!(run(&["-h"], tmp.path()).stdout, run(&["--help"], tmp.path()).stdout);
 }
 
 #[test]
 fn missing_command_fails_with_hint_on_stderr() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = testutil::tempdir();
     let output = run(&[], tmp.path());
 
     assert!(!output.status.success());
@@ -88,7 +91,7 @@ fn missing_command_fails_with_hint_on_stderr() {
 #[test]
 fn build_writes_complete_site() {
     require_spa();
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = testutil::tempdir();
     let out = tmp.path().join("dist");
     let output = run(&["build", example_dir().to_str().unwrap(), "--out", out.to_str().unwrap()], tmp.path());
 
@@ -101,7 +104,7 @@ fn build_writes_complete_site() {
 
 #[test]
 fn build_data_only_writes_db_and_media() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = testutil::tempdir();
     let out = tmp.path().join("public");
     let output = run(
         &["build", example_dir().to_str().unwrap(), "--out", out.to_str().unwrap(), "--data-only"],
@@ -116,7 +119,7 @@ fn build_data_only_writes_db_and_media() {
 
 #[test]
 fn build_uses_current_directory_by_default() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = testutil::tempdir();
     let out = tmp.path().join("public");
     let output = sqlite_cms()
         .args(["build", "--data-only", "--out", out.to_str().unwrap()])
@@ -296,7 +299,7 @@ fn site_with_deploy(tmp: &Path) -> PathBuf {
 #[test]
 fn deploy_uploads_site_through_cloudflare_api() {
     require_spa();
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = testutil::tempdir();
     let site = site_with_deploy(tmp.path());
     let (base, recorded) = start_mock_cloudflare();
 
@@ -349,7 +352,7 @@ fn deploy_uploads_site_through_cloudflare_api() {
 
 #[test]
 fn deploy_requires_deploy_section_and_credentials() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = testutil::tempdir();
 
     let output = run(&["deploy", example_dir().to_str().unwrap()], tmp.path());
     assert!(!output.status.success());

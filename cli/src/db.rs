@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use rusqlite::{Connection, MAIN_DB};
-use sha2::{Digest, Sha256};
 
 use crate::content::{parse_article, parse_page, parse_post};
 use crate::migrations::{apply_migrations, embedded_migrations};
@@ -86,9 +85,7 @@ pub fn build_db_bytes(site_dir: &Path) -> Result<Vec<u8>> {
 }
 
 pub fn db_file_name(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let hex: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
-    format!("articles-{hex}.sqlite")
+    format!("articles-{}.sqlite", &blake3::hash(bytes).to_hex()[..16])
 }
 
 #[cfg(test)]
@@ -101,14 +98,14 @@ mod tests {
 
     const SITE: &str = "title = \"記事置き場\"\nauthor = \"tett23\"\n\n[license]\nname = \"CC0 1.0\"\n";
 
-    fn site_fixture(content: &[(&str, &str)]) -> tempfile::TempDir {
+    fn site_fixture(content: &[(&str, &str)]) -> crate::testutil::TempDir {
         let mut files = vec![("site.toml".to_string(), SITE.to_string())];
         files.extend(content.iter().map(|(name, raw)| (format!("content/{name}"), raw.to_string())));
         fixture(&files)
     }
 
-    fn fixture(files: &[(String, String)]) -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
+    fn fixture(files: &[(String, String)]) -> crate::testutil::TempDir {
+        let dir = crate::testutil::tempdir();
         fs::create_dir_all(dir.path().join("content")).unwrap();
         for (name, raw) in files {
             let path = dir.path().join(name);
@@ -118,8 +115,8 @@ mod tests {
         dir
     }
 
-    fn open(bytes: &[u8]) -> (tempfile::TempDir, Connection) {
-        let dir = tempfile::tempdir().unwrap();
+    fn open(bytes: &[u8]) -> (crate::testutil::TempDir, Connection) {
+        let dir = crate::testutil::tempdir();
         let path = dir.path().join("db.sqlite");
         fs::write(&path, bytes).unwrap();
         let conn = Connection::open(&path).unwrap();
@@ -205,7 +202,7 @@ mod tests {
 
     #[test]
     fn missing_site_toml_is_error() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::testutil::tempdir();
         fs::create_dir_all(dir.path().join("content")).unwrap();
         let err = build_db_bytes(dir.path()).unwrap_err();
         assert!(err.to_string().contains("site.toml を読めません"));
@@ -213,7 +210,7 @@ mod tests {
 
     #[test]
     fn missing_content_root_is_error() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::testutil::tempdir();
         fs::write(dir.path().join("site.toml"), SITE).unwrap();
         let err = build_db_bytes(dir.path()).unwrap_err();
         assert!(err.to_string().contains("コンテンツのディレクトリがありません"));

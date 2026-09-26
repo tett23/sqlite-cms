@@ -1,5 +1,6 @@
 use anyhow::{anyhow, bail, Result};
-use serde_yaml::Value;
+
+use crate::frontmatter::{self, Frontmatter};
 
 #[derive(Debug, PartialEq)]
 pub struct Post {
@@ -27,7 +28,7 @@ pub struct Page {
 }
 
 struct Doc {
-    frontmatter: Value,
+    frontmatter: Frontmatter,
     title: String,
     body_md: String,
 }
@@ -50,14 +51,11 @@ fn split_frontmatter(raw: &str) -> (&str, &str) {
 
 fn parse_doc(slug: &str, raw: &str) -> Result<Doc> {
     let (yaml, body) = split_frontmatter(raw);
-    let frontmatter: Value = if yaml.trim().is_empty() {
-        Value::Null
-    } else {
-        serde_yaml::from_str(yaml).map_err(|e| anyhow!("{slug}: frontmatter を解釈できません: {e}"))?
-    };
+    let frontmatter =
+        frontmatter::parse(yaml).map_err(|e| anyhow!("{slug}: frontmatter を解釈できません: {e:#}"))?;
 
-    let title = match frontmatter.get("title") {
-        Some(Value::String(s)) if !s.is_empty() => s.clone(),
+    let title = match value(&frontmatter, "title") {
+        Some(s) if !s.is_empty() => s.to_string(),
         _ => bail!("{slug}: frontmatter に title がありません"),
     };
 
@@ -77,14 +75,15 @@ fn is_date(s: &str) -> bool {
         })
 }
 
-fn date_field(frontmatter: &Value, key: &str) -> Option<String> {
-    match frontmatter.get(key) {
-        Some(Value::String(s)) if is_date(s) => Some(s.clone()),
-        _ => None,
-    }
+fn value<'a>(frontmatter: &'a Frontmatter, key: &str) -> Option<&'a str> {
+    frontmatter.get(key).and_then(|v| v.as_deref())
 }
 
-fn require_date(slug: &str, frontmatter: &Value) -> Result<String> {
+fn date_field(frontmatter: &Frontmatter, key: &str) -> Option<String> {
+    value(frontmatter, key).filter(|s| is_date(s)).map(str::to_string)
+}
+
+fn require_date(slug: &str, frontmatter: &Frontmatter) -> Result<String> {
     date_field(frontmatter, "date")
         .ok_or_else(|| anyhow!("{slug}: frontmatter に date (YYYY-MM-DD) がありません"))
 }
@@ -102,14 +101,10 @@ pub fn parse_post(slug: &str, raw: &str) -> Result<Post> {
 pub fn parse_article(slug: &str, raw: &str) -> Result<Article> {
     let doc = parse_doc(slug, raw)?;
 
-    let description = match doc.frontmatter.get("description") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(s)) => Some(s.clone()),
-        Some(_) => bail!("{slug}: description は文字列で指定してください"),
-    };
+    let description = value(&doc.frontmatter, "description").map(str::to_string);
 
-    let updated_at = match doc.frontmatter.get("updated") {
-        None | Some(Value::Null) => None,
+    let updated_at = match value(&doc.frontmatter, "updated") {
+        None => None,
         Some(_) => Some(
             date_field(&doc.frontmatter, "updated")
                 .ok_or_else(|| anyhow!("{slug}: updated は YYYY-MM-DD で指定してください"))?,

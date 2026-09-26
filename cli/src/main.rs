@@ -1,13 +1,18 @@
+mod base64;
 mod cloudflare;
 mod content;
 mod db;
 mod deploy;
+mod frontmatter;
 mod media;
 mod migrations;
+mod mime;
 mod output;
 mod serve;
 mod site;
 mod spa;
+#[cfg(test)]
+mod testutil;
 
 use std::ffi::OsString;
 use std::io::Write;

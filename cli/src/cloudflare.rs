@@ -199,14 +199,13 @@ impl<'a> Client<'a> {
     }
 
     pub fn upload_bucket(&self, upload_jwt: &str, files: &[UploadFile]) -> Result<Option<String>> {
-        use base64::Engine;
         let parts: Vec<Part> = files
             .iter()
             .map(|f| Part {
                 name: f.hash.to_string(),
                 filename: Some(f.hash.to_string()),
                 content_type: Some(f.content_type.clone()),
-                data: base64::engine::general_purpose::STANDARD.encode(f.bytes).into_bytes(),
+                data: crate::base64::encode(f.bytes).into_bytes(),
             })
             .collect();
         let (content_type, body) = multipart(&parts);
@@ -302,11 +301,10 @@ impl<'a> Client<'a> {
 }
 
 pub fn is_single_asset_upload_mode(jwt: &str) -> bool {
-    use base64::Engine;
     let Some(payload) = jwt.split('.').nth(1) else {
         return false;
     };
-    let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')) else {
+    let Some(bytes) = crate::base64::decode_url_safe(payload) else {
         return false;
     };
     serde_json::from_slice::<serde_json::Value>(&bytes)
@@ -459,8 +457,7 @@ pub mod tests {
 
     #[test]
     fn detects_single_asset_upload_mode_from_jwt() {
-        use base64::Engine;
-        let encode = |json: &str| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json);
+        let encode = |json: &str| crate::base64::encode_url_safe_no_pad(json.as_bytes());
         let single = format!("h.{}.s", encode(r#"{"wrangler_single_asset_uploads":true}"#));
         let bulk = format!("h.{}.s", encode(r#"{"exp":1}"#));
         assert!(is_single_asset_upload_mode(&single));

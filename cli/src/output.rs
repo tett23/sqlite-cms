@@ -96,8 +96,8 @@ mod tests {
 
     const SPA: &[(&str, &[u8])] = &[("/index.html", b"<html>"), ("/assets/app.js", b"js")];
 
-    fn site_fixture() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
+    fn site_fixture() -> crate::testutil::TempDir {
+        let dir = crate::testutil::tempdir();
         fs::write(dir.path().join("site.toml"), "title = \"t\"\n").unwrap();
         fs::create_dir_all(dir.path().join("content/posts")).unwrap();
         fs::create_dir_all(dir.path().join("content/media")).unwrap();
@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn write_site_creates_complete_output_with_headers_and_marker() {
         let site = site_fixture();
-        let out = tempfile::tempdir().unwrap();
+        let out = crate::testutil::tempdir();
         let out_dir = out.path().join("dist");
         SiteOutput::site(site.path(), SPA).unwrap().write_site(&out_dir).unwrap();
 
@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn write_site_replaces_previous_output() {
         let site = site_fixture();
-        let out = tempfile::tempdir().unwrap();
+        let out = crate::testutil::tempdir();
         let out_dir = out.path().join("dist");
         let output = SiteOutput::site(site.path(), SPA).unwrap();
         output.write_site(&out_dir).unwrap();
@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn write_site_refuses_foreign_non_empty_directory() {
         let site = site_fixture();
-        let out = tempfile::tempdir().unwrap();
+        let out = crate::testutil::tempdir();
         fs::write(out.path().join("important.txt"), b"keep").unwrap();
 
         let err = SiteOutput::site(site.path(), SPA).unwrap().write_site(out.path()).unwrap_err();
@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn write_data_replaces_only_db_and_media() {
         let site = site_fixture();
-        let out = tempfile::tempdir().unwrap();
+        let out = crate::testutil::tempdir();
         fs::create_dir_all(out.path().join("db")).unwrap();
         fs::write(out.path().join("db/articles-0000000000000000.sqlite"), b"old").unwrap();
         fs::write(out.path().join("keep.txt"), b"keep").unwrap();
