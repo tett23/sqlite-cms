@@ -37,7 +37,12 @@ function useDocumentMeta(db: Database | undefined, title: string | null, descrip
 }
 
 function Loading({ error }: { error?: string }) {
-  return error ? <p>読み込みに失敗しました: {error}</p> : <p>読み込み中…</p>;
+  if (error) return <p role="alert">読み込みに失敗しました: {error}</p>;
+  return (
+    <p className="loading" role="status">
+      読み込み中
+    </p>
+  );
 }
 
 function Home() {

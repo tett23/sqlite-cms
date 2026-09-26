@@ -5,9 +5,45 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title></title>
+    <style>
+      /* JS を待たずに描画する読み込み中の表示。React も DB を読み込むまで同じクラスを使う。 */
+      .loading-screen {
+        max-width: 42rem;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+      }
+      .loading {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: #555555;
+        font-size: 0.875rem;
+      }
+      .loading::before {
+        content: "";
+        width: 0.875rem;
+        height: 0.875rem;
+        border: 2px solid #cccccc;
+        border-top-color: #555555;
+        border-radius: 50%;
+        animation: loading-spin 0.8s linear infinite;
+      }
+      @keyframes loading-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .loading::before {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="loading-screen"><p class="loading" role="status">読み込み中</p></div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
