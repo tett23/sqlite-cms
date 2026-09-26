@@ -122,6 +122,7 @@ content/
 | `license.name` | `[license]` を書くなら必須 | ライセンス名（`CC0 1.0` など）。フッター |
 | `license.url` | 任意 | ライセンスの URL。書けばライセンス名をリンクにする |
 | `deploy.worker` | `deploy` を使うなら必須 | 公開先の Cloudflare Worker 名 |
+| `timezone` | 任意 | `new` が入れる今日の日付のタイムゾーン。IANA の名前（`Asia/Tokyo`）か時差（`+09:00`）。省略すると環境のタイムゾーン |
 
 知らないキーはエラーにする。
 フッターは `author` と `license` のどちらかがあるときだけ表示する。
@@ -156,6 +157,8 @@ SPA が remark（react-markdown）で本文を描画する。
 ## CLI
 
 ```
+sqlite-cms new <post|article|page> <SLUG> [SITE_DIR] [--title <TITLE>] [--date <YYYY-MM-DD>]
+                                               -- 記事の雛形を作る（ADR 0015）
 sqlite-cms serve  [SITE_DIR] [--port <PORT>]   -- 手元でプレビューする
 sqlite-cms build  [SITE_DIR] [--out <DIR>]     -- 配信用のディレクトリに書き出す
 sqlite-cms deploy [SITE_DIR]                   -- Cloudflare Workers に公開する

@@ -36,6 +36,7 @@ content/
 ```toml
 title = "tett23の記事置き場"   # 必須。ヘッダとページタイトル
 author = "tett23"              # 任意。フッターに表示
+timezone = "Asia/Tokyo"        # 任意。new が入れる日付のタイムゾーン（"+09:00" の形も可）。省略すると環境のタイムゾーン
 
 [license]                      # 任意。フッターに表示
 name = "CC0 1.0"               # [license] を書くなら必須
@@ -79,10 +80,16 @@ frontmatter は YAML のうち、1 行に 1 つの `キー: 値` だけを書け
 記事リポジトリの中で実行する（別の場所から使うときは、記事リポジトリのパスを引数に渡す）。
 
 ```sh
+sqlite-cms new post hello --title はじめまして   # content/posts/hello.md の雛形を作る
 sqlite-cms serve    # http://127.0.0.1:8080/ でプレビュー（記事を変えたら再起動）
 sqlite-cms build    # dist/ に配信用の一式を書き出す
 sqlite-cms deploy   # Cloudflare に公開する
 ```
+
+`new` の種別は `post`、`article`、`page` のどれか。
+日付は今日が入り、`--date 2026-09-26` で変えられる。
+今日の日付は `site.toml` の `timezone` のタイムゾーンで決まる。省略すると、実行した環境のタイムゾーンになる（CI など、手元と違うタイムゾーンで動かすときは指定しておくとよい）。
+同じ名前のファイルがあるときは上書きせずにエラーになる。
 
 詳しいオプションは `sqlite-cms --help` で確認できる。
 
