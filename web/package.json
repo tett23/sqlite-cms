@@ -10,10 +10,14 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@shikijs/langs": "^4.4.3",
+    "@shikijs/rehype": "^4.4.3",
+    "@shikijs/themes": "^4.4.3",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "shiki": "^4.4.3",
     "sql.js": "^1.14.2"
   },
   "devDependencies": {
