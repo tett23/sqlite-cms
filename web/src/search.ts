@@ -1,8 +1,8 @@
-// 全文検索（ADR 0031）。
-// sql.js の既定のビルドには FTS5 がないので、FTS4 を使う。FTS4 の分かち書き（simple）は日本語を区切れないので、
-// 文字列をこちらで語に分けてから索引に入れる。英数字などは語のまま、日本語は 2 文字ずつ重ねて区切る（bigram）。
-// 索引は DB に入れず、最初に検索したときにブラウザで作る（DB を大きくしないため。記事の数が少ないので速い）。
-import type { Database, SqlValue } from "sql.js";
+// 全文検索（ADR 0031、0047）。
+// すべての文書（post、article、自己紹介）の題名と本文を正規化し、検索する言葉のすべての語を含むものを探す。
+// 以前は sql.js の FTS4 の索引で候補を絞っていたが、最後にこの確かめで結果を決めていたので、索引なしでも結果は同じになる。
+// 記事の数が少ないので、すべての文書を確かめても速い。文書は最初に検索したときに一度だけ作る。
+import type { SqliteFile } from "./sqlite";
 
 export type SearchKind = "post" | "article" | "page";
 
@@ -51,38 +51,11 @@ function runs(text: string): { cjk: boolean; text: string }[] {
   return out;
 }
 
-function bigrams(run: string): string[] {
-  const chars = [...run];
-  if (chars.length < 2) return chars;
-  return chars.slice(0, -1).map((char, i) => char + chars[i + 1]);
-}
-
-/** 索引に入れる語の並び。日本語は 2 文字ずつ重ねて区切る。 */
-export function tokenize(text: string): string[] {
-  return runs(text).flatMap((run) => (run.cjk ? bigrams(run.text) : [run.text]));
-}
-
-/** 検索する言葉を、空白で区切った語に分ける。 */
+/** 検索する言葉を、空白で区切った語に分ける。記号だけの語は除く。 */
 export function queryTerms(query: string): string[] {
   return normalize(query)
     .split(/\s+/)
     .filter((term) => runs(term).length > 0);
-}
-
-/**
- * 語を FTS4 の検索式にする。語の中の並びは、隣り合う語の句（"…"）にする。
- * 最後が英数字の語なら前方一致にする。1 文字の日本語だけの語は索引にない（2 文字ずつ区切るため）ので、式にしない。
- */
-export function toMatchExpression(terms: string[]): string | null {
-  const phrases = terms.flatMap((term) => {
-    const termRuns = runs(term);
-    if (termRuns.length === 1 && termRuns[0].cjk && [...termRuns[0].text].length < 2) return [];
-    const tokens = termRuns.flatMap((run) => (run.cjk ? bigrams(run.text) : [run.text]));
-    const last = termRuns[termRuns.length - 1];
-    const phrase = `"${tokens.join(" ")}${last.cjk ? "" : "*"}"`;
-    return [phrase];
-  });
-  return phrases.length > 0 ? phrases.join(" ") : null;
 }
 
 /** 本文の Markdown から、検索と抜き出しに使う文字列を作る（記号を大まかに取り除く）。 */
@@ -148,98 +121,55 @@ const PATHS: Record<SearchKind, (slug: string) => string> = {
   page: () => "/about",
 };
 
-function selectAll(db: Database, sql: string, params: SqlValue[] = []): SqlValue[][] {
-  const stmt = db.prepare(sql);
-  try {
-    stmt.bind(params);
-    const rows: SqlValue[][] = [];
-    while (stmt.step()) rows.push(stmt.get());
-    return rows;
-  } finally {
-    stmt.free();
-  }
-}
+const documentCache = new WeakMap<SqliteFile, Document[]>();
 
-const indexed = new WeakSet<Database>();
-
-/** 検索の索引を作る（同じ DB では一度だけ）。一時的な表なので、DB のファイルには残らない。 */
 /** 検索のページのパス（サイトを置くパスは含まない）。言葉は前後の空白を除いて `?q=` に入れ、空なら付けない（ADR 0041）。 */
 export function searchPath(query: string): string {
   const q = query.trim();
   return q ? `/search?q=${encodeURIComponent(q)}` : "/search";
 }
 
-export function ensureSearchIndex(db: Database) {
-  if (indexed.has(db)) return;
-  const documents: Document[] = [
-    ...selectAll(db, "SELECT slug, title, published_at, body_md FROM posts").map(([slug, title, date, body]) => ({
-      kind: "post" as const,
-      slug: slug as string,
-      title: title as string,
-      date: date as string,
-      text: plainText(body as string),
-    })),
-    ...selectAll(db, "SELECT slug, title, published_at, description, body_md FROM articles").map(
-      ([slug, title, date, description, body]) => ({
+/** 検索する文書（同じ DB では一度だけ作る）。 */
+function documents(db: SqliteFile): Document[] {
+  let docs = documentCache.get(db);
+  if (!docs) {
+    const text = (value: unknown) => (typeof value === "string" ? value : null);
+    docs = [
+      ...db.table("posts").map((row) => ({
+        kind: "post" as const,
+        slug: text(row.slug)!,
+        title: text(row.title)!,
+        date: text(row.published_at),
+        text: plainText(text(row.body_md)!),
+      })),
+      ...db.table("articles").map((row) => ({
         kind: "article" as const,
-        slug: slug as string,
-        title: title as string,
-        date: date as string,
-        text: plainText(`${(description as string | null) ?? ""}\n${body as string}`),
-      }),
-    ),
-    // ページは自己紹介だけに URL がある。
-    ...selectAll(db, "SELECT slug, title, body_md FROM pages WHERE slug = 'about'").map(([slug, title, body]) => ({
-      kind: "page" as const,
-      slug: slug as string,
-      title: title as string,
-      date: null,
-      text: plainText(body as string),
-    })),
-  ];
-  db.run("DROP TABLE IF EXISTS temp.search_documents");
-  db.run("DROP TABLE IF EXISTS temp.search_index");
-  db.run("CREATE TEMP TABLE search_documents (id INTEGER PRIMARY KEY, kind TEXT, slug TEXT, title TEXT, date TEXT, text TEXT)");
-  db.run("CREATE VIRTUAL TABLE temp.search_index USING fts4(title, body, tokenize=simple)");
-  documents.forEach((doc, i) => {
-    db.run("INSERT INTO temp.search_documents VALUES (?, ?, ?, ?, ?, ?)", [i + 1, doc.kind, doc.slug, doc.title, doc.date, doc.text]);
-    db.run("INSERT INTO temp.search_index (rowid, title, body) VALUES (?, ?, ?)", [
-      i + 1,
-      tokenize(doc.title).join(" "),
-      tokenize(doc.text).join(" "),
-    ]);
-  });
-  indexed.add(db);
+        slug: text(row.slug)!,
+        title: text(row.title)!,
+        date: text(row.published_at),
+        text: plainText(`${text(row.description) ?? ""}\n${text(row.body_md)!}`),
+      })),
+      // ページは自己紹介だけに URL がある。
+      ...db
+        .table("pages")
+        .filter((row) => row.slug === "about")
+        .map((row) => ({ kind: "page" as const, slug: text(row.slug)!, title: text(row.title)!, date: null, text: plainText(text(row.body_md)!) })),
+    ];
+    documentCache.set(db, docs);
+  }
+  return docs;
 }
 
 /**
  * 検索する。すべての語を含むものを、題名に語を含むものを先に、新しい順に返す。
- * 索引で候補を絞ってから、元の文字列に語が含まれることを確かめる（1 文字の日本語の語も、ここで確かめる）。
  */
-export function search(db: Database, query: string): SearchResult[] {
+export function search(db: SqliteFile, query: string): SearchResult[] {
   const terms = queryTerms(query);
   if (terms.length === 0) return [];
-  ensureSearchIndex(db);
-  const expression = toMatchExpression(terms);
-  const rows = expression
-    ? selectAll(
-        db,
-        "SELECT d.kind, d.slug, d.title, d.date, d.text FROM search_index JOIN search_documents AS d ON d.id = search_index.rowid WHERE search_index MATCH ?",
-        [expression],
-      )
-    : selectAll(db, "SELECT kind, slug, title, date, text FROM temp.search_documents");
-  const results = rows
-    .map(([kind, slug, title, date, text]) => ({
-      kind: kind as SearchKind,
-      slug: slug as string,
-      title: title as string,
-      date: date as string | null,
-      text: text as string,
-    }))
-    .filter((doc) => {
-      const haystack = normalize(`${doc.title}\n${doc.text}`);
-      return terms.every((term) => haystack.includes(term));
-    });
+  const results = documents(db).filter((doc) => {
+    const haystack = normalize(`${doc.title}\n${doc.text}`);
+    return terms.every((term) => haystack.includes(term));
+  });
   const titleHits = (doc: { title: string }) => terms.filter((term) => normalize(doc.title).includes(term)).length;
   results.sort((a, b) => titleHits(b) - titleHits(a) || (b.date ?? "").localeCompare(a.date ?? ""));
   return results.map((doc) => ({

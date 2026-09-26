@@ -22,17 +22,17 @@ const db = new SQL.Database(new Uint8Array(bytes));
 ```mermaid
 graph LR
   A[HTML] --> B[JS] --> D[本文]
-  A --> C[(DB と wasm)] --> D
+  A --> C[(DB)] --> D
 ```
 
 ## 一. DB を開く
 
-ブラウザは、DB のファイルを取得して sql.js で開きます。
+ブラウザは、DB のファイルを取得して、自前の読み手で読みます。
 
 https://github.com/tett23/sqlite-cms
 
 ```rust:output.rs
-/// index.html に、DB と wasm の先読みを入れる。
+/// index.html に、DB の先読みを入れる。
 fn preload(href: &str) -> String {
     format!("<link rel=\"preload\" href=\"{href}\" as=\"fetch\" crossorigin=\"anonymous\" />")
 }
@@ -42,14 +42,14 @@ DB の大きさを $S$、帯域を $B$ とすると、取得の時間は $S / B$
 $S = 31\,\text{KB}$、$B = 200\,\text{KB/s}$ なら、$0.155$ 秒です。
 
 $$
-T_{\text{本文}} = \max\left( T_{\text{JS}},\ T_{\text{wasm}},\ T_{\text{DB}} \right) + T_{\text{描画}}
+T_{\text{本文}} = \max\left( T_{\text{JS}},\ T_{\text{DB}} \right) + T_{\text{描画}}
 $$
 
 ```mermaid
 sequenceDiagram
   ブラウザ->>サーバー: DB を取得
   サーバー-->>ブラウザ: articles-ハッシュ.sqlite
-  ブラウザ->>ブラウザ: sql.js で開く
+  ブラウザ->>ブラウザ: 自前の読み手で読む
 ```
 
 ## 二. 本文を描く
@@ -144,9 +144,9 @@ rotate theta (x, y) = (x * cos theta - y * sin theta, x * sin theta + y * cos th
 ```mermaid
 pie showData
   title 最初に読み込むもの（gzip 後、KB）
-  "本体の JS" : 133
-  "sql.js の wasm" : 324
+  "本体の JS" : 72
   "DB" : 31
+  "index.html" : 4
 ```
 
 ```sql:size.sql

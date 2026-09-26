@@ -12,6 +12,7 @@ declare module "sql.js" {
     bind(values?: BindParams): boolean;
     step(): boolean;
     get(params?: BindParams): SqlValue[];
+    run(values?: BindParams): void;
     free(): boolean;
   }
 
@@ -19,6 +20,7 @@ declare module "sql.js" {
     exec(sql: string, params?: BindParams): QueryExecResult[];
     run(sql: string, params?: BindParams): Database;
     prepare(sql: string, params?: BindParams): Statement;
+    export(): Uint8Array;
     close(): void;
   }
 

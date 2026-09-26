@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import Markdown, { type Components, type ExtraProps, type Options } from "react-markdown";
-import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { withBasePath } from "./base";
@@ -13,6 +12,7 @@ import { MATH_DISPLAY_CLASS, MATH_INLINE_CLASS } from "./markdown/math";
 import { LINK_CARD_IMAGE_CLASS } from "./markdown/transforms";
 import { Diagram } from "./render/Diagram";
 import { MathView } from "./render/Math";
+import { rehypeRawHtml } from "./markdown/rawHtml";
 import { remarkExtensions } from "./markdown/remarkExtensions";
 import { PARTIAL_SEARCH_CLASS, sanitizeSchema, unwrapPlainElements } from "./sanitize";
 import { Link } from "./router";
@@ -29,10 +29,10 @@ const remarkRehypeOptions: Options["remarkRehypeOptions"] = {
   footnoteBackContent: "↩︎",
 };
 
-// 本文の HTML を取り込み（raw）、許可した要素と属性だけを残す（sanitize）。
+// 本文の HTML を取り込み（自前の rehypeRawHtml、ADR 0046）、許可した要素と属性だけを残す（sanitize）。
 // Shiki の色分けは、ここではなく pre の部品で行う。sanitize の後なので、Shiki が付けた色の指定は取り除かれない。
 const baseRehypePlugins: NonNullable<Options["rehypePlugins"]> = [
-  rehypeRaw,
+  rehypeRawHtml,
   [rehypeSanitize, sanitizeSchema],
   unwrapPlainElements,
 ];
@@ -127,13 +127,26 @@ const components: Components = {
     // 同じ部品が別の記事のコードブロックに使い回されることがあるので、色分けの結果は、言語とコードの組と一緒に持つ。
     const key = `${languageClass}\n${source}`;
     const canHighlight = highlight !== null && near && highlightable && languageClass !== undefined;
-    const [highlighted, setHighlighted] = useState<{ key: string; block: HighlightedBlock | null } | null>(() =>
-      canHighlight ? { key, block: highlight.highlightBlock(source, languageClass) } : null,
-    );
+    const [highlighted, setHighlighted] = useState<{ key: string; block: HighlightedBlock | null } | null>(() => {
+      if (!canHighlight) return null;
+      const block = highlight.highlightBlock(source, languageClass);
+      return block instanceof Promise ? null : { key, block };
+    });
     const done = highlighted?.key === key;
     useEffect(() => {
       if (done || !canHighlight) return;
-      return inTurn(() => setHighlighted({ key, block: highlight.highlightBlock(source, languageClass) }));
+      let cancelled = false;
+      // 色分けの結果（Worker なら届いた結果）を、ブロックごとに別のタスクで描く（ADR 0038、0046）。
+      const cancelTurn = inTurn(() => {
+        void Promise.resolve(highlight.highlightBlock(source, languageClass)).then(
+          (block) => !cancelled && setHighlighted({ key, block }),
+          logHighlightError,
+        );
+      });
+      return () => {
+        cancelled = true;
+        cancelTurn();
+      };
     }, [done, canHighlight, highlight, key, source, languageClass]);
     const block = done ? highlighted.block : null;
     if (isCode && hasClass(code, "language-mermaid")) {

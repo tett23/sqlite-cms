@@ -15,8 +15,9 @@ import typescript from "@shikijs/langs/typescript";
 import yaml from "@shikijs/langs/yaml";
 import githubLightHighContrast from "@shikijs/themes/github-light-high-contrast";
 import type { Element } from "hast";
-import { createHighlighterCoreSync, hastToHtml, type HighlighterCore } from "shiki/core";
-import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+import { createHighlighterCore, hastToHtml, type HighlighterCore } from "shiki/core";
+import { createOnigurumaEngine } from "shiki/engine/oniguruma";
+import onigWasmUrl from "shiki/onig.wasm?url";
 import { highlightDiff } from "./highlightDiff";
 import { DIFF_LANGUAGE_PREFIX } from "./markdown/transforms";
 
@@ -50,14 +51,35 @@ export const THEME_REGISTRATION = githubLightHighContrast;
 const COLOR_REPLACEMENTS = { "#ffffff": BACKGROUND };
 
 let highlighter: HighlighterCore | null = null;
+let creating: Promise<HighlighterCore> | null = null;
 
-export function getHighlighter(): HighlighterCore {
-  highlighter ??= createHighlighterCoreSync({
+/**
+ * 正規表現エンジン（Oniguruma）の wasm（ADR 0046）。
+ * テスト（Node.js）では URL から取れないので、wasm を埋め込んだモジュールを使う。ビルドではこの分岐は消える。
+ */
+function onigWasm() {
+  if (import.meta.env.MODE === "test") return import("shiki/wasm");
+  return fetch(onigWasmUrl);
+}
+
+/**
+ * ハイライタを一度だけ作る（ADR 0046）。
+ * 正規表現は Oniguruma（wasm）で照合する。JavaScript の正規表現エンジンは、文法の正規表現を変換する手間と、
+ * 変換した正規表現の照合（特に TypeScript の文法）が重く、最初のコードブロックの色分けが長いタスクになっていた。
+ */
+export function initHighlighter(): Promise<HighlighterCore> {
+  creating ??= createHighlighterCore({
     themes: [githubLightHighContrast],
     langs: LANGUAGES,
     langAlias: { jsx: "tsx" },
-    engine: createJavaScriptRegexEngine(),
-  });
+    engine: createOnigurumaEngine(onigWasm()),
+  }).then((created) => (highlighter = created));
+  return creating;
+}
+
+/** 作ったハイライタ。initHighlighter が終わってから使う。 */
+export function getHighlighter(): HighlighterCore {
+  if (!highlighter) throw new Error("ハイライタを作る前に使いました（initHighlighter を待ってください）");
   return highlighter;
 }
 

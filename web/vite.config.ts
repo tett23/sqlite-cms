@@ -63,6 +63,10 @@ export default defineConfig({
   },
   // 相対のパスで出力し、どのパスに置いても読めるようにする。index.html のパスは CLI が base_path に合わせて書き換える（ADR 0030）。
   base: "./",
+  // コードブロックの色分けの Worker（ADR 0046）は、ES モジュールとして出力する。
+  worker: {
+    format: "es",
+  },
   build: {
     outDir: "dist",
     emptyOutDir: true,

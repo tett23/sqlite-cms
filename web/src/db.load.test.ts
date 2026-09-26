@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// DB の取得の順番だけを確かめるので、sql.js は、受け取ったバイト列を持つだけのものにする。
-vi.mock("sql.js", () => ({
-  default: async () => ({
-    Database: class {
-      constructor(public bytes: Uint8Array) {}
-    },
-  }),
+// DB の取得の順番だけを確かめるので、DB の読み手（ADR 0047）は、受け取ったバイト列を持つだけのものにする。
+vi.mock("./sqlite", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./sqlite")>()),
+  SqliteFile: class {
+    constructor(public bytes: Uint8Array) {}
+  },
 }));
 
 const { loadDb } = await import("./db");

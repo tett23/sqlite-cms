@@ -42,10 +42,9 @@ sequenceDiagram
   par 並行して取得
     B->>S: GET /assets/index.js
     B->>S: GET /db/articles-ハッシュ.sqlite
-    B->>S: GET /assets/sql-wasm.wasm
   end
-  S-->>B: JS、DB、wasm
-  B->>B: sql.js で DB を開く
+  S-->>B: JS、DB
+  B->>B: 自前の読み手で DB を読む
   B->>B: 本文の Markdown を描く
   Note over B: 本文が画面に出る
   B->>S: GET /assets/mermaid.js（図が画面の近くに来たら）
@@ -144,8 +143,7 @@ gzip 後の大きさ（KB）の目安です。
 ```mermaid
 pie showData
   title 最初に読み込むもの（gzip 後、KB）
-  "本体の JS" : 133
-  "sql.js の wasm" : 324
+  "本体の JS" : 72
   "DB" : 31
   "index.html" : 4
 ```
@@ -222,16 +220,18 @@ flowchart LR
   App --> db[db.ts]
   App --> search[search.ts]
   App --> MarkdownBody[MarkdownBody.tsx]
-  db --> sqljs[(sql.js)]
-  search --> sqljs
+  db --> sqlite[sqlite.ts]
+  search --> sqlite
   MarkdownBody --> remark[remarkExtensions.ts]
+  MarkdownBody --> raw[rawHtml.ts]
   MarkdownBody --> sanitize[sanitize.ts]
   MarkdownBody --> hl[highlightLoader.ts]
   MarkdownBody --> near[nearViewport.ts]
   MarkdownBody --> Diagram[Diagram.tsx]
   MarkdownBody --> Math[Math.tsx]
   hl --> lazy[lazyLoader.ts]
-  hl -.-> highlight[highlight.ts]
+  hl -.-> worker[highlight.worker.ts]
+  worker --> highlight[highlight.ts]
   highlight --> shiki[(Shiki)]
   Diagram --> loaders[loaders.ts]
   Math --> loaders
