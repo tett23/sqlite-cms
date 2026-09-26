@@ -1,7 +1,4 @@
 node_modules/
 dist/
-public/db/
-public/media/
-.wrangler/
-cli/target/
-site/
+target/
+web/public/

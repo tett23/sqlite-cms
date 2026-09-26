@@ -9,7 +9,7 @@ let db: Database;
 beforeAll(async () => {
   const SQL = await initSqlJs();
   db = new SQL.Database();
-  const migrationsDir = path.resolve(import.meta.dirname, "../migrations");
+  const migrationsDir = path.resolve(import.meta.dirname, "../../migrations");
   for (const file of readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort()) {
     db.exec(readFileSync(path.join(migrationsDir, file), "utf8"));
   }
