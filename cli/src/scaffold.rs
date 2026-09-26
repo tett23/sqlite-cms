@@ -121,6 +121,7 @@ pub fn create(site_dir: &Path, kind: Kind, slug: Option<&str>, title: Option<&st
 
 const SITE_TOML_REST: &str = r#"
 # author = "名前"             # フッターに表示する
+# description = "サイトの説明" # ページの meta description。省略するとサイト名から組み立てる
 # timezone = "Asia/Tokyo"     # new が入れる日付のタイムゾーン（"+09:00" の形も可）。省略すると環境のタイムゾーン
 
 # [license]                   # フッターに表示する
@@ -180,6 +181,7 @@ pub fn init(site_dir: &Path, title: Option<&str>, force: bool) -> Result<InitRep
     let files = [
         ("site.toml", site_toml(&title)),
         ("content/index.md", INDEX_MD.to_string()),
+        ("content/favicon.svg", crate::favicon::placeholder(&title)),
         ("content/pages/about.md", template(Kind::Page, "自己紹介", "")),
         ("content/posts/.gitkeep", String::new()),
         ("content/articles/.gitkeep", String::new()),
@@ -236,6 +238,7 @@ mod tests {
             files_under(&site),
             [
                 "content/articles/.gitkeep",
+                "content/favicon.svg",
                 "content/index.md",
                 "content/media/.gitkeep",
                 "content/pages/about.md",
@@ -243,11 +246,12 @@ mod tests {
                 "site.toml",
             ]
         );
-        assert_eq!(report.written.len(), 6);
+        assert_eq!(report.written.len(), 7);
         assert!(report.overwritten.is_empty());
 
         let config = parse_site_config(&fs::read_to_string(site.join("site.toml")).unwrap()).unwrap();
         assert_eq!(config.title, "my-blog");
+        assert_eq!(fs::read_to_string(site.join("content/favicon.svg")).unwrap(), crate::favicon::placeholder("my-blog"));
         assert_eq!(config.deploy, None);
 
         let output = crate::output::SiteOutput::data(&site).unwrap();
@@ -300,7 +304,7 @@ mod tests {
         assert!(fs::read_to_string(tmp.path().join("content/pages/about.md")).unwrap().contains("\"自己紹介\""));
         assert!(tmp.path().join("content/posts/hello.md").is_file());
         assert!(tmp.path().join("content/media/photo.png").is_file());
-        assert_eq!(report.overwritten.len(), 6);
+        assert_eq!(report.overwritten.len(), 7);
     }
 
     #[test]

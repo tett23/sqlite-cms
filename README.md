@@ -38,6 +38,7 @@ sqlite-cms serve                                  # http://127.0.0.1:8080/ で�
 site.toml          -- サイトの設定（必須）
 content/
   index.md         -- トップページの本文（任意。frontmatter なしの Markdown）
+  favicon.svg      -- ファビコン（任意。init が仮のものを作る）
   posts/           -- ブログ的な軽い記事（/posts/:slug）
   articles/        -- 長めの読み物（/articles/:slug）
   pages/           -- 固定ページ。about.md が自己紹介（/about）
@@ -52,6 +53,7 @@ content/
 title = "tett23の記事置き場"   # 必須。ヘッダとページタイトル
 author = "tett23"              # 任意。フッターに表示
 timezone = "Asia/Tokyo"        # 任意。new が入れる日付のタイムゾーン（"+09:00" の形も可）。省略すると環境のタイムゾーン
+description = "サイトの説明"    # 任意。ページの meta description。省略すると「<サイト名>。記事とブログを置いているサイトです。」
 
 [license]                      # 任意。フッターに表示
 name = "CC0 1.0"               # [license] を書くなら必須
@@ -62,6 +64,13 @@ worker = "my-blog"             # 公開先の Cloudflare Worker 名（英小文�
 ```
 
 知らないキーはエラーになる（綴りの誤りを見逃さないため）。
+
+`description` は全ページの meta description になる。
+ただし、`articles/` の記事で frontmatter に `description` を書いたものは、その記事のページだけ記事の要約が使われる。
+
+ファビコンは `content/favicon.svg` に置く。
+`init` がサイト名の頭文字を描いた仮のものを作るので、好きな SVG に置き換える。
+ファイルがなければ、同じ仮のものが配信される。
 
 ### 記事
 

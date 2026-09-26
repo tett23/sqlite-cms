@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 
-use crate::{db, media};
+use crate::{db, favicon, media, site};
 
 pub const HEADERS: &str = "\
 /db/*.sqlite
@@ -15,6 +15,18 @@ pub const HEADERS: &str = "\
 ";
 
 const MARKER: &str = ".sqlite-cms";
+
+/// content/favicon.svg があればそれを、なければサイト名から作った仮の favicon を返す。
+fn read_favicon(site_dir: &Path) -> Result<Vec<u8>> {
+    let path = site_dir.join("content").join("favicon.svg");
+    match fs::read(&path) {
+        Ok(bytes) => Ok(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Ok(favicon::placeholder(&site::read_site_config(site_dir)?.title).into_bytes())
+        }
+        Err(e) => Err(e).with_context(|| format!("{} を読めません", path.display())),
+    }
+}
 
 pub struct SiteOutput {
     pub files: BTreeMap<String, Vec<u8>>,
@@ -31,6 +43,7 @@ impl SiteOutput {
         for (path, bytes) in media::read_media(&site_dir.join("content").join("media"))? {
             files.insert(format!("/media/{path}"), bytes);
         }
+        files.insert("/favicon.svg".to_string(), read_favicon(site_dir)?);
         Ok(Self { files })
     }
 
@@ -131,11 +144,22 @@ mod tests {
         let site = site_fixture();
         let output = SiteOutput::data(site.path()).unwrap();
         let paths = paths(&output);
-        assert_eq!(paths.len(), 3);
+        assert_eq!(paths.len(), 4);
         assert!(paths[0].starts_with("/db/articles-"));
-        assert_eq!(&paths[1..], ["/db/manifest.json", "/media/a.png"]);
+        assert_eq!(&paths[1..], ["/db/manifest.json", "/favicon.svg", "/media/a.png"]);
         let manifest = String::from_utf8(output.files["/db/manifest.json"].clone()).unwrap();
         assert_eq!(manifest, format!("{{\"db\":\"{}\"}}\n", paths[0]));
+    }
+
+    #[test]
+    fn favicon_comes_from_content_or_falls_back_to_a_placeholder() {
+        let site = site_fixture();
+        let output = SiteOutput::data(site.path()).unwrap();
+        assert_eq!(output.files["/favicon.svg"], crate::favicon::placeholder("t").into_bytes());
+
+        fs::write(site.path().join("content/favicon.svg"), b"<svg>mine</svg>").unwrap();
+        let output = SiteOutput::data(site.path()).unwrap();
+        assert_eq!(output.files["/favicon.svg"], b"<svg>mine</svg>");
     }
 
     #[test]
@@ -162,7 +186,7 @@ mod tests {
         SiteOutput::site(site.path(), SPA).unwrap().write_site(&out_dir).unwrap();
 
         let files = files_under(&out_dir);
-        for expected in [".sqlite-cms", "_headers", "assets/app.js", "db/manifest.json", "index.html", "media/a.png"] {
+        for expected in [".sqlite-cms", "_headers", "assets/app.js", "db/manifest.json", "favicon.svg", "index.html", "media/a.png"] {
             assert!(files.iter().any(|f| f == expected), "{expected} がありません: {files:?}");
         }
         assert_eq!(fs::read_to_string(out_dir.join("_headers")).unwrap(), HEADERS);

@@ -29,12 +29,13 @@ beforeAll(async () => {
     "| a |\n|---|\n| 1 |",
   ]);
   db.run("INSERT INTO pages VALUES (?, ?, ?)", ["about", "自己紹介", "# about"]);
-  db.run("INSERT INTO site VALUES (1, ?, ?, ?, ?, ?)", [
+  db.run("INSERT INTO site VALUES (1, ?, ?, ?, ?, ?, ?)", [
     "記事置き場",
     null,
     "CC0 1.0",
     "https://creativecommons.org/publicdomain/zero/1.0/",
     "トップの**導入**。",
+    "組版の記事",
   ]);
 });
 
@@ -93,14 +94,17 @@ describe("getSite", () => {
       author: null,
       license: { name: "CC0 1.0", url: "https://creativecommons.org/publicdomain/zero/1.0/" },
       homeMd: "トップの**導入**。",
+      description: "組版の記事",
     });
   });
 
   it("ライセンスがなければ null を返す", async () => {
     const SQL = await initSqlJs();
     const bare = new SQL.Database();
-    bare.run("CREATE TABLE site (id INTEGER, title TEXT, author TEXT, license_name TEXT, license_url TEXT, home_md TEXT)");
-    bare.run("INSERT INTO site VALUES (1, 't', NULL, NULL, NULL, NULL)");
+    bare.run(
+      "CREATE TABLE site (id INTEGER, title TEXT, author TEXT, license_name TEXT, license_url TEXT, home_md TEXT, description TEXT)",
+    );
+    bare.run("INSERT INTO site VALUES (1, 't', NULL, NULL, NULL, NULL, 'd')");
     expect(getSite(bare).license).toBeNull();
     bare.close();
   });

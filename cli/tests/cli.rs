@@ -96,7 +96,7 @@ fn build_writes_complete_site() {
     let output = run(&["build", example_dir().to_str().unwrap(), "--out", out.to_str().unwrap()], tmp.path());
 
     assert!(output.status.success(), "{}", stderr(&output));
-    for file in ["index.html", "_headers", "db/manifest.json", "media/sample.svg"] {
+    for file in ["index.html", "_headers", "db/manifest.json", "media/sample.svg", "favicon.svg"] {
         assert!(out.join(file).is_file(), "{file} がありません");
     }
     assert!(fs::read_dir(out.join("assets")).unwrap().count() > 0);
@@ -193,6 +193,11 @@ fn serve_previews_the_site() {
     let (status, content_type, _) = http_get(&server.address, "/media/sample.svg");
     assert_eq!(status, 200);
     assert_eq!(content_type, "image/svg+xml");
+
+    let (status, content_type, body) = http_get(&server.address, "/favicon.svg");
+    assert_eq!(status, 200);
+    assert_eq!(content_type, "image/svg+xml");
+    assert!(String::from_utf8_lossy(&body).starts_with("<svg"));
 
     assert_eq!(http_get(&server.address, "/assets/missing.js").0, 404);
 }
@@ -495,6 +500,8 @@ fn init_new_build_is_the_first_run_flow() {
     let output = run(&["build", "--out", dist.to_str().unwrap()], &site);
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(dist.join("index.html").is_file());
+    assert!(fs::read_to_string(dist.join("index.html")).unwrap().contains(r#"<link rel="icon" type="image/svg+xml" href="/favicon.svg" />"#));
+    assert_eq!(fs::read(dist.join("favicon.svg")).unwrap(), fs::read(site.join("content/favicon.svg")).unwrap());
     assert!(!dist.join("media/.gitkeep").exists());
 }
 

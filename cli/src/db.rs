@@ -54,9 +54,9 @@ pub fn build_db_bytes(site_dir: &Path) -> Result<Vec<u8>> {
         None => (None, None),
     };
     conn.execute(
-        "INSERT INTO site (id, title, author, license_name, license_url, home_md)
-         VALUES (1, ?1, ?2, ?3, ?4, ?5)",
-        (&config.title, &config.author, license_name, license_url, &home_md),
+        "INSERT INTO site (id, title, author, license_name, license_url, home_md, description)
+         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)",
+        (&config.title, &config.author, license_name, license_url, &home_md, config.description()),
     )?;
 
     for p in read_docs(&content_dir.join("posts"), parse_post)? {
@@ -154,7 +154,7 @@ mod tests {
         );
         assert_eq!(
             column(&conn, "SELECT version FROM schema_migrations ORDER BY version"),
-            ["0001", "0002", "0003", "0004"]
+            ["0001", "0002", "0003", "0004", "0005"]
         );
     }
 
@@ -189,6 +189,14 @@ mod tests {
                 Some("トップの**導入**。\n".into())
             )
         );
+    }
+
+    #[test]
+    fn description_is_stored_with_the_default_sentence() {
+        let site = site_fixture(&[]);
+        let (_dir, conn) = open(&build_db_bytes(site.path()).unwrap());
+        let description: String = conn.query_row("SELECT description FROM site", [], |r| r.get(0)).unwrap();
+        assert_eq!(description, "記事置き場。記事とブログを置いているサイトです。");
     }
 
     #[test]

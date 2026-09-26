@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { Database } from "sql.js";
 import { getArticle, getPage, getPost, getSite, listArticles, listPosts, loadDb } from "./db";
+import { pageDescription, setMetaDescription } from "./documentMeta";
 import { MarkdownBody } from "./MarkdownBody";
 import { Link, matchPath, usePath } from "./router";
 
@@ -25,12 +26,14 @@ function useDb(): { db?: Database; error?: string } {
   return state;
 }
 
-function useDocumentTitle(db: Database | undefined, title: string | null) {
+/** ページのタイトルと meta description を設定する。 */
+function useDocumentMeta(db: Database | undefined, title: string | null, description?: string | null) {
   useEffect(() => {
     if (!db) return;
-    const siteTitle = getSite(db).title;
-    document.title = title ? `${title} - ${siteTitle}` : siteTitle;
-  }, [db, title]);
+    const site = getSite(db);
+    document.title = title ? `${title} - ${site.title}` : site.title;
+    setMetaDescription(document, pageDescription(site.description, description));
+  }, [db, title, description]);
 }
 
 function Loading({ error }: { error?: string }) {
@@ -39,7 +42,7 @@ function Loading({ error }: { error?: string }) {
 
 function Home() {
   const { db, error } = useDb();
-  useDocumentTitle(db, null);
+  useDocumentMeta(db, null);
   if (!db) return <Loading error={error} />;
 
   const { homeMd } = getSite(db);
@@ -91,7 +94,7 @@ function Home() {
 function PostPage({ slug }: { slug: string }) {
   const { db, error } = useDb();
   const post = db ? getPost(db, slug) : null;
-  useDocumentTitle(db, post?.title ?? null);
+  useDocumentMeta(db, post?.title ?? null);
   if (!db) return <Loading error={error} />;
   if (!post) return <NotFound />;
 
@@ -109,7 +112,7 @@ function PostPage({ slug }: { slug: string }) {
 function ArticlePage({ slug }: { slug: string }) {
   const { db, error } = useDb();
   const article = db ? getArticle(db, slug) : null;
-  useDocumentTitle(db, article?.title ?? null);
+  useDocumentMeta(db, article?.title ?? null, article?.description);
   if (!db) return <Loading error={error} />;
   if (!article) return <NotFound />;
 
@@ -128,7 +131,7 @@ function ArticlePage({ slug }: { slug: string }) {
 function AboutPage() {
   const { db, error } = useDb();
   const page = db ? getPage(db, "about") : null;
-  useDocumentTitle(db, page?.title ?? null);
+  useDocumentMeta(db, page?.title ?? null);
   if (!db) return <Loading error={error} />;
   if (!page) return <NotFound />;
 
@@ -142,7 +145,7 @@ function AboutPage() {
 
 function NotFound() {
   const { db } = useDb();
-  useDocumentTitle(db, "見つかりません");
+  useDocumentMeta(db, "見つかりません");
   return <p>見つかりません。</p>;
 }
 

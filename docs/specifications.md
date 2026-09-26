@@ -95,6 +95,7 @@ example/       -- 動作確認用のサンプル（コンテンツリポジト�
 site.toml      -- サイトのメタデータ（必須）
 content/
   index.md     -- トップページの本文（任意）
+  favicon.svg  -- ファビコン（任意。/favicon.svg で配信する。なければサイト名の頭文字を描いた仮のものを配信する。ADR 0022）
   posts/       -- post の Markdown
   articles/    -- article の Markdown
   pages/       -- 固定ページの Markdown
@@ -124,6 +125,7 @@ content/
 | `license.url` | 任意 | ライセンスの URL。書けばライセンス名をリンクにする |
 | `deploy.worker` | `deploy` を使うなら必須 | 公開先の Cloudflare Worker 名 |
 | `timezone` | 任意 | `new` が入れる今日の日付のタイムゾーン。IANA の名前（`Asia/Tokyo`）か時差（`+09:00`）。省略すると環境のタイムゾーン |
+| `description` | 任意 | ページの meta description。省略すると「`<title>`。記事とブログを置いているサイトです。」。要約を持つ article のページでは記事の要約を使う（ADR 0022） |
 
 知らないキーはエラーにする。
 フッターは `author` と `license` のどちらかがあるときだけ表示する。

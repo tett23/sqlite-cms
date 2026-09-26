@@ -4,6 +4,7 @@ mod content;
 mod date;
 mod db;
 mod deploy;
+mod favicon;
 mod frontmatter;
 mod media;
 mod migrations;
@@ -59,9 +60,11 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
 
 記事リポジトリの構成:
   site.toml       サイトのメタデータ（必須）。timezone で new の日付のタイムゾーンを
-                  指定できる（Asia/Tokyo や +09:00。既定は環境のタイムゾーン）
+                  指定できる（Asia/Tokyo や +09:00。既定は環境のタイムゾーン）。
+                  description でページの meta description を指定できる
   content/
     index.md      トップページの本文（任意）
+    favicon.svg   ファビコン（任意。init が仮のものを作る。なければ仮のものを配信する）
     posts/        post の Markdown
     articles/     article の Markdown
     pages/        固定ページの Markdown

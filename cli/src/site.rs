@@ -14,9 +14,17 @@ pub struct SiteConfig {
     pub license: Option<License>,
     pub deploy: Option<DeployConfig>,
     pub timezone: Option<String>,
+    pub description: Option<String>,
 }
 
 impl SiteConfig {
+    /// meta description。省略したときはサイト名から組み立てる。
+    pub fn description(&self) -> String {
+        self.description
+            .clone()
+            .unwrap_or_else(|| format!("{}。記事とブログを置いているサイトです。", self.title))
+    }
+
     /// `timezone` の指定。書式は読み込み時に検査済み。
     pub fn timezone(&self) -> Option<TimeZone> {
         self.timezone.as_deref().and_then(|s| parse_timezone(s).ok())
@@ -64,6 +72,9 @@ pub fn parse_site_config(raw: &str) -> Result<SiteConfig> {
             }
         }
     }
+    if config.description.as_ref().is_some_and(|d| d.trim().is_empty()) {
+        bail!("site.toml の description が空です。書かないか、説明を書いてください");
+    }
     if let Some(timezone) = &config.timezone {
         parse_timezone(timezone).map_err(|e| anyhow::anyhow!("site.toml の timezone が不正です: {e}"))?;
     }
@@ -93,6 +104,7 @@ mod tests {
                 license: None,
                 deploy: None,
                 timezone: None,
+                description: None,
             }
         );
     }
@@ -134,6 +146,20 @@ mod tests {
         let err =
             parse_site_config("title = \"t\"\n[license]\nname = \"x\"\nurl = \"javascript:alert(1)\"\n").unwrap_err();
         assert!(err.to_string().contains("license.url"));
+    }
+
+    #[test]
+    fn description_defaults_to_a_sentence_with_the_title() {
+        let config = parse_site_config("title = \"記事置き場\"").unwrap();
+        assert_eq!(config.description(), "記事置き場。記事とブログを置いているサイトです。");
+        let config = parse_site_config("title = \"t\"\ndescription = \"組版の記事\"").unwrap();
+        assert_eq!(config.description(), "組版の記事");
+    }
+
+    #[test]
+    fn empty_description_is_error() {
+        let err = parse_site_config("title = \"t\"\ndescription = \" \"").unwrap_err();
+        assert!(err.to_string().contains("description が空"));
     }
 
     #[test]

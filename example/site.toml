@@ -1,5 +1,6 @@
 title = "tett23の記事置き場"
 author = "tett23"
+description = "組版と日本語の文章、ソフトウェアの設計について書いている tett23 の記事置き場。"
 
 # new が入れる日付のタイムゾーン。省略すると実行した環境のタイムゾーンになる
 # timezone = "Asia/Tokyo"

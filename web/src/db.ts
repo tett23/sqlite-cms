@@ -36,6 +36,7 @@ export interface Site {
   author: string | null;
   license: License | null;
   homeMd: string | null;
+  description: string;
 }
 
 export async function loadDb(): Promise<Database> {
@@ -139,13 +140,13 @@ export function getPage(db: Database, slug: string): Page | null {
 export function getSite(db: Database): Site {
   const row = selectOne(
     db,
-    "SELECT title, author, license_name, license_url, home_md FROM site WHERE id = 1",
+    "SELECT title, author, license_name, license_url, home_md, description FROM site WHERE id = 1",
     [],
   );
   if (!row) {
     throw new Error("site テーブルが空です");
   }
-  const [title, author, licenseName, licenseUrl, homeMd] = row;
+  const [title, author, licenseName, licenseUrl, homeMd, description] = row;
   return {
     title: title as string,
     author: (author as string | null) ?? null,
@@ -154,5 +155,6 @@ export function getSite(db: Database): Site {
         ? null
         : { name: licenseName as string, url: (licenseUrl as string | null) ?? null },
     homeMd: (homeMd as string | null) ?? null,
+    description: (description as string | null) ?? (title as string),
   };
 }
