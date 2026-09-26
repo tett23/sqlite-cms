@@ -85,7 +85,36 @@ frontmatter は YAML のうち、1 行に 1 つの `キー: 値` だけを書け
 複数行の値（`|` や `>`）、リスト、入れ子は使えず、書くと何行目が問題かを示すエラーになる。
 値が `[` や `{` などの記号で始まるときは、クォートで囲む。
 
-記法は CommonMark と GFM（表、取り消し線、タスクリスト、自動リンク、脚注）。本文中の生の HTML は表示されない。
+記法は CommonMark と GFM（表、取り消し線、タスクリスト、自動リンク、脚注）。
+
+Markdown では書けない表現のために、次の HTML のタグだけを本文に書ける。
+
+| タグ | 用途 |
+|---|---|
+| `<details>`、`<summary>` | 折りたたみ（`<details open>` で最初から開く） |
+| `<kbd>` | キー操作（<kbd>Ctrl</kbd> + <kbd>C</kbd>） |
+| `<sub>`、`<sup>` | 下付き、上付き（H<sub>2</sub>O、x<sup>2</sup>） |
+| `<ruby>`、`<rt>`、`<rp>` | ルビ |
+| `<mark>` | 蛍光ペンのような強調 |
+| `<abbr title="...">` | 略語と正式名 |
+| `<dl>`、`<dt>`、`<dd>` | 定義リスト |
+| `<br>` | 表のセルの中の改行 |
+
+これ以外のタグ（`div`、`span` など）はタグだけが外れて中身の文字が残る。`<script>`、`<iframe>`、`<style>` とコメントは中身ごと表示されない。
+属性は `details` の `open` と `abbr` の `title` などに限られ、`class`、`style`、`id`、`onclick` などは取り除かれる。
+
+`<details>` の中で Markdown を使うときは、`<summary>` の後と `</details>` の前に空行を入れる。
+空行がないと、Markdown の記法がそのまま文字として出る。
+`<summary>` の中は HTML なので、強調やコードには `<strong>` や `<code>` を使う。
+
+```markdown
+<details>
+<summary>補足</summary>
+
+ここは **Markdown** で書ける。
+
+</details>
+```
 
 コードブロックに言語名を書くと色が付く（Shiki による）。
 対応する言語名は次のとおり。これ以外の言語名と、言語名のないブロックは色なしで表示される。
