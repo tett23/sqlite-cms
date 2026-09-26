@@ -2,7 +2,7 @@
 # このリポジトリ（sqlite-cms）の中では動かない。記事リポジトリの .github/workflows/ にコピーして使う。
 #
 # 記事リポジトリに設定するもの:
-#   シークレット CLOUDFLARE_API_TOKEN   Workers を編集できる API トークン
+#   シークレット CLOUDFLARE_API_TOKEN   API トークン（権限はアカウントの「Workers スクリプト：編集」だけでよい）
 #   シークレット CLOUDFLARE_ACCOUNT_ID  Cloudflare のアカウント ID
 #   site.toml の [deploy] worker       公開先の Worker 名
 name: deploy

@@ -67,7 +67,7 @@ fizzBuzz n
 
 画像は `content/media/` に置き、`/media/` から参照します。
 
-![sample image と書かれた四角](/media/sample.svg)
+![白地に黒い文字と青いリンクだけの、古いウェブサイトのようなページの絵](/media/sample.svg)
 
 ## HTML で書くもの
 

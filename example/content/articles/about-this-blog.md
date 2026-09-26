@@ -26,9 +26,37 @@ DB は中身から決まるファイル名で配信されるので、参照が�
 ブラウザのキャッシュがそのまま効き、DB を本文のテキストだけの大きさに保てる。
 テキストだけなら、記事が千本あっても数 MB に収まる。
 
+## 重いものは後から読み込む
+
+Markdown はブラウザの中で HTML にする。
+コードの色分け（Shiki）、数式（KaTeX）、図（mermaid）は大きいので、本体とは分けて、要るページでだけ後から読み込む。
+読み込むまでは、コードは色なしで、数式は TeX のまま表示し、読み込めたら描き直す。
+DB を読み込むまでの間は、HTML に直接書いた「読み込み中」の表示を出している。
+
+```mermaid
+sequenceDiagram
+  participant B as ブラウザ
+  participant C as Cloudflare
+  B->>C: index.html
+  C-->>B: 読み込み中の表示
+  B->>C: JS、sql.js、DB
+  C-->>B: 記事の一覧と本文
+  Note over B: ここからは通信せずにページを移る
+  B->>C: 数式や図のあるページでだけ KaTeX、mermaid
+```
+
+## リンクカードの画像
+
+URL だけの行はリンクカードになる。
+カードの画像は、ブラウザではなく `sqlite-cms` がビルドのときにそのページから取ってきて、このサイトから配信している。
+読む人のブラウザが、ほかのサイトと通信することはない。
+
 ## 使っているもの
 
 - sqlite-cms（Rust）：記事を検証して SQLite にまとめ、Cloudflare に公開する
 - React、Tailwind：表示
 - sql.js：ブラウザの中で SQLite を開く
-- Shiki：コードの色分け（表示を待たせないよう、後から読み込む）
+- react-markdown：Markdown の表示。Zenn 風の拡張の記法は自前のプラグインで読む
+- Shiki：コードの色分け
+- KaTeX：数式
+- mermaid：図

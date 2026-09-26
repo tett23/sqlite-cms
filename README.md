@@ -8,6 +8,17 @@ Markdown で書いた記事から、軽い個人サイトを作って Cloudflare
 
 使うのは `sqlite-cms` コマンドだけ。記事は自分のリポジトリ（以下、記事リポジトリ）で管理する。
 
+見本：<https://gentle-tooth-fe80.tett23.workers.dev/>（このリポジトリの `example/` を公開したもの）
+
+## 特徴
+
+- **一つのコマンド**：記事の雛形づくり、手元でのプレビュー、Cloudflare への公開まで、Rust で書いた `sqlite-cms` だけで行う。Node や wrangler は要らない。
+- **一つの SQLite**：全記事を一つの SQLite にまとめて配信する。ブラウザは最初に一度読み込むだけで、以後はページを移っても記事を取りに行かない。
+- **Markdown**：CommonMark と GFM に加えて、[Zenn](https://zenn.dev/zenn/articles/markdown-guide) 風の拡張（メッセージ、折りたたみ、コードのファイル名と diff、数式、mermaid の図、画像の幅、インラインの脚注、リンクカード）が書ける。
+- **コードの色分け**：Shiki で、VS Code と同じ文法の定義で色を付ける。
+- **軽さ**：色分け、数式、図のライブラリは、要るページでだけ後から読み込む。リンクカードの画像もビルドのときに取ってきて自分のサイトから配信するので、読む人のブラウザはほかのサイトと通信しない。
+- **読みやすさ**：白背景に黒文字、青い下線のリンクだけの見た目。Lighthouse のユーザー補助とおすすめの方法は 100 点を保ち、CI で確かめている。
+
 ## インストール
 
 [Releases](https://github.com/tett23/sqlite-cms/releases) に、次の環境のバイナリを置いている。
@@ -58,9 +69,9 @@ sqlite-cms new post hello --title はじめまして     # 最初の記事の雛
 sqlite-cms serve                                  # http://127.0.0.1:8080/ で確認
 ```
 
-`init` は、ビルドに必要な `site.toml` と `content/`（トップページ、自己紹介のページ、記事用の空のディレクトリ）を作る。
+`init` は、ビルドに必要な `site.toml` と `content/`（トップページ、仮のファビコン、自己紹介のページ、記事用の空のディレクトリ）、公開に使う認証情報の見本 `.env.example` を作り、`.gitignore` に `.env` と `.sqlite-cms-cache/` を書く。
 すでに `site.toml` か `content/` があるときはエラーになる。
-`--force` を付けると作り直す。このとき `init` が作るファイル（`site.toml`、`content/index.md`、`content/pages/about.md`）は上書きされるが、書いた記事や画像は消えない。
+`--force` を付けると作り直す。このとき `init` が作るファイル（`site.toml`、`content/index.md`、`content/favicon.svg`、`content/pages/about.md`、`.env.example`）は上書きされるが、書いた記事や画像、`.env` は消えない。既存の `.gitignore` には、足りない行を足すだけにする。
 
 ## 記事リポジトリの構成
 
@@ -75,7 +86,8 @@ content/
   media/           -- 画像など（任意。/media/ で配信）
 .env               -- deploy の認証情報（任意。Git に入れない）
 .env.example       -- .env の見本（init が作る）
-.gitignore         -- init が .env を書く
+.gitignore         -- init が .env と .sqlite-cms-cache/ を書く
+.sqlite-cms-cache/ -- リンクカードの画像など、ビルドのときに取ってきたもの（Git に入れない）
 ```
 
 このリポジトリの `example/` が、記事や画像を入れた同じ構成のサンプルになっている。
@@ -297,3 +309,4 @@ workers.dev のサブドメインは、アカウントで一度だけ、ダッ�
 
 `example/.github/workflows/deploy.yml` を記事リポジトリの `.github/workflows/` にコピーし、記事リポジトリのシークレットに `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` を設定する。
 `main` に push するたびに、最新の `sqlite-cms` を取ってきて公開する。
+CI には `.sqlite-cms-cache/` がないので、リンクカードの画像は公開のたびに取り直す。

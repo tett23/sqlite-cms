@@ -7,6 +7,22 @@ description: 記事リポジトリを作ってから、記事を書き、手元�
 sqlite-cms は、Markdown で書いた記事から個人サイトを組み立てるコマンドです。
 使うのは `sqlite-cms` コマンドだけで、Node や TypeScript は要りません。
 
+## インストールする
+
+[Releases](https://github.com/tett23/sqlite-cms/releases) に、macOS（Apple Silicon）と Linux（x86_64）のバイナリがあります。
+macOS なら次のとおりです。
+
+```sh
+curl -fsSL https://github.com/tett23/sqlite-cms/releases/latest/download/sqlite-cms-aarch64-apple-darwin.tar.gz | tar -xz
+mv sqlite-cms ~/.local/bin/
+```
+
+:::message
+macOS 用のバイナリは Apple の署名を受けていません。
+ブラウザで取ってきたときは、`xattr -d com.apple.quarantine sqlite-cms` で隔離の属性を外してから使います。
+curl や gh で取ってきたときは要りません。
+:::
+
 ## 記事リポジトリを作る
 
 ```sh
@@ -14,17 +30,22 @@ sqlite-cms init my-blog --title "私の記事置き場"
 cd my-blog
 ```
 
-`site.toml` と `content/` ができます。
+次のファイルができます。
 
 ```
 site.toml          サイトの設定
 content/
   index.md         トップページの本文
+  favicon.svg      ファビコン（サイト名の頭文字を描いた仮のもの）
   posts/           ブログ的な軽い記事
   articles/        長めの読み物
   pages/about.md   自己紹介
   media/           画像など
+.env.example       公開に使う認証情報の見本
+.gitignore         .env などを Git に入れないための設定
 ```
+
+サイト名やページの説明（meta description）は `site.toml` で変えられます。
 
 ## 記事を書く
 
@@ -69,13 +90,16 @@ sqlite-cms serve
 worker = "my-blog"
 ```
 
-Cloudflare の API トークンとアカウント ID を環境変数で渡して、公開します。
+Cloudflare の API トークンとアカウント ID を `.env` に書いて、公開します。
+トークンに要る権限は、アカウントの「Workers スクリプト：編集」だけです。
 
 ```sh
-export CLOUDFLARE_API_TOKEN=...
-export CLOUDFLARE_ACCOUNT_ID=...
+cp .env.example .env   # CLOUDFLARE_API_TOKEN と CLOUDFLARE_ACCOUNT_ID を書く
 sqlite-cms deploy
 ```
+
+公開が終わると、`https://<Worker 名>.<サブドメイン>.workers.dev` の URL が表示されます。
+`.env` は `.gitignore` に書いてあるので、Git には入りません。
 
 <details>
 <summary>GitHub Actions で自動で公開する</summary>
@@ -104,4 +128,4 @@ jobs:
 
 </details>
 
-書ける記法は [記法の一覧](/articles/syntax) にまとめてあります。
+書ける記法は [記法の一覧](/articles/syntax) と [拡張の記法](/articles/extensions) にまとめてあります。
