@@ -86,6 +86,27 @@ frontmatter は YAML のうち、1 行に 1 つの `キー: 値` だけを書け
 値が `[` や `{` などの記号で始まるときは、クォートで囲む。
 
 記法は CommonMark と GFM（表、取り消し線、タスクリスト、自動リンク、脚注）。本文中の生の HTML は表示されない。
+
+コードブロックに言語名を書くと色が付く（Shiki による）。
+対応する言語名は次のとおり。これ以外の言語名と、言語名のないブロックは色なしで表示される。
+
+| 言語 | 書ける言語名 |
+|---|---|
+| CSS | `css` |
+| diff | `diff` |
+| Haskell | `haskell`、`hs` |
+| HTML | `html` |
+| JavaScript | `javascript`、`js`、`cjs`、`mjs` |
+| JSON | `json` |
+| JSX、TSX | `jsx`、`tsx` |
+| Markdown | `markdown`、`md` |
+| Python | `python`、`py` |
+| Rust | `rust`、`rs` |
+| シェル | `shellscript`、`bash`、`sh`、`shell`、`zsh` |
+| SQL | `sql` |
+| TOML | `toml` |
+| TypeScript | `typescript`、`ts`、`cts`、`mts` |
+| YAML | `yaml`、`yml` |
 画像は `content/media/` に置き、`![説明](/media/foo.png)` のように参照する。
 
 ## 使い方

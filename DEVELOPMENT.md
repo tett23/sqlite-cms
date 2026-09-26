@@ -32,6 +32,7 @@ npm がプラットフォーム用のバイナリを自動で入れるので、G
 数十行で書けるものは自前で実装し、ライブラリを足さない。
 
 - `web/`：ルーター（`web/src/router.tsx`）と sql.js の型（`web/src/types/sql.js.d.ts`）を自前にしている。sql.js の API を新しく使うときは、型の宣言も足す。
+- `web/`：シンタックスハイライトは Shiki（ADR 0017）。言語は `web/src/highlight.ts` の `LANGUAGES` に登録したものだけが色付きになる。言語を足すときは、`@shikijs/langs/<言語>` を登録し、`web/src/highlight.test.tsx` の `SAMPLES` に見本を足し（足さないとテストが落ちる）、README の対応表を更新する。Shiki は `web/src/highlightLoader.ts` 経由で非同期に読み込む別チャンクなので、`web/src/highlight.ts` と Shiki のモジュールを本体のコードから静的に import しない（すると本体に取り込まれる）。1 言語で gzip 後 1〜16 KB 増えるので、`web/vite.config.ts` の `chunkSizeWarningLimit` も必要に応じて見直す。
 - `cli/`：base64（`base64.rs`）、MIME の対応表（`mime.rs`）、frontmatter のパーサ（`frontmatter.rs`）、テスト用の一時ディレクトリ（`testutil.rs`）を自前にしている。配信するファイルの種類を増やすときは `mime.rs` の表に足す。
 
 ## ビルド
