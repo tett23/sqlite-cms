@@ -203,4 +203,5 @@ API トークンに要る権限は、アカウントの「Workers スクリプ�
 - golem のプレーンテキスト出力を記事ソースに取り込む経路
 - 種別をまたいだ統合一覧と RSS
 - `serve` での記事の変更の自動反映（現在は再起動が要る）
+- X（Twitter）などに URL を貼ったときのカード。SPA の `index.html` はタイトルが空で OGP の meta もなく、JavaScript を実行しない X のクローラにはサイト名も説明も見えない。`build` が `site.toml` の `title` と `description`（記事のページなら記事の題名と要約）を HTML に書き込む方法が考えられる
 - Linux x86_64 と macOS arm64 以外のバイナリの配布
