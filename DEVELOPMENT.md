@@ -95,8 +95,24 @@ cargo run -- serve example
 
 1. SPA のビルド（型検査を含む）と vitest
 2. SPA を埋め込んだ `cargo clippy --all-targets -- -D warnings` と `cargo test`（結合テストを含む）
+3. Lighthouse の計測（下記）。レポートは成功しても失敗しても `lighthouse-reports` という Artifact に保存し、スコアの表は実行結果の概要に出す
 
 同じ PR に続けて push したときは、古い実行を取り消す。`main` への push は取り消さない。
+
+## Lighthouse
+
+```sh
+npm --prefix web run build   # SPA を最新にしてから
+npm --prefix web run lighthouse
+```
+
+`sqlite-cms serve` で `example/` を配信し、代表的な 5 ページ（`web/scripts/lighthouse.mjs` の `PAGES`）をヘッドレスの Chrome で計測する（ADR 0019）。
+手元に Chrome が要る。
+レポート（HTML と JSON）は `web/lighthouse-reports/` に出る。
+
+アクセシビリティは 100 点でなければ失敗し、足りない項目と要素を表示する。
+ほかの項目（パフォーマンス、ベストプラクティス、SEO）は計測して記録するだけで、基準はまだ決めていない。
+基準を足すときは `REQUIRED` に書く。
 
 ## リリース
 
