@@ -22,6 +22,10 @@ docs/        仕様書と ADR
 - Rust（stable）
 - Node 22 以降
 
+型検査には、Go で実装された TypeScript 7 の `tsc` を使う（ADR 0012）。
+npm がプラットフォーム用のバイナリを自動で入れるので、Go を別に入れる必要はない。
+7 系は JavaScript のコンパイラ API を持たないので、TypeScript の API に依存するツールはそのままでは使えない。
+
 ## ビルド
 
 CLI は `web/dist` を埋め込むので、SPA を先にビルドする。
