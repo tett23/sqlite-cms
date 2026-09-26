@@ -163,6 +163,12 @@ function selectAll(db: Database, sql: string, params: SqlValue[] = []): SqlValue
 const indexed = new WeakSet<Database>();
 
 /** 検索の索引を作る（同じ DB では一度だけ）。一時的な表なので、DB のファイルには残らない。 */
+/** 検索のページのパス（サイトを置くパスは含まない）。言葉は前後の空白を除いて `?q=` に入れ、空なら付けない（ADR 0041）。 */
+export function searchPath(query: string): string {
+  const q = query.trim();
+  return q ? `/search?q=${encodeURIComponent(q)}` : "/search";
+}
+
 export function ensureSearchIndex(db: Database) {
   if (indexed.has(db)) return;
   const documents: Document[] = [

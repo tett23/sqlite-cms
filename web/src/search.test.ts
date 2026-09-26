@@ -1,6 +1,6 @@
 import initSqlJs, { type Database } from "sql.js";
 import { beforeAll, describe, expect, it } from "vitest";
-import { plainText, queryTerms, search, snippet, tokenize, toMatchExpression } from "./search";
+import { plainText, queryTerms, search, searchPath, snippet, tokenize, toMatchExpression } from "./search";
 
 let db: Database;
 
@@ -101,5 +101,17 @@ describe("抜き出し", () => {
 
   it("語がなければ先頭から抜き出す", () => {
     expect(snippet("短い本文", ["なし"])).toEqual([{ text: "短い本文", match: false }]);
+  });
+});
+
+describe("検索のページのパス", () => {
+  it("言葉を前後の空白を除いて q に入れる", () => {
+    expect(searchPath("  記事 ")).toBe("/search?q=%E8%A8%98%E4%BA%8B");
+    expect(searchPath("a&b c")).toBe("/search?q=a%26b%20c");
+  });
+
+  it("言葉が空なら q を付けない", () => {
+    expect(searchPath("")).toBe("/search");
+    expect(searchPath("   ")).toBe("/search");
   });
 });

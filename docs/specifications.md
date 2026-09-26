@@ -174,7 +174,7 @@ Zenn を参考にした拡張（`:::message`、`:::details`、コードのファ
 - `/`：トップページ。`content/index.md` の本文と、article・post の一覧。
 - `/posts/:slug`、`/articles/:slug`：本文。
 - `/about`：自己紹介（`pages` の slug `about`）。
-- `/search`：全文検索。`?q=` に探す言葉を入れる（ADR 0031）。
+- `/search`：全文検索。`?q=` に探す言葉を入れる（ADR 0031）。検索のページ以外では、ヘッダに検索ボックスを置き、送ると `/search?q=` に移る（ADR 0041）。
 - `/archive`：post と article をまとめた一覧。年ごとに新しい順に並べる（ADR 0033）。
 
 ## CLI

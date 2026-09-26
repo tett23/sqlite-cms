@@ -4,8 +4,8 @@ import { getArticle, getLinkCardImages, getPage, getPost, getSite, listAll, list
 import { pageDescription, setMetaDescription } from "./documentMeta";
 import { MarkdownBody } from "./MarkdownBody";
 import { withBasePath } from "./base";
-import { Link, matchPath, usePath } from "./router";
-import { search, type SearchKind } from "./search";
+import { Link, matchPath, navigate, usePath } from "./router";
+import { search, searchPath, type SearchKind } from "./search";
 
 let dbPromise: Promise<Database> | null = null;
 function getDb(): Promise<Database> {
@@ -170,8 +170,7 @@ function SearchPage() {
   const results = useMemo(() => (db && query.trim() ? search(db, query) : null), [db, query]);
 
   useEffect(() => {
-    const url = withBasePath("/search") + (query.trim() ? `?q=${encodeURIComponent(query.trim())}` : "");
-    window.history.replaceState(null, "", url);
+    window.history.replaceState(null, "", withBasePath(searchPath(query)));
   }, [query]);
 
   return (
@@ -212,6 +211,41 @@ function SearchPage() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * ヘッダーの検索ボックス（ADR 0041）。送ると検索のページ（/search?q=…）に移る。
+ * JS が動かなくても、フォームとして /search?q=… を開けば同じ結果になる。
+ */
+function HeaderSearch() {
+  const [query, setQuery] = useState("");
+  return (
+    <form
+      role="search"
+      action={withBasePath("/search")}
+      method="get"
+      onSubmit={(event) => {
+        event.preventDefault();
+        navigate(searchPath(query));
+      }}
+      className="flex items-center gap-1"
+    >
+      <label htmlFor="header-search" className="sr-only">
+        サイトの中を検索
+      </label>
+      <input
+        id="header-search"
+        type="search"
+        name="q"
+        value={query}
+        onChange={(event) => setQuery(event.currentTarget.value)}
+        className="w-36 border border-gray-500 px-1"
+      />
+      <button type="submit" className="border border-gray-500 bg-gray-100 px-2">
+        検索
+      </button>
+    </form>
   );
 }
 
@@ -289,12 +323,16 @@ export default function App() {
         <Link to="/" className="site-title text-xl font-bold">
           {site?.title ?? "\u00a0"}
         </Link>
-        <nav className="space-x-4 text-sm">
-          <Link to="/">トップ</Link>
-          <Link to="/archive">一覧</Link>
-          <Link to="/about">自己紹介</Link>
-          <Link to="/search">検索</Link>
-        </nav>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+          <nav className="space-x-4">
+            <Link to="/">トップ</Link>
+            <Link to="/archive">一覧</Link>
+            <Link to="/about">自己紹介</Link>
+            <Link to="/search">検索</Link>
+          </nav>
+          {/* 検索のページには自分の検索欄があるので、ヘッダーの検索ボックスは出さない。 */}
+          {!matchPath("/search", path) && <HeaderSearch />}
+        </div>
       </header>
       <main>
         <CurrentPage />
