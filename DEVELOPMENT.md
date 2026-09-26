@@ -94,6 +94,19 @@ cargo clippy --all-targets -- -D warnings
 テストは `example/.env` を一時ディレクトリに写さない（本物の認証情報で公開しないため）。
 GitHub Pages と rsync への公開の結合テストは、手元の空のリモート（`git init --bare`）と手元のディレクトリに向けて実行する。`git` と `rsync` が要る（macOS の openrsync でも動く）。
 
+### E2E
+
+```sh
+npm --prefix web run build   # SPA を最新にしてから
+npm --prefix web run e2e
+```
+
+`sqlite-cms serve` で `example/` を配信し、ヘッドレスの Chrome を Chrome DevTools Protocol で動かして、ブラウザでの動きを確かめる（`web/scripts/e2e.mjs`、ADR 0044）。
+計測するすべてのページがエラー（コンソールのエラー、400 以上の応答）なく描かれ、レイアウトがずれないこと、色分け、数式、図、画面の中の移動、ヘッダの検索と候補、カスタムのヘッダと既定のヘッダを確かめる。
+既定のヘッダは、`example/` から `content/header.md` を除いた写しを一時ディレクトリに作って確かめる（`.env` は写さない）。
+Lighthouse と同じく、手元に Chrome が要り、`SQLITE_CMS_BIN` でビルド済みのバイナリを使える。
+jsdom などの DOM の代わりになるライブラリは入れず、描画を伴う動きはこの E2E で確かめる。
+
 `serve` や Lighthouse の計測で見本を配信すると、リンクカードの画像を取得して `example/.sqlite-cms-cache/` に保存する（Git には入れない）。
 
 ## SPA の開発
@@ -131,8 +144,11 @@ cargo run -- serve example
 
 1. SPA のビルド（型検査を含む）と vitest
 2. SPA を埋め込んだ `cargo clippy --all-targets -- -D warnings` と `cargo test`（結合テストを含む）
-3. Lighthouse の計測（下記）。レポートは成功しても失敗しても `lighthouse-reports` という Artifact に保存し、スコアの表は実行結果の概要に出す
+3. E2E（上記）。`cargo test` が作った `target/debug/sqlite-cms` で配信する
+4. Lighthouse の計測（下記）。3 つの Chrome で並行して計測する。レポートは成功しても失敗しても `lighthouse-reports` という Artifact に保存し、スコアの表は実行結果の概要に出す
 
+一つのジョブで、速く終わる検査から順に行う（ADR 0044）。
+`docs/`、`README.md`、`DEVELOPMENT.md` だけを変えたときは動かさない。
 同じ PR に続けて push したときは、古い実行を取り消す。`main` への push は取り消さない。
 
 ## Lighthouse
@@ -142,10 +158,11 @@ npm --prefix web run build   # SPA を最新にしてから
 npm --prefix web run lighthouse
 ```
 
-`sqlite-cms serve` で `example/` を配信し、代表的な 8 ページと、重いページと複雑なページの見本 6 ページ（`web/scripts/lighthouse.mjs` の `PAGES`）をヘッドレスの Chrome で計測する（ADR 0019）。
+`sqlite-cms serve` で `example/` を配信し、代表的な 8 ページと、重いページと複雑なページの見本 6 ページ（`web/scripts/pages.mjs` の `PAGES`。E2E も開く）をヘッドレスの Chrome で計測する（ADR 0019）。
 手元に Chrome が要る。
 レポート（HTML と JSON）は `web/lighthouse-reports/` に日本語で出る。
 配信には既定で `cargo run` を使う。ビルド済みのバイナリで計測するときは、`SQLITE_CMS_BIN` にそのパスを渡す。
+`LIGHTHOUSE_CONCURRENCY` に 2 以上を渡すと、ページを分けて、その数の Chrome で並行して計測する（ADR 0044。CI は 3）。速くなるが、CPU を取り合うのでパフォーマンスの点数は揺れる。パフォーマンスを比べるときは、既定の 1 で計測する。
 
 アクセシビリティとベストプラクティスは 100 点でなければ失敗し、足りない項目と要素を表示する（ADR 0024）。
 ほかの項目（パフォーマンス、SEO）は計測して記録するだけで、基準はまだ決めていない。
@@ -158,9 +175,9 @@ npm --prefix web run lighthouse
 
 `v*` のタグを push すると、`.github/workflows/release.yml` が次を行う。
 
-1. SPA をビルドし、テストを実行する
+1. SPA をビルドし、テストを実行する。テストはリリースと同じ出力先（`--target`）で行い、続くビルドでそのまま使う（ADR 0044）
 2. Linux x86_64 と macOS arm64 のバイナリをビルドする
-3. Linux のビルドで作ったバイナリで Lighthouse を計測し、レポートを `lighthouse-reports` の Artifact に保存する。アクセシビリティかベストプラクティスが 100 点を割ると、ここで失敗して Release は作られない
+3. Linux のビルドで作ったバイナリで E2E を行い、Lighthouse を計測して、レポートを `lighthouse-reports` の Artifact に保存する。E2E が失敗するか、アクセシビリティかベストプラクティスが 100 点を割ると、ここで失敗して Release は作られない
 4. `sqlite-cms-<target>.tar.gz` を GitHub Release に添付する
 
 タグを付けずに試すときは、`gh workflow run release.yml` で手動実行する。ビルドと梱包までを行い、Release は作らない（成果物は実行結果の Artifacts から取れる）。

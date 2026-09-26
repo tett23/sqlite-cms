@@ -418,15 +418,16 @@ export default function App() {
 
   if (CUSTOM_HEADER && !db) {
     // index.html の読み込み中の表示（loading-screen）と同じ位置に出す。
+    // key を本文の側と変え、DB を読んだときに同じ要素を使い回さずに置き換える（使い回すと、要素が動いたと数えられる）。
     return (
-      <div className="loading-screen">
+      <div key="loading" className="loading-screen">
         <Loading error={error} />
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8">
+    <div key="app" className="mx-auto max-w-2xl px-4 py-8">
       {customHeader ? (
         // 記事リポジトリの content/header.md で作ったヘッダ（ADR 0043）。{{> search}} の場所に検索ボックスを置く。
         <header className="mb-8 border-b border-black pb-2">

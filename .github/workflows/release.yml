@@ -33,20 +33,35 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
       - run: npm ci
         working-directory: web
       - run: npm run build
         working-directory: web
 
-      - run: cargo test --release
+      # テストとビルドの出力先（--target）をそろえ、同じものを二度コンパイルしない（ADR 0044）。
+      - run: cargo test --release --target ${{ matrix.target }}
       - run: cargo build --release --target ${{ matrix.target }}
+
+      - name: E2E
+        if: matrix.os == 'ubuntu-latest'
+        timeout-minutes: 5
+        run: npm run e2e
+        working-directory: web
+        env:
+          SQLITE_CMS_BIN: ${{ github.workspace }}/target/${{ matrix.target }}/release/sqlite-cms
 
       - name: Lighthouse
         if: matrix.os == 'ubuntu-latest'
+        timeout-minutes: 8
         run: npm run lighthouse
         working-directory: web
         env:
           SQLITE_CMS_BIN: ${{ github.workspace }}/target/${{ matrix.target }}/release/sqlite-cms
+          LIGHTHOUSE_CONCURRENCY: 3
 
       - uses: actions/upload-artifact@v7
         if: always() && matrix.os == 'ubuntu-latest'

@@ -1,0 +1,369 @@
+// ブラウザでの動きを確かめる E2E のテスト（ADR 0044）。
+// example を sqlite-cms serve で配信し、ヘッドレスの Chrome を Chrome DevTools Protocol（CDP）で動かす。
+// ページの表示、色分け、数式、図、画面の中の移動、ヘッダの検索と候補、カスタムのヘッダと既定のヘッダを確かめる。
+import { appendFile, cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import * as chromeLauncher from "chrome-launcher";
+import { PAGES } from "./pages.mjs";
+import { startServer } from "./server.mjs";
+
+const webDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const siteDir = path.resolve(webDir, process.env.SITE_DIR ?? "../example");
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** CDP の一つのタブ。送った命令の結果と、起きた出来事（コンソールのエラー、応答の状態など）を受け取る。 */
+class Tab {
+  static async open(port) {
+    const signal = AbortSignal.timeout(COMMAND_TIMEOUT);
+    const target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: "PUT", signal })).json();
+    const tab = new Tab(port, target);
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Chrome のタブにつながらない")), COMMAND_TIMEOUT);
+      tab.ws.addEventListener("open", () => (clearTimeout(timer), resolve()));
+      tab.ws.addEventListener("error", (error) => (clearTimeout(timer), reject(error)));
+    });
+    await tab.send("Page.enable");
+    await tab.send("Runtime.enable");
+    await tab.send("Network.enable");
+    await tab.send("Log.enable");
+    // E2E_CPU_THROTTLE（倍率）で CPU を遅くし、遅い CI のマシンでも待ち時間が足りるかを手元で確かめられる。
+    const throttle = Number(process.env.E2E_CPU_THROTTLE ?? 1);
+    if (throttle > 1) await tab.send("Emulation.setCPUThrottlingRate", { rate: throttle });
+    // レイアウトのずれ（Cumulative Layout Shift の元）を集める。入力の直後のずれは数えない（CLS と同じ）。
+    await tab.send("Page.addScriptToEvaluateOnNewDocument", {
+      source: `window.__layoutShift = 0; new PerformanceObserver((list) => { for (const e of list.getEntries()) if (!e.hadRecentInput) window.__layoutShift += e.value; }).observe({ type: "layout-shift", buffered: true });`,
+    });
+    return tab;
+  }
+
+  constructor(port, target) {
+    this.port = port;
+    this.id = target.id;
+    this.ws = new WebSocket(target.webSocketDebuggerUrl);
+    this.nextId = 0;
+    this.pending = new Map();
+    /** コンソールのエラー、捕まえていない例外、400 以上の応答。 */
+    this.problems = [];
+    /** 読み込んだ URL。 */
+    this.requests = [];
+    this.ws.addEventListener("message", (event) => {
+      const message = JSON.parse(event.data);
+      if (message.id !== undefined) {
+        const { resolve, reject } = this.pending.get(message.id);
+        this.pending.delete(message.id);
+        if (message.error) reject(new Error(message.error.message));
+        else resolve(message.result);
+        return;
+      }
+      const { method, params } = message;
+      if (method === "Runtime.exceptionThrown") this.problems.push(`例外: ${params.exceptionDetails.exception?.description ?? params.exceptionDetails.text}`);
+      if (method === "Runtime.consoleAPICalled" && params.type === "error") {
+        this.problems.push(`console.error: ${params.args.map((a) => a.value ?? a.description).join(" ")}`);
+      }
+      if (method === "Log.entryAdded" && params.entry.level === "error") this.problems.push(`${params.entry.text} ${params.entry.url ?? ""}`);
+      if (method === "Network.requestWillBeSent") this.requests.push(params.request.url);
+      if (method === "Network.responseReceived" && params.response.status >= 400) {
+        this.problems.push(`${params.response.status} ${params.response.url}`);
+      }
+    });
+  }
+
+  /** 命令を送り、結果を待つ。Chrome が応えなくなったときに止まり続けないよう、時間を区切る。 */
+  send(method, params = {}) {
+    const id = ++this.nextId;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`Chrome が ${COMMAND_TIMEOUT / 1000} 秒応えない: ${method}`));
+      }, COMMAND_TIMEOUT);
+      this.pending.set(id, {
+        resolve: (value) => (clearTimeout(timer), resolve(value)),
+        reject: (error) => (clearTimeout(timer), reject(error)),
+      });
+      this.ws.send(JSON.stringify({ id, method, params }));
+    });
+  }
+
+  /** 式を評価して値を返す。例外なら失敗にする。 */
+  async eval(expression) {
+    const result = await this.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+    if (result.exceptionDetails) throw new Error(`${expression}: ${result.exceptionDetails.exception?.description ?? result.exceptionDetails.text}`);
+    return result.result.value;
+  }
+
+  /** 条件が成り立つまで待つ。成り立たなければ失敗にする。 */
+  async waitFor(expression, { timeout = 10000, message = expression } = {}) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      if (await this.eval(expression)) return;
+      await sleep(100);
+    }
+    throw new Error(`待っても成り立たない: ${message}`);
+  }
+
+  async size(width, height) {
+    await this.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 600 });
+  }
+
+  /** 開き、本文が描かれる（読み込み中の表示が消える）まで待つ。 */
+  async goto(url) {
+    this.problems = [];
+    this.requests = [];
+    await this.send("Page.navigate", { url });
+    await this.waitFor("document.readyState === 'complete' && !document.querySelector('.loading') && document.querySelector('main') !== null", {
+      message: `${url} の本文が描かれない`,
+    });
+  }
+
+  async type(text) {
+    await this.send("Input.insertText", { text });
+    await sleep(200);
+  }
+
+  async key(key) {
+    const codes = { ArrowDown: 40, ArrowUp: 38, Enter: 13, Escape: 27 };
+    await this.send("Input.dispatchKeyEvent", { type: "keyDown", key, code: key, windowsVirtualKeyCode: codes[key], text: key === "Enter" ? "\r" : undefined });
+    await this.send("Input.dispatchKeyEvent", { type: "keyUp", key, code: key, windowsVirtualKeyCode: codes[key] });
+    await sleep(200);
+  }
+
+  async close() {
+    this.ws.close();
+    await fetch(`http://127.0.0.1:${this.port}/json/close/${this.id}`, { signal: AbortSignal.timeout(5000) });
+  }
+}
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+function assertEqual(actual, expected, message) {
+  const [a, e] = [JSON.stringify(actual), JSON.stringify(expected)];
+  if (a !== e) throw new Error(`${message}: ${a}（期待 ${e}）`);
+}
+
+const noProblems = (tab, where) => assertEqual(tab.problems, [], `${where} でエラー`);
+
+/** Chrome に送った一つの命令と、一つのシナリオを待つ時間。止まったときに、CI のジョブの制限時間まで待たずに失敗させる。 */
+const COMMAND_TIMEOUT = 30000;
+const SCENARIO_TIMEOUT = 120000;
+
+/** 図や数式を待つ時間。後から読み込むライブラリは、描画の後に手が空くのを待つ（ADR 0038）。 */
+const LAZY_TIMEOUT = 20000;
+
+/** 画面の中の要素の数。 */
+const count = (tab, selector) => tab.eval(`document.querySelectorAll(${JSON.stringify(selector)}).length`);
+
+const scenarios = [];
+const scenario = (name, fn) => scenarios.push({ name, fn });
+
+scenario("計測するすべてのページが、エラーなく描かれ、レイアウトがずれない（数式でずれる既知のページを除く）", async ({ tab, origin }) => {
+  // 数式は、描く前（TeX の文字列）と描いた後で高さが変わる（ADR 0040 の未解決の問題）。
+  const shifting = new Set(["/articles/heavy-math", "/articles/complex-mixed"]);
+  for (const [, pathname] of PAGES) {
+    await tab.goto(origin + pathname);
+    assert((await tab.eval("document.title")) !== "", `${pathname} の題名が空`);
+    // 後から読み込むライブラリ（色分けなど）が描き終わるのを少し待つ。
+    await sleep(1000);
+    noProblems(tab, pathname);
+    if (shifting.has(pathname)) continue;
+    const shift = await tab.eval("window.__layoutShift");
+    assert(shift === 0, `${pathname} でレイアウトがずれた（${shift.toFixed(3)}）`);
+  }
+});
+
+scenario("画面の外のコードブロックは、近くに来てから色を付ける。コードのないページでは Shiki を読まない（ADR 0029、0038）", async ({ tab, origin }) => {
+  await tab.goto(origin + "/about");
+  await sleep(1500);
+  assert(!tab.requests.some((url) => /\/highlight-[^/]*\.js$/.test(url)), "コードのないページで Shiki を読み込んだ");
+
+  await tab.goto(origin + "/articles/heavy-code");
+  await tab.waitFor("document.querySelectorAll('pre.shiki').length > 0", { timeout: LAZY_TIMEOUT, message: "最初の画面のコードに色が付かない" });
+  await sleep(1000);
+  const before = await count(tab, "pre.shiki");
+  assert(before < 32, `画面の外のコードにも色が付いている（${before} 個）`);
+  // 少しずつ最後まで送り、どのブロックも一度は画面の近くを通るようにする。
+  await tab.eval("(async () => { for (let y = 0; y < document.body.scrollHeight; y += 600) { window.scrollTo(0, y); await new Promise((r) => setTimeout(r, 50)); } })()");
+  await tab.waitFor("document.querySelectorAll('pre.shiki').length === 32", { timeout: LAZY_TIMEOUT, message: "送っても色が付かないコードがある" });
+});
+
+scenario("色分け、数式、図を描き、書き誤りだけを元の文字列のまま出す", async ({ tab, origin }) => {
+  // 縦に長い画面にして、すべての要素を画面の近くに置く。
+  await tab.size(1200, 30000);
+  const expectations = [
+    ["/articles/heavy-code", { "pre.shiki": 32 }],
+    ["/articles/heavy-math", { ".math-error": 1 }],
+    ["/articles/heavy-diagrams", { ".mermaid-diagram": 10, ".diagram-error": 1 }],
+    ["/articles/complex-mixed", { "pre.shiki": 8, ".mermaid-diagram": 7, ".math-error": 0, "a.link-card": 2 }],
+  ];
+  for (const [pathname, counts] of expectations) {
+    await tab.goto(origin + pathname);
+    for (const [selector, expected] of Object.entries(counts)) {
+      await tab.waitFor(`document.querySelectorAll(${JSON.stringify(selector)}).length === ${expected}`, {
+        timeout: LAZY_TIMEOUT,
+        message: `${pathname} の ${selector} が ${expected} 個にならない（${await count(tab, selector)} 個）`,
+      });
+    }
+  }
+  await tab.goto(origin + "/articles/heavy-math");
+  await tab.waitFor("document.querySelectorAll('.katex').length > 90", { timeout: LAZY_TIMEOUT, message: "数式が描かれない" });
+  await tab.size(1024, 800);
+});
+
+scenario("elk は、図で指定したときだけ読み込む（ADR 0040）", async ({ tab, origin }) => {
+  await tab.size(1200, 30000);
+  // 図の数。すべて描き終わるまで待ってから、elk を読み込んだかを見る（一つ目が描けた時点では、elk の図がまだのことがある）。
+  for (const [pathname, diagrams, expected] of [["/articles/complex-mixed", 7, false], ["/articles/heavy-diagrams", 10, true]]) {
+    await tab.goto(origin + pathname);
+    await tab.waitFor(`document.querySelectorAll('.mermaid-diagram').length === ${diagrams}`, {
+      timeout: LAZY_TIMEOUT,
+      message: `${pathname} の図が ${diagrams} 個描かれない`,
+    });
+    assertEqual(tab.requests.some((url) => /\/elk-[^/]*\.js$/.test(url)), expected, `${pathname} で elk を読み込んだか`);
+  }
+  await tab.size(1024, 800);
+});
+
+scenario("リンクで、ページを読み直さずに移り、戻れる", async ({ tab, origin }) => {
+  await tab.goto(origin + "/articles/syntax");
+  await tab.eval("window.__marker = true");
+  await tab.eval("document.querySelector('header a[href=\"/archive\"]').click()");
+  await tab.waitFor("location.pathname === '/archive' && document.querySelector('h1')?.textContent === 'すべての記事'");
+  assert(await tab.eval("window.__marker === true"), "ページを読み直した");
+  await tab.eval("history.back()");
+  await tab.waitFor("location.pathname === '/articles/syntax' && document.querySelector('h1')?.textContent === '記法の一覧'");
+});
+
+scenario("ヘッダの検索ボックスで、候補を 5 件まで出し、キーで選んで移れる（ADR 0042）", async ({ tab, origin }) => {
+  await tab.goto(origin + "/articles/syntax");
+  await tab.eval("document.querySelector('#header-search').focus()");
+  await tab.type("記事");
+  assertEqual(await count(tab, "#header-search-suggestions [role=option]"), 5, "候補の数");
+  assertEqual(await tab.eval("document.querySelector('#header-search').getAttribute('aria-expanded')"), "true", "aria-expanded");
+  await tab.key("ArrowDown");
+  await tab.key("ArrowDown");
+  assertEqual(await tab.eval("document.querySelector('#header-search').getAttribute('aria-activedescendant')"), "header-search-suggestion-1", "選んだ候補");
+  const target = await tab.eval("document.querySelector('#header-search-suggestion-1').textContent");
+  await tab.key("Enter");
+  await tab.waitFor("location.pathname.startsWith('/articles/') && location.pathname !== '/articles/syntax'");
+  assert(target.startsWith(await tab.eval("document.querySelector('h1').textContent")), `選んだ候補（${target}）に移っていない`);
+
+  await tab.eval("document.querySelector('#header-search').focus()");
+  await tab.type("存在しない言葉");
+  assert((await tab.eval("document.querySelector('#header-search-suggestions').parentElement.textContent")).includes("一致する記事はありません"), "一致しないことを出さない");
+  await tab.key("Escape");
+  assertEqual(await tab.eval("document.querySelector('#header-search-suggestions').parentElement.hidden"), true, "Escape で閉じない");
+  noProblems(tab, "ヘッダの検索");
+});
+
+scenario("検索のページは、URL の言葉で結果を出し、ヘッダから探すと結果が変わる", async ({ tab, origin }) => {
+  await tab.goto(origin + "/search?q=Rust");
+  await tab.waitFor("document.querySelector('main [role=status]')?.textContent.endsWith('件')");
+  assertEqual(await tab.eval("document.querySelector('#search-query').value"), "Rust", "検索欄の言葉");
+  assertEqual(await count(tab, "[role=search]"), 2, "検索のランドマークの数");
+  await tab.eval("document.querySelector('#header-search').focus()");
+  await tab.type("数式");
+  await tab.key("Enter");
+  await tab.waitFor("decodeURIComponent(location.search) === '?q=数式' && document.querySelector('#search-query').value === '数式'");
+  await tab.eval("history.back()");
+  await tab.waitFor("decodeURIComponent(location.search) === '?q=Rust' && document.querySelector('#search-query').value === 'Rust'");
+});
+
+scenario("知らないページは「見つかりません」を出す", async ({ tab, origin }) => {
+  await tab.goto(origin + "/articles/does-not-exist");
+  assert((await tab.eval("document.querySelector('main').textContent")).includes("見つかりません"), "見つかりませんを出さない");
+});
+
+scenario("content/header.md のヘッダを描く（ADR 0043）", async ({ tab, origin }) => {
+  await tab.goto(origin + "/");
+  assertEqual(await tab.eval("document.querySelector('meta[name=\"sqlite-cms-header\"]')?.content"), "custom", "目印");
+  assertEqual(await count(tab, "header .site-header-body"), 1, "カスタムのヘッダ");
+  assertEqual(await count(tab, "header .site-header-body form[role=search]"), 1, "パーシャルの検索ボックス");
+  assertEqual(await tab.eval("document.querySelector('header .site-header-body p a').textContent"), "tett23の記事置き場", "サイト名");
+});
+
+scenario("content/header.md がなければ、既定のヘッダを描く", async ({ tab, defaultOrigin }) => {
+  await tab.goto(defaultOrigin + "/");
+  assertEqual(await tab.eval("document.querySelector('meta[name=\"sqlite-cms-header\"]')"), null, "目印");
+  assertEqual(await count(tab, "header .site-header-body"), 0, "カスタムのヘッダ");
+  assertEqual(await count(tab, "header nav a"), 4, "既定の案内");
+  assertEqual(await count(tab, "header form[role=search]"), 1, "検索ボックス");
+  noProblems(tab, "既定のヘッダ");
+});
+
+scenario("サイトをドメインの直下でない場所（base_path）に置いても動く（ADR 0030）", async ({ tab, baseOrigin }) => {
+  await tab.goto(baseOrigin + "/blog/articles/syntax");
+  assertEqual(await tab.eval("document.querySelector('h1').textContent"), "記法の一覧", "本文");
+  await tab.eval("window.__marker = true");
+  await tab.eval("document.querySelector('header a[href=\"/blog/archive\"]').click()");
+  await tab.waitFor("location.pathname === '/blog/archive' && document.querySelector('h1')?.textContent === 'すべての記事'");
+  assert(await tab.eval("window.__marker === true"), "ページを読み直した");
+  assertEqual(await tab.eval("document.querySelector('header form[role=search]').getAttribute('action')"), "/blog/search", "検索ボックスの送り先");
+  await tab.eval("document.querySelector('#header-search').focus()");
+  await tab.type("Rust");
+  await tab.key("Enter");
+  await tab.waitFor("location.pathname === '/blog/search' && location.search === '?q=Rust' && document.querySelector('main [role=status]')?.textContent.endsWith('件')");
+  // 画像（/media/…）もサイトを置くパスから取る。
+  await tab.goto(baseOrigin + "/blog/articles/syntax");
+  await sleep(1000);
+  assert(tab.requests.some((url) => url.includes("/blog/media/")), "画像をサイトを置くパスから取っていない");
+  noProblems(tab, "base_path");
+});
+
+async function main() {
+  // 既定のヘッダを確かめるため、content/header.md を除いた写しも配信する。認証情報（.env）は写さない。
+  const copy = async (prefix) => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), prefix));
+    await cp(siteDir, dir, { recursive: true, filter: (src) => !path.basename(src).startsWith(".env") });
+    return dir;
+  };
+  const defaultSite = await copy("sqlite-cms-e2e-default-");
+  await rm(path.join(defaultSite, "content", "header.md"), { force: true });
+  // base_path を確かめるため、/blog/ に置く写しも配信する。url のパスは base_path とそろえる必要がある。
+  const baseSite = await copy("sqlite-cms-e2e-base-");
+  const toml = await readFile(path.join(baseSite, "site.toml"), "utf8");
+  // base_path は、表（[license] など）の中に入らないよう先頭に書く。
+  await writeFile(path.join(baseSite, "site.toml"), `base_path = "/blog/"\n${toml.replace(/^url = .*$/m, 'url = "https://example.com/blog/"')}`);
+
+  const [server, defaultServer, baseServer] = await Promise.all([startServer(siteDir), startServer(defaultSite), startServer(baseSite)]);
+  const chrome = await chromeLauncher.launch({ chromeFlags: ["--headless=new", ...(process.env.CI ? ["--no-sandbox"] : [])] });
+  const results = [];
+  try {
+    for (const { name, fn } of scenarios) {
+      const start = Date.now();
+      let tab;
+      try {
+        tab = await Tab.open(chrome.port);
+        await tab.size(1024, 800);
+        let timer;
+        await Promise.race([
+          fn({ tab, origin: server.origin, defaultOrigin: defaultServer.origin, baseOrigin: baseServer.origin }),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`${SCENARIO_TIMEOUT / 1000} 秒で終わらない`)), SCENARIO_TIMEOUT);
+          }),
+        ]).finally(() => clearTimeout(timer));
+        results.push({ name, ok: true, ms: Date.now() - start });
+      } catch (error) {
+        results.push({ name, ok: false, ms: Date.now() - start, error: error.message });
+      } finally {
+        await tab?.close().catch(() => {});
+      }
+    }
+  } finally {
+    chrome.kill();
+    for (const s of [server, defaultServer, baseServer]) s.stop();
+    for (const dir of [defaultSite, baseSite]) await rm(dir, { recursive: true, force: true });
+  }
+
+  const lines = results.map((r) => `${r.ok ? "✓" : "✗"} ${r.name}（${(r.ms / 1000).toFixed(1)} 秒）${r.ok ? "" : `\n    ${r.error}`}`);
+  const failed = results.filter((r) => !r.ok).length;
+  const summary = `## E2E\n\n${lines.join("\n")}\n\n${results.length - failed} 件成功、${failed} 件失敗\n`;
+  console.log(summary);
+  if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, summary.replace(/\n    /g, "\n    - "));
+  if (failed > 0) process.exitCode = 1;
+}
+
+await main();

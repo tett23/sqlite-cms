@@ -1,58 +1,23 @@
 // example を sqlite-cms serve で配信し、Lighthouse で計測する（ADR 0019）。
 // アクセシビリティとベストプラクティスは 100 点でなければ失敗する（ADR 0024）。ほかの項目は計測して記録するだけ。
 import { spawn } from "node:child_process";
-import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import * as chromeLauncher from "chrome-launcher";
 import lighthouse from "lighthouse";
+import { PAGES } from "./pages.mjs";
+import { startServer } from "./server.mjs";
 
 const webDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const siteDir = path.resolve(webDir, process.env.SITE_DIR ?? "../example");
 const outDir = path.resolve(webDir, process.env.LIGHTHOUSE_OUT ?? "lighthouse-reports");
 
-const PAGES = [
-  ["top", "/"],
-  ["article-syntax", "/articles/syntax"],
-  ["article-extensions", "/articles/extensions"],
-  ["article-getting-started", "/articles/getting-started"],
-  ["post-ruby", "/posts/ruby"],
-  ["about", "/about"],
-  ["search", "/search?q=%E8%A8%98%E4%BA%8B"],
-  ["archive", "/archive"],
-  // 重いページの見本（コード、数式、図がそれぞれ多い記事と、長い記事）。
-  ["heavy-code", "/articles/heavy-code"],
-  ["heavy-math", "/articles/heavy-math"],
-  ["heavy-diagrams", "/articles/heavy-diagrams"],
-  ["heavy-long", "/articles/heavy-long"],
-  // 複雑なページの見本（入れ子の深い記事と、コード、数式、図を混ぜた記事）。
-  ["complex-nesting", "/articles/complex-nesting"],
-  ["complex-mixed", "/articles/complex-mixed"],
-];
 
 const CATEGORIES = ["performance", "accessibility", "best-practices", "seo"];
 
 /** 必ず満たす点数（0〜1）。ここにない項目は計測して記録するだけ。 */
 const REQUIRED = { accessibility: 1, "best-practices": 1 };
-
-// SQLITE_CMS_BIN を指定すると、そのバイナリ（リリースのビルドなど）で配信する。なければ cargo run で起動する。
-function startServer() {
-  // 自動反映の接続（Server-Sent Events）が開いたままだと計測の終わりを待たせるので、使わない（ADR 0034）。
-  const serve = ["serve", siteDir, "--port", "0", "--no-reload"];
-  const [command, args] = process.env.SQLITE_CMS_BIN
-    ? [process.env.SQLITE_CMS_BIN, serve]
-    : ["cargo", ["run", "--quiet", "--manifest-path", path.join(webDir, "../cli/Cargo.toml"), "--", ...serve]];
-  const child = spawn(command, args, { stdio: ["ignore", "pipe", "inherit"] });
-  return new Promise((resolve, reject) => {
-    child.on("exit", (code) => reject(new Error(`sqlite-cms serve が終了しました（${code}）`)));
-    createInterface({ input: child.stdout }).once("line", (line) => {
-      const origin = line.match(/^(http:\/\/[^/\s]+)/)?.[1];
-      if (!origin) return reject(new Error(`URL が出力されていません: ${line}`));
-      resolve({ origin, stop: () => child.kill() });
-    });
-  });
-}
 
 function failingAudits(lhr, category) {
   // 重みが 0 の監査（ソースマップの有無など）は点数に影響しないので、表示しない。
@@ -68,21 +33,17 @@ function failingAudits(lhr, category) {
 
 const percent = (score) => (score === null || score === undefined ? "-" : String(Math.round(score * 100)));
 
-async function main() {
-  await rm(outDir, { recursive: true, force: true });
-  await mkdir(outDir, { recursive: true });
-
-  const server = await startServer();
+/** pages を一つの Chrome で順に計測し、レポートを書き出して、点数と必須の項目の失敗を返す。 */
+async function measure(origin, pages) {
   const chrome = await chromeLauncher.launch({
     chromeFlags: ["--headless=new", ...(process.env.CI ? ["--no-sandbox"] : [])],
   });
-
   const results = [];
   /** 項目の日本語の名前（Lighthouse のレポートから取る）。 */
   const titles = {};
   try {
-    for (const [name, pathname] of PAGES) {
-      const runner = await lighthouse(server.origin + pathname, {
+    for (const [name, pathname] of pages) {
+      const runner = await lighthouse(origin + pathname, {
         port: chrome.port,
         output: ["html", "json"],
         logLevel: "error",
@@ -103,8 +64,52 @@ async function main() {
     }
   } finally {
     chrome.kill();
+  }
+  return { results, titles };
+}
+
+/**
+ * LIGHTHOUSE_CONCURRENCY（既定 1）個の子プロセスに、ページを分けて計測させる（ADR 0044）。
+ * Lighthouse は一つのプロセスの中で並行して動かせないので、子プロセスごとに別の Chrome を使う。
+ * 並行して計測すると CPU を取り合うので、パフォーマンスの点数は一つずつ計測したときより揺れる。
+ */
+async function measureConcurrently(origin, concurrency) {
+  // 重いページが一つの子プロセスに偏らないよう、順に配る。
+  const groups = Array.from({ length: concurrency }, (_, i) => PAGES.filter((_, index) => index % concurrency === i));
+  const outputs = await Promise.all(
+    groups.map(async (pages, i) => {
+      const resultFile = path.join(outDir, `.worker-${i}.json`);
+      const child = spawn(process.execPath, [fileURLToPath(import.meta.url)], {
+        stdio: "inherit",
+        env: { ...process.env, LIGHTHOUSE_WORKER: JSON.stringify({ origin, pages, resultFile }) },
+      });
+      const code = await new Promise((resolve) => child.on("exit", resolve));
+      if (code !== 0) throw new Error(`計測の子プロセスが失敗しました（${code}）`);
+      const output = JSON.parse(await readFile(resultFile, "utf8"));
+      await rm(resultFile);
+      return output;
+    }),
+  );
+  const order = new Map(PAGES.map(([name], index) => [name, index]));
+  return {
+    results: outputs.flatMap((o) => o.results).sort((a, b) => order.get(a.name) - order.get(b.name)),
+    titles: Object.assign({}, ...outputs.map((o) => o.titles)),
+  };
+}
+
+async function main() {
+  await rm(outDir, { recursive: true, force: true });
+  await mkdir(outDir, { recursive: true });
+
+  const concurrency = Math.max(1, Math.min(PAGES.length, Number(process.env.LIGHTHOUSE_CONCURRENCY ?? 1)));
+  const server = await startServer(siteDir);
+  let measured;
+  try {
+    measured = concurrency === 1 ? await measure(server.origin, PAGES) : await measureConcurrently(server.origin, concurrency);
+  } finally {
     server.stop();
   }
+  const { results, titles } = measured;
 
   const title = (category) => titles[category] ?? category;
   const header = `| ページ | ${CATEGORIES.map(title).join(" | ")} |\n|---|${CATEGORIES.map(() => "---:").join("|")}|`;
@@ -129,4 +134,11 @@ async function main() {
   if (failed.length > 0) process.exitCode = 1;
 }
 
-await main();
+const worker = process.env.LIGHTHOUSE_WORKER;
+if (worker) {
+  // 子プロセス：受け持ったページを計測し、結果をファイルに書く。
+  const { origin, pages, resultFile } = JSON.parse(worker);
+  await writeFile(resultFile, JSON.stringify(await measure(origin, pages)));
+} else {
+  await main();
+}
