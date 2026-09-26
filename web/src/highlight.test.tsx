@@ -1,4 +1,4 @@
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup } from "preact-render-to-string";
 import { beforeAll, describe, expect, it } from "vitest";
 import { BACKGROUND, DIFF_BACKGROUNDS, getHighlighter, LANGUAGES, THEME_REGISTRATION } from "./highlight";
 import { highlightLoader } from "./highlightLoader";

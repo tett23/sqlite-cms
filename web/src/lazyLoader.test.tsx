@@ -1,4 +1,4 @@
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup } from "preact-render-to-string";
 import { describe, expect, it } from "vitest";
 import { highlightLoader, type Highlight } from "./highlightLoader";
 import { createLoader } from "./lazyLoader";

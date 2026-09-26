@@ -38,8 +38,8 @@ const baseRehypePlugins: NonNullable<Options["rehypePlugins"]> = [
 
 const logHighlightError = (error: unknown) => console.error("シンタックスハイライトを読み込めませんでした", error);
 
-function isInternal(href: string | undefined): href is string {
-  return href !== undefined && href.startsWith("/") && !href.startsWith("//");
+function isInternal(href: unknown): href is string {
+  return typeof href === "string" && href.startsWith("/") && !href.startsWith("//");
 }
 
 type HastNode = {

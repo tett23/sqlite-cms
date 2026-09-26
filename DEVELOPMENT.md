@@ -9,7 +9,7 @@
 
 ```
 cli/         CLI sqlite-cms（Rust）。利用者が使うのはこれだけ
-web/         SPA（React + Vite + Tailwind）。ビルド結果は CLI に埋め込まれる
+web/         SPA（Preact + Vite + Tailwind）。ビルド結果は CLI に埋め込まれる
 migrations/  SQLite のマイグレーション。CLI に埋め込まれる
 example/     記事リポジトリのサンプル。動作確認とテストに使う
 docs/        仕様書と ADR
@@ -103,6 +103,7 @@ npm --prefix web run dev
 ```
 
 `sqlite-cms build --data-only` で DB と画像を `web/public` に書き出してから、Vite の開発サーバを起動する。
+SPA は Preact で描くので（ADR 0039）、部品を変えると状態を保った差し替え（Fast Refresh）ではなく、ページ全体を読み直す。
 記事は既定で `example/` のものを使う。別の記事リポジトリで試すときは `SITE_DIR` で指定する。
 
 ```sh
@@ -141,7 +142,7 @@ npm --prefix web run build   # SPA を最新にしてから
 npm --prefix web run lighthouse
 ```
 
-`sqlite-cms serve` で `example/` を配信し、代表的な 8 ページ（`web/scripts/lighthouse.mjs` の `PAGES`）をヘッドレスの Chrome で計測する（ADR 0019）。
+`sqlite-cms serve` で `example/` を配信し、代表的な 8 ページと、重いページと複雑なページの見本 6 ページ（`web/scripts/lighthouse.mjs` の `PAGES`）をヘッドレスの Chrome で計測する（ADR 0019）。
 手元に Chrome が要る。
 レポート（HTML と JSON）は `web/lighthouse-reports/` に日本語で出る。
 配信には既定で `cargo run` を使う。ビルド済みのバイナリで計測するときは、`SQLITE_CMS_BIN` にそのパスを渡す。

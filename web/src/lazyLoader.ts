@@ -92,7 +92,7 @@ export function inTurn(fn: () => void): () => void {
 
 /** 読み込み済みなら返し、読み込み終わったら描き直す。読み込みは始めない。 */
 export function useLoaded<T>(loader: LazyLoader<T>): T | null {
-  return useSyncExternalStore(loader.subscribe, loader.loaded, loader.loaded);
+  return useSyncExternalStore(loader.subscribe, loader.loaded);
 }
 
 /**
