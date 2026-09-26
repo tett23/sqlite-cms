@@ -284,7 +284,8 @@ export default function App() {
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
-      <header className="mb-8 flex items-baseline justify-between border-b border-black pb-2">
+      {/* 狭い画面ではサイト名と案内を別の行にし、サイト名が後から入っても案内が折り返さない（高さが変わらない）ようにする。 */}
+      <header className="mb-8 flex flex-col gap-1 border-b border-black pb-2 sm:flex-row sm:items-baseline sm:justify-between">
         <Link to="/" className="site-title text-xl font-bold">
           {site?.title ?? "\u00a0"}
         </Link>

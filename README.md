@@ -267,7 +267,7 @@ https://example.com/
 ```sh
 sqlite-cms new post hello --title はじめまして   # content/posts/hello.md の雛形を作る
 sqlite-cms new post                             # content/posts/<今日の日付>.md の雛形を作る
-sqlite-cms serve    # http://127.0.0.1:8080/ でプレビュー（記事を変えたら再起動）
+sqlite-cms serve    # http://127.0.0.1:8080/ でプレビュー（記事を変えると自動で反映する）
 sqlite-cms build    # dist/ に配信用の一式を書き出す
 sqlite-cms deploy   # site.toml の [deploy] の公開先に公開する
 ```
@@ -299,6 +299,13 @@ slug を省いて別の場所の記事リポジトリを指すときは、`./blo
 新しい順に 20 件を載せ、article は要約を、post は本文の書き出しを説明にする（本文は載せない）。
 フッターに RSS のリンクが出て、ページの head にもフィードの案内が入る。
 `url` のパスは `base_path` と同じにする（`https://<user>.github.io/my-blog/` なら `base_path = "/my-blog/"`）。
+
+### プレビューの自動反映
+
+`serve` は、`site.toml` と `content/` の変更を 0.5 秒ごとに調べ、変わっていれば組み立て直して、開いているブラウザを読み込み直させる。
+記事に書き誤りがあれば、エラーを表示して、直すまで前の内容を配信する。
+`base_path` を変えたときだけは、`serve` を起動し直す。
+自動反映が要らないときは `--no-reload` を付ける。
 
 ## 公開
 

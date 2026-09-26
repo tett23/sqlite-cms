@@ -21,6 +21,7 @@ mod scaffold;
 mod serve;
 mod site;
 mod spa;
+mod watch;
 #[cfg(test)]
 mod testutil;
 
@@ -29,6 +30,9 @@ use std::io::Write;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
 
@@ -46,7 +50,7 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
 コマンド:
   init [SITE_DIR]               記事リポジトリに必要な site.toml と content/ を作る
   new <種別> [SLUG] [SITE_DIR]  記事の雛形を作る（種別は post、article、page）
-  serve [SITE_DIR]              サイトを組み立てて手元でプレビューする
+  serve [SITE_DIR]              サイトを組み立てて手元でプレビューする（記事の変更を自動で反映する）
   build [SITE_DIR]              サイトを組み立てて配信用のディレクトリに書き出す
   deploy [SITE_DIR]             サイトを組み立てて公開する（Cloudflare Workers、GitHub Pages、rsync）
 
@@ -63,6 +67,8 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
   new --title <TITLE>      タイトル（既定: SLUG）
   new --date <YYYY-MM-DD>  日付（既定: site.toml の timezone での今日。page では使えない）
   serve --port <PORT>      待ち受けるポート（既定: 8080。0 なら空いているポート）
+  serve --no-reload        記事の変更を自動で反映しない（既定では、変更を見つけて組み立て直し、
+                           ブラウザを再読み込みする）
   build --out <DIR>        書き出し先（既定: dist）。前回の書き出しは消して作り直す
   -h, --help               このヘルプを表示して終了する
 
@@ -117,7 +123,7 @@ enum Command {
     Init { site_dir: PathBuf, title: Option<String>, force: bool },
     New { kind: Kind, slug: Option<String>, site_dir: PathBuf, title: Option<String>, date: Option<String> },
     Build { site_dir: PathBuf, out_dir: PathBuf, data_only: bool },
-    Serve { site_dir: PathBuf, port: u16 },
+    Serve { site_dir: PathBuf, port: u16, reload: bool },
     Deploy { site_dir: PathBuf },
 }
 
@@ -154,6 +160,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command> {
     let mut out_dir = PathBuf::from("dist");
     let mut data_only = false;
     let mut port: u16 = 8080;
+    let mut reload = true;
     let mut title = None;
     let mut date = None;
     let mut force = false;
@@ -163,6 +170,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command> {
         match (command.as_str(), flag.as_str()) {
             ("build", "--out") => out_dir = PathBuf::from(option_value(&mut args, "--out", "書き出し先")?),
             ("build", "--data-only") => data_only = true,
+            ("serve", "--no-reload") => reload = false,
             ("serve", "--port") => {
                 let value = option_value(&mut args, "--port", "ポート番号")?;
                 port = value.parse().map_err(|_| usage_error(format_args!("ポート番号が不正です: {value}")))?;
@@ -217,7 +225,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command> {
     Ok(match command.as_str() {
         "init" => Command::Init { site_dir, title, force },
         "build" => Command::Build { site_dir, out_dir, data_only },
-        "serve" => Command::Serve { site_dir, port },
+        "serve" => Command::Serve { site_dir, port, reload },
         _ => Command::Deploy { site_dir },
     })
 }
@@ -275,15 +283,63 @@ fn build(site_dir: PathBuf, out_dir: PathBuf, data_only: bool) -> Result<()> {
     Ok(())
 }
 
-fn serve(site_dir: PathBuf, port: u16) -> Result<()> {
+/// serve で配信する一式を組み立てる。自動反映を使うときは、再読み込みのスクリプトを入れる（ADR 0034）。
+fn build_for_serve(site_dir: &Path, base_path: &str, reload: bool) -> Result<SiteOutput> {
+    let output = SiteOutput::site(site_dir, spa::embedded(), linkcard::fetcher_from_env().as_ref())?;
+    Ok(if reload { output.with_live_reload(base_path) } else { output })
+}
+
+/// 監視の途中の知らせを表示する。出力先が閉じていても（パイプなど）、監視は止めない。
+fn notice(message: std::fmt::Arguments) {
+    let _ = writeln!(std::io::stdout(), "{message}");
+    let _ = std::io::stdout().flush();
+}
+
+fn warn(message: std::fmt::Arguments) {
+    let _ = writeln!(std::io::stderr(), "{message}");
+}
+
+/// 記事の変更を監視し、変わったら組み立て直して配信する中身を入れ替える。失敗したら前の中身のまま配信を続ける。
+fn watch_and_rebuild(site_dir: PathBuf, base_path: String, state: Arc<serve::ServeState>) {
+    let mut last = watch::fingerprint(&site_dir);
+    loop {
+        thread::sleep(Duration::from_millis(500));
+        let now = watch::fingerprint(&site_dir);
+        if now == last {
+            continue;
+        }
+        last = now;
+        match build_for_serve(&site_dir, &base_path, true) {
+            Ok(output) => {
+                state.replace(output);
+                notice(format_args!("変更を反映しました"));
+                if site::read_site_config(&site_dir).map(|c| c.base_path()).ok().as_deref() != Some(base_path.as_str()) {
+                    warn(format_args!("警告: base_path を変えたときは、serve を起動し直してください"));
+                }
+            }
+            Err(error) => warn(format_args!("変更を反映できませんでした（前の内容のまま配信します）: {error:#}")),
+        }
+    }
+}
+
+fn serve(site_dir: PathBuf, port: u16, reload: bool) -> Result<()> {
     let base_path = site::read_site_config(&site_dir)?.base_path();
-    let output = SiteOutput::site(&site_dir, spa::embedded(), linkcard::fetcher_from_env().as_ref())?;
+    let output = build_for_serve(&site_dir, &base_path, reload)?;
     let listener =
         TcpListener::bind(("127.0.0.1", port)).with_context(|| format!("ポート {port} で待ち受けられません"))?;
     let address = listener.local_addr()?;
-    println!("http://{address}{base_path} でプレビューしています（記事を変えたら再起動してください。Ctrl-C で終了）");
+    let state = Arc::new(serve::ServeState::new(output, base_path.clone(), reload));
+    if reload {
+        let state = Arc::clone(&state);
+        let watched_dir = site_dir.clone();
+        let watched_base = base_path.clone();
+        thread::spawn(move || watch_and_rebuild(watched_dir, watched_base, state));
+        println!("http://{address}{base_path} でプレビューしています（記事を変えると自動で反映します。Ctrl-C で終了）");
+    } else {
+        println!("http://{address}{base_path} でプレビューしています（記事を変えたら再起動してください。Ctrl-C で終了）");
+    }
     std::io::stdout().flush()?;
-    serve::serve(output, base_path, listener);
+    serve::serve(state, listener);
     Ok(())
 }
 
@@ -359,7 +415,7 @@ fn run() -> Result<()> {
         Command::Init { site_dir, title, force } => init(site_dir, title, force),
         Command::New { kind, slug, site_dir, title, date } => new_document(kind, slug, site_dir, title, date),
         Command::Build { site_dir, out_dir, data_only } => build(site_dir, out_dir, data_only),
-        Command::Serve { site_dir, port } => serve(site_dir, port),
+        Command::Serve { site_dir, port, reload } => serve(site_dir, port, reload),
         Command::Deploy { site_dir } => deploy(site_dir),
     }
 }
@@ -404,10 +460,10 @@ mod tests {
 
     #[test]
     fn serve_defaults_and_port() {
-        assert_eq!(parse(&["serve"]).unwrap(), Command::Serve { site_dir: ".".into(), port: 8080 });
+        assert_eq!(parse(&["serve"]).unwrap(), Command::Serve { site_dir: ".".into(), port: 8080, reload: true });
         assert_eq!(
             parse(&["serve", "blog", "--port", "0"]).unwrap(),
-            Command::Serve { site_dir: "blog".into(), port: 0 }
+            Command::Serve { site_dir: "blog".into(), port: 0, reload: true }
         );
     }
 

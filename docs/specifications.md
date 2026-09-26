@@ -117,6 +117,7 @@ content/
 
 組み立てた一式を、`serve` は手元の HTTP サーバで返し、`build` はディレクトリに書き出し、`deploy` は Cloudflare にアップロードする。
 `serve` は、要求が受け付けるなら、テキスト、JS、JSON、SVG、wasm、DB を gzip で圧縮して返す（ADR 0026）。
+`serve` は `site.toml` と `content/` の変更を監視し、変わったら組み立て直して、Server-Sent Events でブラウザに読み込み直させる。`--no-reload` で止められる（ADR 0034）。
 
 ## サイトのメタデータ
 
@@ -181,7 +182,8 @@ sqlite-cms init [SITE_DIR] [--title <TITLE>] [--force]
                                                -- 記事リポジトリに必要なファイルを作る（ADR 0016、0027）
 sqlite-cms new <post|article|page> [SLUG] [SITE_DIR] [--title <TITLE>] [--date <YYYY-MM-DD>]
                                                -- 記事の雛形を作る（ADR 0015、0020）
-sqlite-cms serve  [SITE_DIR] [--port <PORT>]   -- 手元でプレビューする
+sqlite-cms serve  [SITE_DIR] [--port <PORT>] [--no-reload]
+                                               -- 手元でプレビューする（記事の変更を自動で反映する）
 sqlite-cms build  [SITE_DIR] [--out <DIR>]     -- 配信用のディレクトリに書き出す
 sqlite-cms deploy [SITE_DIR]                   -- Cloudflare Workers に公開する
 ```
@@ -223,11 +225,10 @@ API トークンに要る権限は、アカウントの「Workers スクリプ�
 
 ## 未決事項
 
-- 全文検索（FTS5）の導入時期
-- golem のプレーンテキスト出力を記事ソースに取り込む経路
-- 種別をまたいだ統合一覧と RSS
-- `serve` での記事の変更の自動反映（現在は再起動が要る）
-- X（Twitter）などに URL を貼ったときのカード。SPA の `index.html` はタイトルが空で OGP の meta もなく、JavaScript を実行しない X のクローラにはサイト名も説明も見えない。`build` が `site.toml` の `title` と `description`（記事のページなら記事の題名と要約）を HTML に書き込む方法が考えられる
+次の項目は、ADR 0031、0033、0034 で対応した（利用者の確認待ち）：全文検索（0031）、統合一覧と RSS（0033）、`serve` の自動反映（0034）。
+
+- golem のプレーンテキスト出力を記事ソースに取り込む経路（`.txt` の記事として受け入れる案を作ったが、golem の仕様が固まるまで保留した）
+- X（Twitter）などに URL を貼ったときのカード。SPA の `index.html` はタイトルが空で OGP の meta もなく、JavaScript を実行しない X のクローラにはサイト名も説明も見えない。`build` が `site.toml` の `title` と `description`（記事のページなら記事の題名と要約）を HTML に書き込む方法が考えられる。ページごとに HTML を作る案を作ったが、作るファイルが増えるので保留し、ほかの方法を考える
 - Linux x86_64 と macOS arm64 以外のバイナリの配布
 - 利用者がコードの色分けの言語を増やす方法。今は色を付ける 15 の言語が SPA に組み込まれ、SPA はバイナリに埋め込まれているので、記事リポジトリの側からは増やせない。案は次のとおりで、どれもまだ決めていない
   - Shiki のすべての言語を言語ごとのチャンクにしてバイナリに入れ、記事で使われた言語だけを読み込む（バイナリが数 MB 大きくなる）

@@ -870,3 +870,79 @@ fn serve_and_build_use_the_base_path() {
     assert_eq!(status, 302);
     assert!(head.contains("\r\nLocation: /blog/\r\n"), "{head}");
 }
+
+/// serve を起動し、アドレスを返す。
+fn start_serve(site: &Path, extra: &[&str]) -> ServeProcess {
+    let mut child = sqlite_cms()
+        .args(["serve", site.to_str().unwrap(), "--port", "0"])
+        .args(extra)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut line = String::new();
+    BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    let address = line.strip_prefix("http://").and_then(|rest| rest.split('/').next()).unwrap().to_string();
+    ServeProcess { child, address }
+}
+
+fn manifest(address: &str) -> String {
+    String::from_utf8(http_get(address, "/db/manifest.json").2).unwrap()
+}
+
+/// 再読み込みの知らせ（event: reload）が届くまで読む。届かなければ失敗する。
+fn wait_for_reload(reader: &mut BufReader<TcpStream>) {
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let read = reader.read_line(&mut line).expect("再読み込みの知らせが届きません");
+        assert!(read > 0, "接続が切れました");
+        if line.trim() == "event: reload" {
+            return;
+        }
+    }
+}
+
+#[test]
+fn serve_rebuilds_on_changes_and_tells_the_browser_to_reload() {
+    require_spa();
+    let tmp = testutil::tempdir();
+    let site = tmp.path().join("site");
+    copy_dir(&example_dir(), &site);
+    let server = start_serve(&site, &[]);
+
+    let (_, _, index) = http_get(&server.address, "/");
+    assert!(String::from_utf8_lossy(&index).contains("EventSource(\"/__sqlite-cms/events\")"));
+
+    let mut events = TcpStream::connect(&server.address).unwrap();
+    events.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+    write!(events, "GET /__sqlite-cms/events HTTP/1.1\r\nHost: {}\r\n\r\n", server.address).unwrap();
+    let mut reader = BufReader::new(events);
+    let mut status = String::new();
+    reader.read_line(&mut status).unwrap();
+    assert!(status.starts_with("HTTP/1.1 200"), "{status}");
+
+    let before = manifest(&server.address);
+    fs::write(site.join("content/posts/new-post.md"), "---\ntitle: 足した記事\ndate: 2026-09-27\n---\n\n本文。\n").unwrap();
+    wait_for_reload(&mut reader);
+    let after = manifest(&server.address);
+    assert_ne!(before, after, "DB が変わっていません");
+
+    // 書き誤りがあれば前の内容のまま配信し、直せば反映する。
+    fs::write(site.join("content/posts/broken.md"), "---\ndate: 2026-09-27\n---\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    assert_eq!(manifest(&server.address), after);
+    fs::write(site.join("content/posts/broken.md"), "---\ntitle: 直した\ndate: 2026-09-27\n---\n").unwrap();
+    wait_for_reload(&mut reader);
+    assert_ne!(manifest(&server.address), after);
+}
+
+#[test]
+fn serve_without_reload_does_not_inject_the_script() {
+    require_spa();
+    let tmp = testutil::tempdir();
+    let server = start_serve(&example_dir(), &["--no-reload"]);
+    let (_, _, index) = http_get(&server.address, "/");
+    assert!(!String::from_utf8_lossy(&index).contains("EventSource"));
+    drop(tmp);
+}
