@@ -1,9 +1,11 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Database } from "sql.js";
 import { getArticle, getLinkCardImages, getPage, getPost, getSite, listArticles, listPosts, loadDb } from "./db";
 import { pageDescription, setMetaDescription } from "./documentMeta";
 import { MarkdownBody } from "./MarkdownBody";
+import { withBasePath } from "./base";
 import { Link, matchPath, usePath } from "./router";
+import { search, type SearchKind } from "./search";
 
 let dbPromise: Promise<Database> | null = null;
 function getDb(): Promise<Database> {
@@ -154,11 +156,71 @@ function NotFound() {
   return <p>見つかりません。</p>;
 }
 
+const KIND_LABELS: Record<SearchKind, string> = { post: "ブログ", article: "記事", page: "ページ" };
+
+function initialQuery(): string {
+  return typeof window === "undefined" ? "" : (new URLSearchParams(window.location.search).get("q") ?? "");
+}
+
+/** 全文検索（ADR 0031）。入力に合わせて結果を出し、言葉を URL（?q=）に残す。 */
+function SearchPage() {
+  const { db, error } = useDb();
+  const [query, setQuery] = useState(initialQuery);
+  useDocumentMeta(db, "検索");
+  const results = useMemo(() => (db && query.trim() ? search(db, query) : null), [db, query]);
+
+  useEffect(() => {
+    const url = withBasePath("/search") + (query.trim() ? `?q=${encodeURIComponent(query.trim())}` : "");
+    window.history.replaceState(null, "", url);
+  }, [query]);
+
+  return (
+    <div>
+      <h1 className="mb-4 text-xl font-bold">検索</h1>
+      <form role="search" onSubmit={(event) => event.preventDefault()} className="mb-6">
+        <label htmlFor="search-query" className="mr-2 text-sm">
+          探す言葉
+        </label>
+        <input
+          id="search-query"
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          className="w-64 border border-gray-500 px-2 py-1"
+        />
+      </form>
+      {!db && <Loading error={error} />}
+      {results && (
+        <>
+          <p role="status" className="mb-4 text-sm text-gray-600">
+            {results.length} 件
+          </p>
+          <ul className="space-y-4">
+            {results.map((result) => (
+              <li key={result.path}>
+                <Link to={result.path}>{result.title}</Link>
+                <span className="ml-2 text-sm text-gray-600">
+                  {KIND_LABELS[result.kind]}
+                  {result.date && ` ${result.date}`}
+                </span>
+                <p className="text-sm text-gray-700">
+                  {result.snippet.map((part, i) => (part.match ? <mark key={i}>{part.text}</mark> : part.text))}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
 const ROUTES: [string, (params: Record<string, string>) => ReactNode][] = [
   ["/", () => <Home />],
   ["/posts/:slug", ({ slug }) => <PostPage slug={slug} />],
   ["/articles/:slug", ({ slug }) => <ArticlePage slug={slug} />],
   ["/about", () => <AboutPage />],
+  ["/search", () => <SearchPage />],
 ];
 
 function CurrentPage() {
@@ -187,6 +249,7 @@ export default function App() {
         <nav className="space-x-4 text-sm">
           <Link to="/">トップ</Link>
           <Link to="/about">自己紹介</Link>
+          <Link to="/search">検索</Link>
         </nav>
       </header>
       <main>
