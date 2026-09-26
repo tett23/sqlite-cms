@@ -1,3 +1,6 @@
+use std::fs;
+use std::path::Path;
+
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
@@ -7,6 +10,7 @@ pub struct SiteConfig {
     pub title: String,
     pub author: Option<String>,
     pub license: Option<License>,
+    pub deploy: Option<DeployConfig>,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -14,6 +18,25 @@ pub struct SiteConfig {
 pub struct License {
     pub name: String,
     pub url: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeployConfig {
+    pub worker: String,
+}
+
+fn is_valid_worker_name(name: &str) -> bool {
+    (1..=63).contains(&name.len())
+        && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+}
+
+pub fn read_site_config(site_dir: &Path) -> Result<SiteConfig> {
+    let path = site_dir.join("site.toml");
+    let raw = fs::read_to_string(&path).with_context(|| format!("{} を読めません", path.display()))?;
+    parse_site_config(&raw)
 }
 
 pub fn parse_site_config(raw: &str) -> Result<SiteConfig> {
@@ -29,6 +52,14 @@ pub fn parse_site_config(raw: &str) -> Result<SiteConfig> {
             if !(url.starts_with("https://") || url.starts_with("http://")) {
                 bail!("site.toml の license.url は http:// か https:// で始めてください: {url}");
             }
+        }
+    }
+    if let Some(deploy) = &config.deploy {
+        if !is_valid_worker_name(&deploy.worker) {
+            bail!(
+                "site.toml の deploy.worker は英小文字、数字、ハイフンの 63 文字以内で指定してください: {}",
+                deploy.worker
+            );
         }
     }
     Ok(config)
@@ -47,6 +78,7 @@ mod tests {
                 title: "記事置き場".into(),
                 author: Some("tett23".into()),
                 license: None,
+                deploy: None,
             }
         );
     }
@@ -88,6 +120,23 @@ mod tests {
         let err =
             parse_site_config("title = \"t\"\n[license]\nname = \"x\"\nurl = \"javascript:alert(1)\"\n").unwrap_err();
         assert!(err.to_string().contains("license.url"));
+    }
+
+    #[test]
+    fn reads_deploy_worker() {
+        let config = parse_site_config("title = \"t\"\n[deploy]\nworker = \"tett23-blog\"\n").unwrap();
+        assert_eq!(config.deploy, Some(DeployConfig { worker: "tett23-blog".into() }));
+    }
+
+    #[test]
+    fn invalid_worker_name_is_error() {
+        for name in ["Blog", "blog/../x", "-blog", "blog-", ""] {
+            let raw = format!("title = \"t\"\n[deploy]\nworker = \"{name}\"\n");
+            let err = parse_site_config(&raw).unwrap_err();
+            assert!(err.to_string().contains("deploy.worker"), "{name}");
+        }
+        let long = "a".repeat(64);
+        assert!(parse_site_config(&format!("title = \"t\"\n[deploy]\nworker = \"{long}\"\n")).is_err());
     }
 
     #[test]

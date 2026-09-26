@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 
 use crate::content::{parse_article, parse_page, parse_post};
 use crate::migrations::{apply_migrations, embedded_migrations};
-use crate::site::parse_site_config;
+use crate::site::read_site_config;
 
 fn read_docs<T>(dir: &Path, parse: impl Fn(&str, &str) -> Result<T>) -> Result<Vec<T>> {
     if !dir.is_dir() {
@@ -39,10 +39,7 @@ fn read_optional(path: &Path) -> Result<Option<String>> {
 }
 
 pub fn build_db_bytes(site_dir: &Path) -> Result<Vec<u8>> {
-    let config_path = site_dir.join("site.toml");
-    let config = parse_site_config(
-        &fs::read_to_string(&config_path).with_context(|| format!("{} を読めません", config_path.display()))?,
-    )?;
+    let config = read_site_config(site_dir)?;
 
     let content_dir = site_dir.join("content");
     if !content_dir.is_dir() {
@@ -92,17 +89,6 @@ pub fn db_file_name(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let hex: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
     format!("articles-{hex}.sqlite")
-}
-
-pub fn write_output(out_dir: &Path, bytes: &[u8]) -> Result<String> {
-    let name = db_file_name(bytes);
-    if out_dir.exists() {
-        fs::remove_dir_all(out_dir)?;
-    }
-    fs::create_dir_all(out_dir)?;
-    fs::write(out_dir.join(&name), bytes)?;
-    fs::write(out_dir.join("manifest.json"), format!("{{\"db\":\"/db/{name}\"}}\n"))?;
-    Ok(name)
 }
 
 #[cfg(test)]
@@ -248,26 +234,5 @@ mod tests {
         assert_eq!(first, second);
         assert!(first.starts_with("articles-") && first.ends_with(".sqlite"));
         assert_eq!(first.len(), "articles-".len() + 16 + ".sqlite".len());
-    }
-
-    #[test]
-    fn write_output_replaces_old_db_and_writes_manifest() {
-        let out = tempfile::tempdir().unwrap();
-        let out_dir = out.path().join("db");
-        fs::create_dir_all(&out_dir).unwrap();
-        fs::write(out_dir.join("articles-0000000000000000.sqlite"), b"old").unwrap();
-
-        let name = write_output(&out_dir, b"new bytes").unwrap();
-
-        let mut entries: Vec<String> = fs::read_dir(&out_dir)
-            .unwrap()
-            .map(|e| e.unwrap().file_name().into_string().unwrap())
-            .collect();
-        entries.sort();
-        assert_eq!(entries, [name.clone(), "manifest.json".to_string()]);
-        assert_eq!(
-            fs::read_to_string(out_dir.join("manifest.json")).unwrap(),
-            format!("{{\"db\":\"/db/{name}\"}}\n")
-        );
     }
 }

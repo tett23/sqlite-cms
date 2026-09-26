@@ -4,3 +4,7 @@ author = "tett23"
 [license]
 name = "CC0 1.0"
 url = "https://creativecommons.org/publicdomain/zero/1.0/"
+
+# 公開先（sqlite-cms deploy で使う）。サンプルなので無効にしてある
+# [deploy]
+# worker = "my-blog"
