@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 
 use crate::linkcard::{self, Fetcher};
-use crate::{db, favicon, feed, media, site};
+use crate::{db, favicon, feed, media, robots, site, sitemap};
 
 pub const HEADERS: &str = "\
 /db/*.sqlite
@@ -26,6 +26,16 @@ fn read_favicon(site_dir: &Path) -> Result<Vec<u8>> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             Ok(favicon::placeholder(&site::read_site_config(site_dir)?.title).into_bytes())
         }
+        Err(e) => Err(e).with_context(|| format!("{} を読めません", path.display())),
+    }
+}
+
+/// content/robots.txt があればそれを、なければ既定の robots.txt（すべて許可）を返す（ADR 0037）。
+fn read_robots(site_dir: &Path) -> Result<Vec<u8>> {
+    let path = site_dir.join("content").join("robots.txt");
+    match fs::read(&path) {
+        Ok(bytes) => Ok(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(robots::DEFAULT.as_bytes().to_vec()),
         Err(e) => Err(e).with_context(|| format!("{} を読めません", path.display())),
     }
 }
@@ -85,6 +95,7 @@ impl SiteOutput {
             files.insert(format!("/media/{path}"), bytes);
         }
         files.insert("/favicon.svg".to_string(), read_favicon(site_dir)?);
+        files.insert("/robots.txt".to_string(), read_robots(site_dir)?);
         for card in cards {
             files.insert(card.path, card.bytes);
         }
@@ -106,11 +117,17 @@ impl SiteOutput {
         }
         let mut index = apply_base_path(&String::from_utf8_lossy(&output.files["/index.html"]), &base_path);
         // url を書いたときは RSS のフィードを作り、index.html に案内を入れる（ADR 0033）。
+        // サイトマップも作り、robots.txt にその場所を足す（ADR 0037）。
         if let Some(url) = config.url() {
             let (posts, articles) = db::posts_and_articles(site_dir)?;
             let rss = feed::rss(&config, &url, &feed::items(&posts, &articles));
             output.files.insert("/rss.xml".to_string(), rss.into_bytes());
             index = add_feed_link(&index, &base_path, &config.title);
+
+            let map = sitemap::sitemap(&url, &posts, &articles, &db::pages(site_dir)?);
+            output.files.insert("/sitemap.xml".to_string(), map.into_bytes());
+            let robots = String::from_utf8_lossy(&output.files["/robots.txt"]).into_owned();
+            output.files.insert("/robots.txt".to_string(), sitemap::add_to_robots(&robots, &url).into_bytes());
         }
         let index = index.into_bytes();
         // SPA のフォールバックの設定がない配信先（GitHub Pages など）では、知らないパスに 404.html が返る。
@@ -230,11 +247,16 @@ mod tests {
         let spa: &[(&str, &[u8])] = &[("/index.html", b"<head><title></title></head>")];
         let output = SiteOutput::site(site.path(), spa, &linkcard::Offline).unwrap();
         assert!(!output.files.contains_key("/rss.xml"));
+        assert!(!output.files.contains_key("/sitemap.xml"));
+        assert!(!String::from_utf8_lossy(&output.files["/robots.txt"]).contains("Sitemap:"));
         assert!(!String::from_utf8_lossy(&output.files["/index.html"]).contains("rss.xml"));
 
         fs::write(site.path().join("site.toml"), "title = \"A & B\"\nurl = \"https://example.com\"\n").unwrap();
         fs::write(site.path().join("content/posts/hello.md"), "---\ntitle: こんにちは\ndate: 2026-09-26\n---\n\n本文。\n").unwrap();
         let output = SiteOutput::site(site.path(), spa, &linkcard::Offline).unwrap();
+        let map = String::from_utf8(output.files["/sitemap.xml"].clone()).unwrap();
+        assert!(map.contains("<loc>https://example.com/posts/hello</loc><lastmod>2026-09-26</lastmod>"), "{map}");
+        assert!(String::from_utf8_lossy(&output.files["/robots.txt"]).ends_with("\nSitemap: https://example.com/sitemap.xml\n"));
         let rss = String::from_utf8(output.files["/rss.xml"].clone()).unwrap();
         assert!(rss.contains("<link>https://example.com/posts/hello</link>"), "{rss}");
         let index = String::from_utf8(output.files["/index.html"].clone()).unwrap();
@@ -276,9 +298,9 @@ mod tests {
         let site = site_fixture();
         let output = SiteOutput::data(site.path(), &linkcard::Offline).unwrap();
         let paths = paths(&output);
-        assert_eq!(paths.len(), 4);
+        assert_eq!(paths.len(), 5);
         assert!(paths[0].starts_with("/db/articles-"));
-        assert_eq!(&paths[1..], ["/db/manifest.json", "/favicon.svg", "/media/a.png"]);
+        assert_eq!(&paths[1..], ["/db/manifest.json", "/favicon.svg", "/media/a.png", "/robots.txt"]);
         let manifest = String::from_utf8(output.files["/db/manifest.json"].clone()).unwrap();
         assert_eq!(manifest, format!("{{\"db\":\"{}\"}}\n", paths[0]));
     }
@@ -292,6 +314,17 @@ mod tests {
         fs::write(site.path().join("content/favicon.svg"), b"<svg>mine</svg>").unwrap();
         let output = SiteOutput::data(site.path(), &linkcard::Offline).unwrap();
         assert_eq!(output.files["/favicon.svg"], b"<svg>mine</svg>");
+    }
+
+    #[test]
+    fn robots_comes_from_content_or_falls_back_to_allow_all() {
+        let site = site_fixture();
+        let output = SiteOutput::data(site.path(), &linkcard::Offline).unwrap();
+        assert_eq!(output.files["/robots.txt"], crate::robots::DEFAULT.as_bytes());
+
+        fs::write(site.path().join("content/robots.txt"), b"User-agent: *\nDisallow: /drafts/\n").unwrap();
+        let output = SiteOutput::data(site.path(), &linkcard::Offline).unwrap();
+        assert_eq!(output.files["/robots.txt"], b"User-agent: *\nDisallow: /drafts/\n");
     }
 
     #[test]

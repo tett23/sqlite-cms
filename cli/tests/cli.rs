@@ -103,10 +103,12 @@ fn build_writes_complete_site() {
     let output = run(&["build", example_dir().to_str().unwrap(), "--out", out.to_str().unwrap()], tmp.path());
 
     assert!(output.status.success(), "{}", stderr(&output));
-    for file in ["index.html", "_headers", "db/manifest.json", "media/sample.svg", "favicon.svg", "rss.xml"] {
+    for file in ["index.html", "_headers", "db/manifest.json", "media/sample.svg", "favicon.svg", "rss.xml", "robots.txt", "sitemap.xml"] {
         assert!(out.join(file).is_file(), "{file} がありません");
     }
     assert!(fs::read_dir(out.join("assets")).unwrap().count() > 0);
+    // 見本は url を書いているので、robots.txt にサイトマップの場所が入る（ADR 0037）。
+    assert!(fs::read_to_string(out.join("robots.txt")).unwrap().contains("Sitemap: https://gentle-tooth-fe80.tett23.workers.dev/sitemap.xml"));
 }
 
 #[test]

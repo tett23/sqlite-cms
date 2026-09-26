@@ -70,9 +70,9 @@ sqlite-cms new post hello --title はじめまして     # 最初の記事の雛
 sqlite-cms serve                                  # http://127.0.0.1:8080/ で確認
 ```
 
-`init` は、ビルドに必要な `site.toml` と `content/`（トップページ、仮のファビコン、自己紹介のページ、記事用の空のディレクトリ）、公開に使う認証情報の見本 `.env.example` を作り、`.gitignore` に `.env` と `.sqlite-cms-cache/` を書く。
+`init` は、ビルドに必要な `site.toml` と `content/`（トップページ、仮のファビコン、`robots.txt`、自己紹介のページ、記事用の空のディレクトリ）、公開に使う認証情報の見本 `.env.example` を作り、`.gitignore` に `.env` と `.sqlite-cms-cache/` を書く。
 すでに `site.toml` か `content/` があるときはエラーになる。
-`--force` を付けると作り直す。このとき `init` が作るファイル（`site.toml`、`content/index.md`、`content/favicon.svg`、`content/pages/about.md`、`.env.example`）は上書きされるが、書いた記事や画像、`.env` は消えない。既存の `.gitignore` には、足りない行を足すだけにする。
+`--force` を付けると作り直す。このとき `init` が作るファイル（`site.toml`、`content/index.md`、`content/favicon.svg`、`content/robots.txt`、`content/pages/about.md`、`.env.example`）は上書きされるが、書いた記事や画像、`.env` は消えない。既存の `.gitignore` には、足りない行を足すだけにする。
 
 ## 記事リポジトリの構成
 
@@ -81,6 +81,7 @@ site.toml          -- サイトの設定（必須）
 content/
   index.md         -- トップページの本文（任意。frontmatter なしの Markdown）
   favicon.svg      -- ファビコン（任意。init が仮のものを作る）
+  robots.txt       -- クローラへの指示（任意。init がすべて許可するものを作る。なければ同じ内容を配信）
   posts/           -- ブログ的な軽い記事（/posts/:slug）
   articles/        -- 長めの読み物（/articles/:slug）
   pages/           -- 固定ページ。about.md が自己紹介（/about）
@@ -101,7 +102,7 @@ author = "tett23"              # 任意。フッターに表示
 timezone = "Asia/Tokyo"        # 任意。new が入れる日付のタイムゾーン（"+09:00" の形も可）。省略すると環境のタイムゾーン
 description = "サイトの説明"    # 任意。ページの meta description。省略すると「<サイト名>。記事とブログを置いているサイトです。」
 base_path = "/my-blog/"        # 任意。サイトを置くパス。省略すると "/"（公開の節を参照）
-url = "https://example.com/"   # 任意。公開したサイトの URL。書くと RSS のフィード（/rss.xml）を作る
+url = "https://example.com/"   # 任意。公開したサイトの URL。書くと RSS（/rss.xml）とサイトマップ（/sitemap.xml）を作る
 
 [license]                      # 任意。フッターに表示
 name = "CC0 1.0"               # [license] を書くなら必須
@@ -121,6 +122,18 @@ worker = "my-blog"             # Cloudflare の Worker 名（英小文字、数�
 ファビコンは `content/favicon.svg` に置く。
 `init` がサイト名の頭文字を描いた仮のものを作るので、好きな SVG に置き換える。
 ファイルがなければ、同じ仮のものが配信される。
+
+`content/robots.txt` は `/robots.txt` として配信される。
+`init` が、すべてのクローラにクロールを許可するものを作る。
+特定のクローラ（たとえば AI の学習用のクローラ）を断るときは、ここに書き足す。
+ファイルがなければ、同じ「すべて許可」の内容が配信される。
+
+`site.toml` に `url` を書くと、サイトマップ（`/sitemap.xml`）も作り、`robots.txt` にその場所（`Sitemap:` の行）を足す。
+サイトマップには、トップページ、一覧、自己紹介、すべての post と article を、最終更新日（article は改稿日）と一緒に載せる。
+`robots.txt` にすでに `Sitemap:` の行を書いていれば、足さない。
+
+DB（`/db/`）は `Disallow` で断らない。Google などは JavaScript を実行してページを読むので、DB を断ると本文が見えなくなる。
+クローラは `robots.txt` をドメインの直下（`https://example.com/robots.txt`）でしか読まないので、`base_path` でドメインの直下でない場所に置くサイトでは効かない。
 
 ### 記事
 

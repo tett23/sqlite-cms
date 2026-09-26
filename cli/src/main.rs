@@ -15,11 +15,13 @@ mod migrations;
 mod mime;
 mod output;
 mod pages;
+mod robots;
 mod rsync;
 mod scratch;
 mod scaffold;
 mod serve;
 mod site;
+mod sitemap;
 mod spa;
 mod watch;
 #[cfg(test)]
@@ -73,13 +75,14 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
   -h, --help               このヘルプを表示して終了する
 
 記事リポジトリの構成:
-  site.toml       サイトのメタデータ（必須）。url を書くと RSS のフィード（/rss.xml）を作る。
+  site.toml       サイトのメタデータ（必須）。url を書くと RSS（/rss.xml）とサイトマップ（/sitemap.xml）を作る。
                   timezone で new の日付のタイムゾーンを
                   指定できる（Asia/Tokyo や +09:00。既定は環境のタイムゾーン）。
                   description でページの meta description を指定できる
   content/
     index.md      トップページの本文（任意）
     favicon.svg   ファビコン（任意。init が仮のものを作る。なければ仮のものを配信する）
+    robots.txt    クローラへの指示（任意。init がすべて許可するものを作る。なければ同じ内容を配信する）
     posts/        post の Markdown
     articles/     article の Markdown
     pages/        固定ページの Markdown

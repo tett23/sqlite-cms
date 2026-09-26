@@ -1,0 +1,9 @@
+# クローラへの指示。sqlite-cms が /robots.txt として配信する。
+# すべてのクローラに、すべてのページのクロールを許可している。
+# 特定のクローラを断るときは、たとえば次のように書く。
+#
+# User-agent: GPTBot
+# Disallow: /
+
+User-agent: *
+Allow: /

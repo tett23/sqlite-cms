@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use rusqlite::{Connection, MAIN_DB};
 
-use crate::content::{parse_article, parse_page, parse_post, Article, Post};
+use crate::content::{parse_article, parse_page, parse_post, Article, Page, Post};
 use crate::linkcard::LinkCard;
 use crate::migrations::{apply_migrations, embedded_migrations};
 use crate::site::read_site_config;
@@ -52,6 +52,11 @@ pub fn markdown_sources(site_dir: &Path) -> Result<Vec<String>> {
 pub fn posts_and_articles(site_dir: &Path) -> Result<(Vec<Post>, Vec<Article>)> {
     let content_dir = site_dir.join("content");
     Ok((read_docs(&content_dir.join("posts"), parse_post)?, read_docs(&content_dir.join("articles"), parse_article)?))
+}
+
+/// page を読む（サイトマップに自己紹介を載せるかに使う、ADR 0037）。
+pub fn pages(site_dir: &Path) -> Result<Vec<Page>> {
+    read_docs(&site_dir.join("content").join("pages"), parse_page)
 }
 
 pub fn build_db_bytes(site_dir: &Path, link_cards: &[LinkCard]) -> Result<Vec<u8>> {

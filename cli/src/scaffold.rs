@@ -234,6 +234,7 @@ pub fn init(site_dir: &Path, title: Option<&str>, force: bool) -> Result<InitRep
         ("site.toml", site_toml(&title)),
         ("content/index.md", INDEX_MD.to_string()),
         ("content/favicon.svg", crate::favicon::placeholder(&title)),
+        ("content/robots.txt", crate::robots::DEFAULT.to_string()),
         ("content/pages/about.md", template(Kind::Page, "自己紹介", "")),
         ("content/posts/.gitkeep", String::new()),
         ("content/articles/.gitkeep", String::new()),
@@ -299,10 +300,11 @@ mod tests {
                 "content/media/.gitkeep",
                 "content/pages/about.md",
                 "content/posts/.gitkeep",
+                "content/robots.txt",
                 "site.toml",
             ]
         );
-        assert_eq!(report.written.len(), 9);
+        assert_eq!(report.written.len(), 10);
         assert!(report.overwritten.is_empty());
         assert!(report.appended.is_empty());
         assert_eq!(fs::read_to_string(site.join(".env.example")).unwrap(), crate::dotenv::EXAMPLE);
@@ -364,7 +366,7 @@ mod tests {
         assert!(tmp.path().join("content/posts/hello.md").is_file());
         assert!(tmp.path().join("content/media/photo.png").is_file());
         // .gitignore にはすでに .env があるので触らない。
-        assert_eq!(report.overwritten.len(), 8);
+        assert_eq!(report.overwritten.len(), 9);
         assert!(!report.written.iter().any(|path| path.ends_with(".gitignore")));
         assert!(report.appended.is_empty());
     }
