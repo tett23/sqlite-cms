@@ -4,13 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build:db": "cargo run --quiet --release --manifest-path cli/Cargo.toml",
+    "build:db": "cargo run --quiet --release --manifest-path cli/Cargo.toml -- \"${SITE_DIR:-example}\"",
     "dev": "npm run build:db && vite",
     "build": "npm run build:db && tsc --noEmit && vite build",
     "preview": "vite preview --port 4173 --strictPort",
     "test:db": "cargo test --quiet --manifest-path cli/Cargo.toml",
     "test": "npm run test:db && vitest run",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "test -n \"$SITE_DIR\" || { echo \"deploy: SITE_DIR に記事リポジトリのディレクトリを指定してください\" >&2; exit 1; } && npm run build && wrangler deploy"
   },
   "dependencies": {
     "react": "^19.1.0",

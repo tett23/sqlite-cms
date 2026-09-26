@@ -3,12 +3,29 @@ name: deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+  repository_dispatch:
+    types: [content-updated]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      SITE_DIR: site
     steps:
+      - name: Require content repository
+        if: vars.CONTENT_REPOSITORY == ''
+        run: |
+          echo "::error::リポジトリ変数 CONTENT_REPOSITORY（owner/repo）を設定してください"
+          exit 1
+
       - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.CONTENT_REPOSITORY }}
+          token: ${{ secrets.CONTENT_REPOSITORY_TOKEN || github.token }}
+          path: site
 
       - uses: actions/setup-node@v4
         with:
