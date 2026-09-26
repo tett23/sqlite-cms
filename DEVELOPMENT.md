@@ -142,7 +142,7 @@ npm --prefix web run build   # SPA を最新にしてから
 npm --prefix web run lighthouse
 ```
 
-`sqlite-cms serve` で `example/` を配信し、代表的な 8 ページ（`web/scripts/lighthouse.mjs` の `PAGES`）をヘッドレスの Chrome で計測する（ADR 0019）。
+`sqlite-cms serve` で `example/` を配信し、代表的な 8 ページと、重いページと複雑なページの見本 6 ページ（`web/scripts/lighthouse.mjs` の `PAGES`）をヘッドレスの Chrome で計測する（ADR 0019）。
 手元に Chrome が要る。
 レポート（HTML と JSON）は `web/lighthouse-reports/` に日本語で出る。
 配信には既定で `cargo run` を使う。ビルド済みのバイナリで計測するときは、`SQLITE_CMS_BIN` にそのパスを渡す。

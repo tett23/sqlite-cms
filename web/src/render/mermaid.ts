@@ -8,6 +8,9 @@ mermaid.initialize({
   theme: "neutral",
   fontFamily: "sans-serif",
   logLevel: "fatal",
+  // mermaid 12 は既定のレイアウトが elk で、フローチャート、状態遷移図、ER 図などを描くたびに elk（gzip 後で約 440 KB）を読み込む。
+  // 既定は dagre にし、elk は図で `layout: elk` を指定したときだけ使う（ADR 0025）。
+  layout: "dagre",
 });
 
 let count = 0;

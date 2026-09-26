@@ -40,7 +40,9 @@ function inlineEntryCss(): Plugin {
         const css = String(file.source);
         if (css.includes("url(")) continue;
         source = source.replace(link[0], () => `<style>${css}</style>`);
-        delete bundle[fileName];
+        // ファイルは中身を空にして残す。非同期のチャンク（mermaid の elk など）は本体のチャンクを依存に持ち、
+        // 読み込むときに本体の CSS も読み込むので、消すと 404 になる。中身を残すと、同じ規則が後からもう一度当たる。
+        file.source = "/* 中身は index.html に埋め込んである */\n";
       }
       html.source = source;
     },
