@@ -1,5 +1,6 @@
 import initSqlJs, { type Database, type SqlValue } from "sql.js";
 import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
+import { withBasePath } from "./base";
 
 export interface PostSummary {
   slug: string;
@@ -40,13 +41,13 @@ export interface Site {
 }
 
 export async function loadDb(): Promise<Database> {
-  const manifestRes = await fetch("/db/manifest.json", { cache: "no-cache" });
+  const manifestRes = await fetch(withBasePath("/db/manifest.json"), { cache: "no-cache" });
   if (!manifestRes.ok) {
     throw new Error(`manifest の取得に失敗しました (${manifestRes.status})`);
   }
   const manifest: { db: string } = await manifestRes.json();
 
-  const dbRes = await fetch(manifest.db);
+  const dbRes = await fetch(withBasePath(manifest.db));
   if (!dbRes.ok) {
     throw new Error(`DB の取得に失敗しました (${dbRes.status})`);
   }

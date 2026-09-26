@@ -8,16 +8,18 @@ import {
   type ReactNode,
 } from "react";
 
+import { stripBasePath, withBasePath } from "./base";
+
 const NAVIGATE_EVENT = "sqlite-cms:navigate";
 
 const PathContext = createContext("/");
 
 export function Router({ path: fixedPath, children }: { path?: string; children: ReactNode }) {
-  const [path, setPath] = useState(() => fixedPath ?? window.location.pathname);
+  const [path, setPath] = useState(() => fixedPath ?? stripBasePath(window.location.pathname));
 
   useEffect(() => {
     if (fixedPath !== undefined) return;
-    const sync = () => setPath(window.location.pathname);
+    const sync = () => setPath(stripBasePath(window.location.pathname));
     window.addEventListener("popstate", sync);
     window.addEventListener(NAVIGATE_EVENT, sync);
     return () => {
@@ -33,8 +35,9 @@ export function usePath(): string {
   return useContext(PathContext);
 }
 
+/** サイトの中のパス（"/about" など）に移る。URL にはサイトを置くパスを付ける。 */
 export function navigate(to: string) {
-  window.history.pushState(null, "", to);
+  window.history.pushState(null, "", withBasePath(to));
   window.dispatchEvent(new Event(NAVIGATE_EVENT));
 }
 
@@ -89,5 +92,5 @@ export function Link({ to, onClick, ...props }: { to: string } & AnchorHTMLAttri
     event.preventDefault();
     navigate(to);
   };
-  return <a {...props} href={to} onClick={handleClick} />;
+  return <a {...props} href={withBasePath(to)} onClick={handleClick} />;
 }

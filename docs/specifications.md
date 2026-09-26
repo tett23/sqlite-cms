@@ -128,9 +128,13 @@ content/
 | `author` | 任意 | 著者名。フッター |
 | `license.name` | `[license]` を書くなら必須 | ライセンス名（`CC0 1.0` など）。フッター |
 | `license.url` | 任意 | ライセンスの URL。書けばライセンス名をリンクにする |
-| `deploy.worker` | `deploy` を使うなら必須 | 公開先の Cloudflare Worker 名 |
+| `deploy.target` | 任意 | 公開先。`cloudflare`（省略したとき）、`github-pages`、`rsync` |
+| `deploy.worker` | Cloudflare なら必須 | 公開先の Cloudflare Worker 名 |
+| `deploy.branch`、`deploy.remote`、`deploy.cname` | GitHub Pages で任意 | push するブランチ（既定 `gh-pages`）、リモート（既定 `origin`）、独自ドメイン |
+| `deploy.destination` | rsync なら必須 | rsync の送り先（`user@host:/path/` や手元のパス） |
 | `timezone` | 任意 | `new` が入れる今日の日付のタイムゾーン。IANA の名前（`Asia/Tokyo`）か時差（`+09:00`）。省略すると環境のタイムゾーン |
 | `description` | 任意 | ページの meta description。省略すると「`<title>`。記事とブログを置いているサイトです。」。要約を持つ article のページでは記事の要約を使う（ADR 0022） |
+| `base_path` | 任意 | サイトを置くパス。`/` で始める（末尾の `/` は補う）。省略すると `/`。Cloudflare では使えない（ADR 0030） |
 
 知らないキーはエラーにする。
 フッターは `author` と `license` のどちらかがあるときだけ表示する。
@@ -183,6 +187,23 @@ sqlite-cms deploy [SITE_DIR]                   -- Cloudflare Workers に公開�
 
 ## 公開
 
+`sqlite-cms deploy` は、`site.toml` の `[deploy] target` で選んだ公開先に公開する（ADR 0030）。
+
+| `target` | 公開の方法 |
+|---|---|
+| `cloudflare`（省略したとき） | Cloudflare Workers の静的アセット配信（下記） |
+| `github-pages` | 記事リポジトリの `gh-pages` ブランチ（`branch`）に、リモート `origin`（`remote`）を通して、公開用の一式だけのコミットを強制的に push する。作業ツリー、インデックス、手元のブランチには触れない。`.nojekyll` と、`cname` を書いたときは `CNAME` を置く |
+| `rsync` | `destination` に `rsync -rlptz --delete` で送る。送り先が空か、目印の `.sqlite-cms` があるときだけ送る |
+
+サイトをドメインの直下でない場所（GitHub Pages のプロジェクトのページなど）に置くときは、`site.toml` の `base_path` を指定する。
+CLI は SPA の `index.html` のアセットのパスを `base_path` から始まる形に書き換え、`<meta name="sqlite-cms-base">` で SPA に伝える。
+SPA はルータ、DB の取得、本文のサイト内のリンクと画像のパスに `base_path` を付ける。
+`serve` も `base_path` の下で配信する。
+Cloudflare では `base_path` を使えない。
+SPA のフォールバックの設定がない配信先のため、`index.html` と同じ中身の `404.html` を置く。
+
+### Cloudflare Workers
+
 Cloudflare Workers の静的アセット配信に公開する。
 `sqlite-cms deploy` が Cloudflare の API を直接呼び、wrangler も Node も使わない（ADR 0011）。
 認証情報は環境変数 `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` で渡し、公開先の Worker 名は `site.toml` の `[deploy] worker` で指定する。
@@ -190,7 +211,7 @@ Cloudflare Workers の静的アセット配信に公開する。
 API トークンに要る権限は、アカウントの「Workers スクリプト：編集」（Workers Scripts Write）だけである。
 
 コンテンツリポジトリの CI は、リリースから `sqlite-cms` のバイナリを取得して `sqlite-cms deploy` を実行する。
-このワークフローの雛形を `example/.github/workflows/deploy.yml` に置く。
+このワークフローの雛形を `example/.github/workflows/deploy.yml`（Cloudflare）と `example/.github/workflows/deploy-github-pages.yml`（GitHub Pages）に置く。
 
 ## 配布
 

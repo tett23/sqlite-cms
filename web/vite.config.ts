@@ -20,6 +20,8 @@ function katexWoff2Only(): Plugin {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), katexWoff2Only()],
+  // 相対のパスで出力し、どのパスに置いても読めるようにする。index.html のパスは CLI が base_path に合わせて書き換える（ADR 0030）。
+  base: "./",
   build: {
     outDir: "dist",
     emptyOutDir: true,

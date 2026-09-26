@@ -15,6 +15,8 @@ pub struct SiteConfig {
     pub deploy: Option<DeployConfig>,
     pub timezone: Option<String>,
     pub description: Option<String>,
+    /// サイトを置くパス（ADR 0030）。GitHub Pages のプロジェクトのページなら "/<リポジトリ名>/"。
+    pub base_path: Option<String>,
 }
 
 impl SiteConfig {
@@ -29,6 +31,36 @@ impl SiteConfig {
     pub fn timezone(&self) -> Option<TimeZone> {
         self.timezone.as_deref().and_then(|s| parse_timezone(s).ok())
     }
+
+    /// サイトを置くパス。`/` で始まり `/` で終わる形にそろえる。省略すると `/`。書式は読み込み時に検査済み。
+    pub fn base_path(&self) -> String {
+        self.base_path.as_deref().map_or_else(|| "/".to_string(), normalize_base_path)
+    }
+
+    /// 公開先。`[deploy]` がなければ None。書式は読み込み時に検査済み。
+    pub fn deploy_target(&self) -> Option<DeployTarget> {
+        self.deploy.as_ref().map(|deploy| deploy.target().expect("読み込み時に検査済み"))
+    }
+}
+
+fn normalize_base_path(path: &str) -> String {
+    if path.ends_with('/') {
+        path.to_string()
+    } else {
+        format!("{path}/")
+    }
+}
+
+/// `base_path` の書式を確かめる。`/` で始まり、英数字と `-`、`_`、`.`、`~`、`/` だけを使え、`//`（別のホストと取り違える）や `.`、`..` の区切りを含まない。
+fn validate_base_path(path: &str) -> Result<()> {
+    let valid = path.starts_with('/')
+        && !path.contains("//")
+        && path.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.~/".contains(&b))
+        && path.trim_matches('/').split('/').all(|segment| path == "/" || !matches!(segment, "" | "." | ".."));
+    if !valid {
+        bail!("site.toml の base_path は / で始まるパス（\"/my-blog/\" など）で指定してください: {path}");
+    }
+    Ok(())
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -38,10 +70,91 @@ pub struct License {
     pub url: Option<String>,
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
+/// `[deploy]` の書かれたまま。公開先ごとの項目をまとめて持ち、`target()` で確かめて DeployTarget にする。
+#[derive(Debug, Default, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeployConfig {
-    pub worker: String,
+    /// "cloudflare"（省略したとき）、"github-pages"、"rsync"。
+    pub target: Option<String>,
+    pub worker: Option<String>,
+    pub branch: Option<String>,
+    pub remote: Option<String>,
+    pub cname: Option<String>,
+    pub destination: Option<String>,
+}
+
+/// 公開先（ADR 0030）。
+#[derive(Debug, PartialEq)]
+pub enum DeployTarget {
+    Cloudflare { worker: String },
+    GitHubPages { remote: String, branch: String, cname: Option<String> },
+    Rsync { destination: String },
+}
+
+pub const DEFAULT_PAGES_BRANCH: &str = "gh-pages";
+pub const DEFAULT_PAGES_REMOTE: &str = "origin";
+
+impl DeployConfig {
+    pub fn target(&self) -> Result<DeployTarget> {
+        let target = self.target.as_deref().unwrap_or("cloudflare");
+        let allowed: &[&str] = match target {
+            "cloudflare" => &["worker"],
+            "github-pages" => &["branch", "remote", "cname"],
+            "rsync" => &["destination"],
+            other => bail!("site.toml の deploy.target は \"cloudflare\"、\"github-pages\"、\"rsync\" のどれかにしてください: {other}"),
+        };
+        let written = [
+            ("worker", self.worker.is_some()),
+            ("branch", self.branch.is_some()),
+            ("remote", self.remote.is_some()),
+            ("cname", self.cname.is_some()),
+            ("destination", self.destination.is_some()),
+        ];
+        if let Some((key, _)) = written.iter().find(|(key, present)| *present && !allowed.contains(key)) {
+            bail!("site.toml の deploy.{key} は、deploy.target が {target} のときには使えません");
+        }
+        match target {
+            "cloudflare" => {
+                let worker = self.worker.clone().ok_or_else(|| {
+                    anyhow::anyhow!("site.toml の [deploy] に worker = \"Worker 名\" を書いてください（Cloudflare に公開するとき）")
+                })?;
+                if !is_valid_worker_name(&worker) {
+                    bail!("site.toml の deploy.worker は英小文字、数字、ハイフンの 63 文字以内で指定してください: {worker}");
+                }
+                Ok(DeployTarget::Cloudflare { worker })
+            }
+            "github-pages" => {
+                let branch = self.branch.clone().unwrap_or_else(|| DEFAULT_PAGES_BRANCH.to_string());
+                let remote = self.remote.clone().unwrap_or_else(|| DEFAULT_PAGES_REMOTE.to_string());
+                if !is_safe_argument(&branch) || !branch.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_./".contains(&b)) {
+                    bail!("site.toml の deploy.branch が不正です: {branch}");
+                }
+                if !is_safe_argument(&remote) {
+                    bail!("site.toml の deploy.remote が不正です: {remote}");
+                }
+                if let Some(cname) = &self.cname {
+                    if cname.is_empty() || !cname.bytes().all(|b| b.is_ascii_alphanumeric() || b"-.".contains(&b)) || cname.starts_with(['-', '.']) {
+                        bail!("site.toml の deploy.cname はドメイン名（blog.example.com など）で指定してください: {cname}");
+                    }
+                }
+                Ok(DeployTarget::GitHubPages { remote, branch, cname: self.cname.clone() })
+            }
+            _ => {
+                let destination = self.destination.clone().ok_or_else(|| {
+                    anyhow::anyhow!("site.toml の [deploy] に destination = \"user@host:/path/\" を書いてください（rsync で公開するとき）")
+                })?;
+                if !is_safe_argument(&destination) {
+                    bail!("site.toml の deploy.destination が不正です（空、- で始まる、空白や改行を含むものは使えません）: {destination}");
+                }
+                Ok(DeployTarget::Rsync { destination })
+            }
+        }
+    }
+}
+
+/// コマンドの引数として渡しても、オプションと取り違えられず、空白や改行を含まない値。
+fn is_safe_argument(value: &str) -> bool {
+    !value.is_empty() && !value.starts_with('-') && !value.chars().any(char::is_whitespace)
 }
 
 fn is_valid_worker_name(name: &str) -> bool {
@@ -79,12 +192,13 @@ pub fn parse_site_config(raw: &str) -> Result<SiteConfig> {
         parse_timezone(timezone).map_err(|e| anyhow::anyhow!("site.toml の timezone が不正です: {e}"))?;
     }
     if let Some(deploy) = &config.deploy {
-        if !is_valid_worker_name(&deploy.worker) {
-            bail!(
-                "site.toml の deploy.worker は英小文字、数字、ハイフンの 63 文字以内で指定してください: {}",
-                deploy.worker
-            );
-        }
+        deploy.target()?;
+    }
+    if let Some(base_path) = &config.base_path {
+        validate_base_path(base_path)?;
+    }
+    if matches!(config.deploy_target(), Some(DeployTarget::Cloudflare { .. })) && config.base_path() != "/" {
+        bail!("Cloudflare に公開するときは base_path を使えません（Worker はドメインの直下で配信します）");
     }
     Ok(config)
 }
@@ -105,6 +219,7 @@ mod tests {
                 deploy: None,
                 timezone: None,
                 description: None,
+                base_path: None,
             }
         );
     }
@@ -180,7 +295,7 @@ mod tests {
     #[test]
     fn reads_deploy_worker() {
         let config = parse_site_config("title = \"t\"\n[deploy]\nworker = \"tett23-blog\"\n").unwrap();
-        assert_eq!(config.deploy, Some(DeployConfig { worker: "tett23-blog".into() }));
+        assert_eq!(config.deploy_target(), Some(DeployTarget::Cloudflare { worker: "tett23-blog".into() }));
     }
 
     #[test]
@@ -188,10 +303,71 @@ mod tests {
         for name in ["Blog", "blog/../x", "-blog", "blog-", ""] {
             let raw = format!("title = \"t\"\n[deploy]\nworker = \"{name}\"\n");
             let err = parse_site_config(&raw).unwrap_err();
-            assert!(err.to_string().contains("deploy.worker"), "{name}");
+            assert!(err.to_string().contains("deploy.worker") || err.to_string().contains("worker"), "{name}");
         }
         let long = "a".repeat(64);
         assert!(parse_site_config(&format!("title = \"t\"\n[deploy]\nworker = \"{long}\"\n")).is_err());
+    }
+
+    fn target(deploy: &str) -> Result<Option<DeployTarget>> {
+        parse_site_config(&format!("title = \"t\"\n[deploy]\n{deploy}")).map(|c| c.deploy_target())
+    }
+
+    #[test]
+    fn reads_each_deploy_target() {
+        assert_eq!(
+            target("target = \"cloudflare\"\nworker = \"blog\"\n").unwrap(),
+            Some(DeployTarget::Cloudflare { worker: "blog".into() })
+        );
+        assert_eq!(
+            target("target = \"github-pages\"\n").unwrap(),
+            Some(DeployTarget::GitHubPages { remote: "origin".into(), branch: "gh-pages".into(), cname: None })
+        );
+        assert_eq!(
+            target("target = \"github-pages\"\nremote = \"upstream\"\nbranch = \"pages\"\ncname = \"blog.example.com\"\n").unwrap(),
+            Some(DeployTarget::GitHubPages { remote: "upstream".into(), branch: "pages".into(), cname: Some("blog.example.com".into()) })
+        );
+        assert_eq!(
+            target("target = \"rsync\"\ndestination = \"user@example.com:/var/www/blog/\"\n").unwrap(),
+            Some(DeployTarget::Rsync { destination: "user@example.com:/var/www/blog/".into() })
+        );
+        assert_eq!(parse_site_config("title = \"t\"\n").unwrap().deploy_target(), None);
+    }
+
+    #[test]
+    fn deploy_target_errors_name_the_problem() {
+        let message = |deploy: &str| target(deploy).unwrap_err().to_string();
+        assert!(message("target = \"netlify\"\n").contains("deploy.target"));
+        assert!(message("\n").contains("worker"));
+        assert!(message("target = \"rsync\"\n").contains("destination"));
+        assert!(message("target = \"rsync\"\ndestination = \"x:/a\"\nworker = \"w\"\n").contains("deploy.worker は、deploy.target が rsync"));
+        assert!(message("target = \"github-pages\"\nworker = \"w\"\n").contains("deploy.worker"));
+        assert!(message("target = \"rsync\"\ndestination = \"--rsh=evil\"\n").contains("deploy.destination"));
+        assert!(message("target = \"rsync\"\ndestination = \"a b:/c\"\n").contains("deploy.destination"));
+        assert!(message("target = \"github-pages\"\nbranch = \"-f\"\n").contains("deploy.branch"));
+        assert!(message("target = \"github-pages\"\nbranch = \"a b\"\n").contains("deploy.branch"));
+        assert!(message("target = \"github-pages\"\nremote = \"--upload-pack=x\"\n").contains("deploy.remote"));
+        assert!(message("target = \"github-pages\"\ncname = \"https://x\"\n").contains("deploy.cname"));
+    }
+
+    #[test]
+    fn cloudflare_does_not_accept_a_base_path() {
+        let err = parse_site_config("title = \"t\"\nbase_path = \"/blog/\"\n[deploy]\nworker = \"w\"\n").unwrap_err();
+        assert!(err.to_string().contains("base_path"));
+        assert!(parse_site_config("title = \"t\"\nbase_path = \"/\"\n[deploy]\nworker = \"w\"\n").is_ok());
+    }
+
+    #[test]
+    fn base_path_is_normalized_and_validated() {
+        let base = |raw: &str| parse_site_config(&format!("title = \"t\"\nbase_path = \"{raw}\"\n")).map(|c| c.base_path());
+        assert_eq!(parse_site_config("title = \"t\"\n").unwrap().base_path(), "/");
+        assert_eq!(base("/").unwrap(), "/");
+        assert_eq!(base("/my-blog").unwrap(), "/my-blog/");
+        assert_eq!(base("/my-blog/").unwrap(), "/my-blog/");
+        assert_eq!(base("/a/b.c_d~e/").unwrap(), "/a/b.c_d~e/");
+        for invalid in ["my-blog", "", "/a//b/", "/a/../b/", "/./", "/a b/", "/日本語/", "/a?b/", "//cdn"] {
+            assert!(base(invalid).is_err(), "{invalid}");
+        }
     }
 
     #[test]

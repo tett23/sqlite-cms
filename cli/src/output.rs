@@ -15,7 +15,8 @@ pub const HEADERS: &str = "\
   Cache-Control: no-cache
 ";
 
-const MARKER: &str = ".sqlite-cms";
+/// sqlite-cms が書き出した場所の目印（build の出力先と rsync の送り先）。
+pub const MARKER: &str = ".sqlite-cms";
 
 /// content/favicon.svg があればそれを、なければサイト名から作った仮の favicon を返す。
 fn read_favicon(site_dir: &Path) -> Result<Vec<u8>> {
@@ -26,6 +27,21 @@ fn read_favicon(site_dir: &Path) -> Result<Vec<u8>> {
             Ok(favicon::placeholder(&site::read_site_config(site_dir)?.title).into_bytes())
         }
         Err(e) => Err(e).with_context(|| format!("{} を読めません", path.display())),
+    }
+}
+
+/// SPA の index.html を、サイトを置くパス（ADR 0030）に合わせる。
+/// - SPA は相対のパス（`./assets/…`）でビルドしてあるので、`base_path` から始まるパスにする。深いパスの URL で 404.html として返しても読めるようにするためである。
+/// - favicon のパス（`/favicon.svg`）も `base_path` から始める。
+/// - SPA が DB や画像やページのパスを組み立てられるよう、`<meta name="sqlite-cms-base">` を入れる。
+pub fn apply_base_path(html: &str, base_path: &str) -> String {
+    let html = html
+        .replace("=\"./", &format!("=\"{base_path}"))
+        .replace("href=\"/favicon.svg\"", &format!("href=\"{base_path}favicon.svg\""));
+    let meta = format!("<meta name=\"sqlite-cms-base\" content=\"{base_path}\" />\n    ");
+    match html.find("<title>") {
+        Some(index) => format!("{}{meta}{}", &html[..index], &html[index..]),
+        None => html.replacen("</head>", &format!("{meta}</head>"), 1),
     }
 }
 
@@ -60,10 +76,15 @@ impl SiteOutput {
                  リリースのバイナリを使うか、開発者向けの手順（DEVELOPMENT.md）でビルドし直してください"
             );
         }
+        let base_path = site::read_site_config(site_dir)?.base_path();
         let mut output = Self::data(site_dir, fetcher)?;
         for (path, bytes) in spa {
             output.files.entry(path.to_string()).or_insert_with(|| bytes.to_vec());
         }
+        let index = apply_base_path(&String::from_utf8_lossy(&output.files["/index.html"]), &base_path).into_bytes();
+        // SPA のフォールバックの設定がない配信先（GitHub Pages など）では、知らないパスに 404.html が返る。
+        output.files.insert("/404.html".to_string(), index.clone());
+        output.files.insert("/index.html".to_string(), index);
         Ok(output)
     }
 
@@ -143,6 +164,33 @@ mod tests {
         }
         out.sort();
         out
+    }
+
+    #[test]
+    fn base_path_is_applied_to_index_html() {
+        let html = "<head>\n    <link rel=\"icon\" href=\"/favicon.svg\" />\n    <title></title>\n    <script type=\"module\" src=\"./assets/index.js\"></script>\n    <link rel=\"stylesheet\" href=\"./assets/index.css\">\n</head>";
+        let root = apply_base_path(html, "/");
+        assert!(root.contains("src=\"/assets/index.js\""), "{root}");
+        assert!(root.contains("href=\"/assets/index.css\""), "{root}");
+        assert!(root.contains("href=\"/favicon.svg\""), "{root}");
+        assert!(root.contains("<meta name=\"sqlite-cms-base\" content=\"/\" />\n    <title>"), "{root}");
+
+        let sub = apply_base_path(html, "/my-blog/");
+        assert!(sub.contains("src=\"/my-blog/assets/index.js\""), "{sub}");
+        assert!(sub.contains("href=\"/my-blog/assets/index.css\""), "{sub}");
+        assert!(sub.contains("href=\"/my-blog/favicon.svg\""), "{sub}");
+        assert!(sub.contains("content=\"/my-blog/\""), "{sub}");
+    }
+
+    #[test]
+    fn site_has_a_404_page_equal_to_the_index() {
+        let site = site_fixture();
+        fs::write(site.path().join("site.toml"), "title = \"t\"\nbase_path = \"/blog\"\n").unwrap();
+        let spa: &[(&str, &[u8])] = &[("/index.html", b"<head><title></title><script src=\"./assets/app.js\"></script></head>")];
+        let output = SiteOutput::site(site.path(), spa, &linkcard::Offline).unwrap();
+        let index = String::from_utf8(output.files["/index.html"].clone()).unwrap();
+        assert!(index.contains("src=\"/blog/assets/app.js\""), "{index}");
+        assert_eq!(output.files["/404.html"], output.files["/index.html"]);
     }
 
     #[test]

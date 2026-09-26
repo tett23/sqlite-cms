@@ -15,11 +15,14 @@ pub struct Response {
     pub gzip: bool,
     /// 圧縮するかどうかを Accept-Encoding で決める種類なら true（Vary を付ける）。
     pub vary: bool,
+    /// 転送先（302 のとき）。
+    pub location: Option<String>,
 }
 
 fn reason(status: u16) -> &'static str {
     match status {
         200 => "OK",
+        302 => "Found",
         400 => "Bad Request",
         404 => "Not Found",
         405 => "Method Not Allowed",
@@ -65,11 +68,12 @@ fn text(status: u16) -> Response {
         body: reason(status).as_bytes().to_vec(),
         gzip: false,
         vary: false,
+        location: None,
     }
 }
 
 fn ok(content_type: String, body: Vec<u8>) -> Response {
-    Response { status: 200, content_type, body, gzip: false, vary: false }
+    Response { status: 200, content_type, body, gzip: false, vary: false, location: None }
 }
 
 /// これより小さい応答は圧縮しない（gzip の枠の分だけかえって大きくなりうる）。
@@ -142,11 +146,26 @@ pub fn encode(response: Response, accept_encoding: &str, cache: &GzipCache) -> R
     Response { body, gzip: true, vary: true, ..response }
 }
 
-pub fn respond(output: &SiteOutput, method: &str, target: &str) -> Response {
+/// サイトを置くパス（ADR 0030）の下のパスを、サイトの中のパス（`/` から始まる）にする。外なら None。
+fn strip_base_path(path: &str, base_path: &str) -> Option<String> {
+    if base_path == "/" {
+        return Some(path.to_string());
+    }
+    path.strip_prefix(base_path).map(|rest| format!("/{rest}")).or_else(|| (format!("{path}/") == base_path).then(|| "/".to_string()))
+}
+
+pub fn respond(output: &SiteOutput, base_path: &str, method: &str, target: &str) -> Response {
     if method != "GET" && method != "HEAD" {
         return text(405);
     }
     let path = percent_decode(target.split(['?', '#']).next().unwrap_or("/"));
+    let Some(path) = strip_base_path(&path, base_path) else {
+        // サイトの外のトップは、サイトのトップへ案内する。
+        if path == "/" {
+            return Response { location: Some(base_path.to_string()), ..text(302) };
+        }
+        return text(404);
+    };
     let path = if path == "/" { "/index.html".to_string() } else { path };
 
     if let Some(bytes) = output.files.get(&path) {
@@ -160,7 +179,7 @@ pub fn respond(output: &SiteOutput, method: &str, target: &str) -> Response {
     text(404)
 }
 
-fn handle(output: &SiteOutput, cache: &GzipCache, stream: TcpStream) -> std::io::Result<()> {
+fn handle(output: &SiteOutput, base_path: &str, cache: &GzipCache, stream: TcpStream) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
@@ -181,7 +200,7 @@ fn handle(output: &SiteOutput, cache: &GzipCache, stream: TcpStream) -> std::io:
     let mut head_length = 0;
     let response = match (parts.next(), parts.next()) {
         (Some(method), Some(target)) => {
-            let response = encode(respond(output, method, target), &accept_encoding, cache);
+            let response = encode(respond(output, base_path, method, target), &accept_encoding, cache);
             if method == "HEAD" {
                 head_length = response.body.len();
                 Response { body: Vec::new(), ..response }
@@ -197,10 +216,11 @@ fn handle(output: &SiteOutput, cache: &GzipCache, stream: TcpStream) -> std::io:
     let length = if response.body.is_empty() { head_length } else { response.body.len() };
     write!(
         stream,
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\n{}{}Content-Length: {}\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\n{}{}{}Content-Length: {}\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
         response.status,
         reason(response.status),
         response.content_type,
+        response.location.as_ref().map_or_else(String::new, |location| format!("Location: {location}\r\n")),
         if response.gzip { "Content-Encoding: gzip\r\n" } else { "" },
         if response.vary { "Vary: Accept-Encoding\r\n" } else { "" },
         length
@@ -209,14 +229,16 @@ fn handle(output: &SiteOutput, cache: &GzipCache, stream: TcpStream) -> std::io:
     stream.flush()
 }
 
-pub fn serve(output: SiteOutput, listener: TcpListener) {
+pub fn serve(output: SiteOutput, base_path: String, listener: TcpListener) {
     let output = Arc::new(output);
+    let base_path = Arc::new(base_path);
     let cache = Arc::new(GzipCache::default());
     for stream in listener.incoming().flatten() {
         let output = Arc::clone(&output);
         let cache = Arc::clone(&cache);
+        let base_path = Arc::clone(&base_path);
         thread::spawn(move || {
-            let _ = handle(&output, &cache, stream);
+            let _ = handle(&output, &base_path, &cache, stream);
         });
     }
 }
@@ -236,7 +258,7 @@ mod tests {
 
     #[test]
     fn serves_files_with_content_type() {
-        let response = respond(&output(), "GET", "/db/manifest.json?v=1");
+        let response = respond(&output(), "/", "GET", "/db/manifest.json?v=1");
         assert_eq!(response.status, 200);
         assert_eq!(response.content_type, "application/json");
         assert_eq!(response.body, b"{}");
@@ -245,7 +267,7 @@ mod tests {
     #[test]
     fn root_and_extensionless_paths_fall_back_to_index() {
         for target in ["/", "/posts/hello", "/about"] {
-            let response = respond(&output(), "GET", target);
+            let response = respond(&output(), "/", "GET", target);
             assert_eq!(response.status, 200, "{target}");
             assert_eq!(response.body, b"<html>", "{target}");
         }
@@ -253,21 +275,21 @@ mod tests {
 
     #[test]
     fn decodes_percent_encoded_paths() {
-        let response = respond(&output(), "GET", "/media/%E7%94%BB%E5%83%8F.png");
+        let response = respond(&output(), "/", "GET", "/media/%E7%94%BB%E5%83%8F.png");
         assert_eq!(response.status, 200);
         assert_eq!(response.body, b"png");
     }
 
     #[test]
     fn missing_files_with_extension_are_not_found() {
-        assert_eq!(respond(&output(), "GET", "/assets/missing.js").status, 404);
-        assert_eq!(respond(&output(), "GET", "/../../etc/passwd.txt").status, 404);
+        assert_eq!(respond(&output(), "/", "GET", "/assets/missing.js").status, 404);
+        assert_eq!(respond(&output(), "/", "GET", "/../../etc/passwd.txt").status, 404);
     }
 
     #[test]
     fn only_get_and_head_are_allowed() {
-        assert_eq!(respond(&output(), "POST", "/").status, 405);
-        assert_eq!(respond(&output(), "HEAD", "/").status, 200);
+        assert_eq!(respond(&output(), "/", "POST", "/").status, 405);
+        assert_eq!(respond(&output(), "/", "HEAD", "/").status, 200);
     }
 
     fn large_js() -> Response {
@@ -344,6 +366,21 @@ mod tests {
         encode(large_js(), "gzip", &cache);
         encode(large_js(), "gzip", &cache);
         assert_eq!(cache.entries.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn serves_under_the_base_path() {
+        let response = respond(&output(), "/blog/", "GET", "/blog/db/manifest.json");
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body, b"{}");
+        for target in ["/blog/", "/blog", "/blog/posts/hello"] {
+            assert_eq!(respond(&output(), "/blog/", "GET", target).body, b"<html>", "{target}");
+        }
+        let top = respond(&output(), "/blog/", "GET", "/");
+        assert_eq!(top.status, 302);
+        assert_eq!(top.location.as_deref(), Some("/blog/"));
+        assert_eq!(respond(&output(), "/blog/", "GET", "/db/manifest.json").status, 404);
+        assert_eq!(respond(&output(), "/blog/", "GET", "/blogger/").status, 404);
     }
 
     #[test]

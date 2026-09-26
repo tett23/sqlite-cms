@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/tett23/sqlite-cms/actions/workflows/ci.yml/badge.svg)](https://github.com/tett23/sqlite-cms/actions/workflows/ci.yml)
 
-Markdown で書いた記事から、軽い個人サイトを作って Cloudflare に公開するツール。
+Markdown で書いた記事から、軽い個人サイトを作って Cloudflare や GitHub Pages などに公開するツール。
 記事は全部まとめて一つの SQLite に入り、ブラウザはそれを一度読み込むだけで、あとはページを移るたびにサーバへ記事を取りに行かない（画像は除く）。
 見た目は白背景に黒文字、青い下線のリンクだけの、古いウェブサイトのようなものになる。
 
@@ -12,7 +12,7 @@ Markdown で書いた記事から、軽い個人サイトを作って Cloudflare
 
 ## 特徴
 
-- **一つのコマンド**：記事の雛形づくり、手元でのプレビュー、Cloudflare への公開まで、Rust で書いた `sqlite-cms` だけで行う。Node や wrangler は要らない。
+- **一つのコマンド**：記事の雛形づくり、手元でのプレビュー、公開まで、Rust で書いた `sqlite-cms` だけで行う。公開先は Cloudflare Workers、GitHub Pages、rsync で送る任意のサーバーから選べる。Node や wrangler は要らない。
 - **一つの SQLite**：全記事を一つの SQLite にまとめて配信する。ブラウザは最初に一度読み込むだけで、以後はページを移っても記事を取りに行かない。
 - **Markdown**：CommonMark と GFM に加えて、[Zenn](https://zenn.dev/zenn/articles/markdown-guide) 風の拡張（メッセージ、折りたたみ、コードのファイル名と diff、数式、mermaid の図、画像の幅、インラインの脚注、リンクカード）が書ける。
 - **コードの色分け**：Shiki で、VS Code と同じ文法の定義で色を付ける。
@@ -99,14 +99,17 @@ title = "tett23の記事置き場"   # 必須。ヘッダとページタイト�
 author = "tett23"              # 任意。フッターに表示
 timezone = "Asia/Tokyo"        # 任意。new が入れる日付のタイムゾーン（"+09:00" の形も可）。省略すると環境のタイムゾーン
 description = "サイトの説明"    # 任意。ページの meta description。省略すると「<サイト名>。記事とブログを置いているサイトです。」
+base_path = "/my-blog/"        # 任意。サイトを置くパス。省略すると "/"（公開の節を参照）
 
 [license]                      # 任意。フッターに表示
 name = "CC0 1.0"               # [license] を書くなら必須
 url = "https://creativecommons.org/publicdomain/zero/1.0/"  # 任意。書けばリンクになる
 
-[deploy]                       # sqlite-cms deploy を使うなら必須
-worker = "my-blog"             # 公開先の Cloudflare Worker 名（英小文字、数字、ハイフン）
+[deploy]                       # sqlite-cms deploy を使うなら必須。公開先ごとの書き方は「公開」の節
+worker = "my-blog"             # Cloudflare の Worker 名（英小文字、数字、ハイフン）
 ```
+
+`base_path` などの表より前に書くキー（`title` から `base_path` まで）は、`[license]` や `[deploy]` より前に書く。
 
 知らないキーはエラーになる（綴りの誤りを見逃さないため）。
 
@@ -264,7 +267,7 @@ sqlite-cms new post hello --title はじめまして   # content/posts/hello.md 
 sqlite-cms new post                             # content/posts/<今日の日付>.md の雛形を作る
 sqlite-cms serve    # http://127.0.0.1:8080/ でプレビュー（記事を変えたら再起動）
 sqlite-cms build    # dist/ に配信用の一式を書き出す
-sqlite-cms deploy   # Cloudflare に公開する
+sqlite-cms deploy   # site.toml の [deploy] の公開先に公開する
 ```
 
 `new` の種別は `post`、`article`、`page` のどれか。
@@ -279,7 +282,21 @@ slug を省いて別の場所の記事リポジトリを指すときは、`./blo
 
 詳しいオプションは `sqlite-cms --help` で確認できる。
 
-## Cloudflare への公開
+## 公開
+
+`sqlite-cms deploy` は、`site.toml` の `[deploy]` に書いた公開先にサイトを公開する。
+公開先は次の三つから選ぶ（`target`）。
+
+| 公開先 | `target` | 向いているとき |
+|---|---|---|
+| Cloudflare Workers | `"cloudflare"`（省略できる） | 独自ドメインや、速い配信が欲しいとき |
+| GitHub Pages | `"github-pages"` | 記事リポジトリを GitHub に置いていて、追加のアカウントを使いたくないとき |
+| rsync | `"rsync"` | 自分のサーバーや、ほかのホスティングに置くとき |
+
+`sqlite-cms build --out dist` で書き出した一式を、自分で好きな場所に置いてもよい。
+
+### Cloudflare Workers
+
 
 1. Cloudflare の API トークンを作る。ダッシュボードの「アカウント API トークン」または「ユーザー API トークン」で、カスタムトークンに次の権限を付ける。
    - アカウント → Workers スクリプト → 編集（Workers Scripts Write）
@@ -305,11 +322,80 @@ workers.dev のサブドメインは、アカウントで一度だけ、ダッ�
 公開が終わると `https://<worker>.<サブドメイン>.workers.dev` の URL が表示される。
 独自ドメインは Cloudflare のダッシュボードで設定する。
 
-### GitHub Actions で自動公開する
+#### GitHub Actions で自動公開する
 
 `example/.github/workflows/deploy.yml` を記事リポジトリの `.github/workflows/` にコピーし、記事リポジトリのシークレットに `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` を設定する。
 `main` に push するたびに、最新の `sqlite-cms` を取ってきて公開する。
 CI には `.sqlite-cms-cache/` がないので、リンクカードの画像は公開のたびに取り直す。
+
+### GitHub Pages
+
+記事リポジトリの `gh-pages` ブランチに、公開用の一式を push する。
+記事リポジトリの作業ツリー、インデックス、手元のブランチには触れない。
+公開するたびに `gh-pages` ブランチを作り直す（履歴は残さない）。
+
+```toml
+base_path = "/my-blog/"        # https://<user>.github.io/my-blog/ で公開するとき。表より前に書く
+
+[deploy]
+target = "github-pages"
+# branch = "gh-pages"          # 省略すると gh-pages
+# remote = "origin"            # 省略すると origin
+# cname = "blog.example.com"   # 独自ドメインを使うとき
+```
+
+1. 記事リポジトリを GitHub に push しておく（リモートの `origin`）。
+2. `sqlite-cms deploy` を実行する。
+3. 初めて公開したときは、GitHub のリポジトリの Settings → Pages で、公開元（Source）を「Deploy from a branch」の `gh-pages` ブランチの `/ (root)` にする。
+
+公開する URL に合わせて `base_path` を書く。
+
+| 公開する URL | `base_path` |
+|---|---|
+| `https://<user>.github.io/<リポジトリ名>/`（プロジェクトのページ） | `"/<リポジトリ名>/"` |
+| `https://<user>.github.io/`（リポジトリ名が `<user>.github.io`） | 書かない（`"/"`） |
+| 独自ドメイン | 書かない（`"/"`）。`cname` にドメインを書く |
+
+独自ドメインは、GitHub の画面で設定しても、公開のたびに消える（`gh-pages` ブランチを作り直すため）。`cname` に書いておく。
+
+GitHub Pages には、SPA のためのフォールバックの設定がない。
+`sqlite-cms` は `index.html` と同じ中身の `404.html` を置くので、記事の URL を直接開いても表示できる。
+ただし、記事の URL は HTTP の状態が 404 で返る（ブラウザでは問題なく読める）。
+
+GitHub Actions で公開するときは、`example/.github/workflows/deploy-github-pages.yml` を記事リポジトリの `.github/workflows/` にコピーする。
+`main` に push するたびに公開する。シークレットは要らない。
+
+### rsync
+
+組み立てた一式を、rsync で任意のサーバー（や手元のディレクトリ）に送る。
+接続には、手元の ssh の設定と鍵をそのまま使う。
+
+```toml
+base_path = "/blog/"           # https://example.com/blog/ で公開するとき。表より前に書く
+
+[deploy]
+target = "rsync"
+destination = "user@example.com:/var/www/blog/"
+```
+
+- 送り先にあって一式にないファイルは消す（`--delete`）。関係のないファイルを消さないよう、送り先が空か、前に `sqlite-cms` が公開したディレクトリ（目印の `.sqlite-cms` がある）のときだけ送る。
+- サーバーには、知らないパスで `index.html` を返す設定（SPA のフォールバック）を入れる。入れられないときも、`404.html` を返す設定があれば表示できる。
+
+nginx の例（`base_path` が `/blog/` のとき）:
+
+```nginx
+location /blog/ {
+    try_files $uri /blog/index.html;
+}
+```
+
+Apache の例（公開するディレクトリの `.htaccess`）:
+
+```apache
+FallbackResource /blog/index.html
+```
+
+DB（`/db/*.sqlite`）はファイル名が中身で変わるので、長くキャッシュさせてよい。`/db/manifest.json` はキャッシュさせない。
 
 ## ライセンス
 

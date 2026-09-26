@@ -3,6 +3,7 @@ import Markdown, { type Components, type ExtraProps, type Options } from "react-
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+import { withBasePath } from "./base";
 import { highlightLoader } from "./highlightLoader";
 import { needsHighlight } from "./highlightLanguages";
 import { useLazy, useLoaded } from "./lazyLoader";
@@ -69,6 +70,10 @@ const TaskLabel = createContext<string | undefined>(undefined);
 const components: Components = {
   a({ node: _node, href, ...props }) {
     return isInternal(href) ? <Link to={href} {...props} /> : <a href={href} {...props} />;
+  },
+  // 本文の画像（/media/…）とリンクカードの画像（/link-cards/…）は、サイトを置くパスから始める（ADR 0030）。
+  img({ node: _node, src, ...props }) {
+    return <img src={typeof src === "string" ? withBasePath(src) : src} {...props} />;
   },
   li({ node, ...props }) {
     const item = <li {...props} />;

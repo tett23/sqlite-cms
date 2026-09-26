@@ -70,7 +70,7 @@ fn help_prints_to_stdout_and_exits_successfully() {
     assert!(output.status.success());
     assert!(stderr(&output).is_empty());
     let help = stdout(&output);
-    for section in ["usage: sqlite-cms", "コマンド:", "serve", "build", "deploy", "記事リポジトリの構成:", "deploy に要るもの:", "例:"] {
+    for section in ["usage: sqlite-cms", "コマンド:", "serve", "build", "deploy", "記事リポジトリの構成:", "deploy の公開先", "github-pages", "rsync", "例:"] {
         assert!(help.contains(section), "ヘルプに {section} がありません");
     }
     assert!(!help.contains("--data-only"), "開発者向けのオプションは利用者向けのヘルプに出さない");
@@ -721,4 +721,147 @@ fn build_fetches_link_card_images_and_reuses_the_cache() {
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(requested.lock().unwrap().is_empty());
     assert_eq!(fs::read_dir(dist.join("link-cards")).unwrap().count(), 1);
+}
+
+/// 見本を写し、site.toml の末尾に設定を足した記事リポジトリ。
+fn site_with_config(tmp: &Path, extra: &str) -> PathBuf {
+    let site = tmp.join("site");
+    copy_dir(&example_dir(), &site);
+    let mut toml = fs::read_to_string(site.join("site.toml")).unwrap();
+    toml.push_str(extra);
+    fs::write(site.join("site.toml"), toml).unwrap();
+    site
+}
+
+#[test]
+fn deploy_with_rsync_syncs_into_an_empty_or_own_directory_only() {
+    require_spa();
+    let tmp = testutil::tempdir();
+    let dest = tmp.path().join("www");
+    let site = site_with_config(tmp.path(), &format!("\n[deploy]\ntarget = \"rsync\"\ndestination = \"{}\"\n", dest.display()));
+
+    let output = run(&["deploy", site.to_str().unwrap()], tmp.path());
+    assert!(output.status.success(), "{}", stderr(&output));
+    for file in ["index.html", "404.html", ".sqlite-cms", "db/manifest.json", "media/sample.svg"] {
+        assert!(dest.join(file).is_file(), "{file} がありません");
+    }
+
+    // 二度目は、一式にないファイルを消す。
+    fs::write(dest.join("stale.txt"), "old").unwrap();
+    let output = run(&["deploy", site.to_str().unwrap()], tmp.path());
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(!dest.join("stale.txt").exists());
+
+    // 関係のないディレクトリには送らない。
+    let foreign = tmp.path().join("foreign");
+    fs::create_dir(&foreign).unwrap();
+    fs::write(foreign.join("important.txt"), "keep").unwrap();
+    let site = site_with_config(&tmp.path().join("other"), &format!("\n[deploy]\ntarget = \"rsync\"\ndestination = \"{}\"\n", foreign.display()));
+    let output = run(&["deploy", site.to_str().unwrap()], tmp.path());
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("sqlite-cms の公開先でもありません"), "{}", stderr(&output));
+    assert_eq!(fs::read_to_string(foreign.join("important.txt")).unwrap(), "keep");
+    assert!(!foreign.join("index.html").exists());
+}
+
+fn git(dir: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .current_dir(dir)
+        .args(args)
+        .env("GIT_AUTHOR_NAME", "test")
+        .env("GIT_AUTHOR_EMAIL", "test@example.com")
+        .env("GIT_COMMITTER_NAME", "test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.com")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+#[test]
+fn deploy_to_github_pages_pushes_a_branch_without_touching_the_work_tree() {
+    require_spa();
+    let tmp = testutil::tempdir();
+    let remote = tmp.path().join("remote.git");
+    git(tmp.path(), &["init", "--quiet", "--bare", remote.to_str().unwrap()]);
+    let site = site_with_config(
+        tmp.path(),
+        "base_path = \"/my-blog/\"\n\n[deploy]\ntarget = \"github-pages\"\ncname = \"blog.example.com\"\n",
+    );
+    // base_path は site.toml の先頭の表の中に置く必要があるので、[license] より前に書き直す。
+    let toml = fs::read_to_string(site.join("site.toml")).unwrap().replace("base_path = \"/my-blog/\"\n", "");
+    fs::write(site.join("site.toml"), format!("base_path = \"/my-blog/\"\n{toml}")).unwrap();
+    git(&site, &["init", "--quiet", "-b", "main"]);
+    git(&site, &["add", "."]);
+    git(&site, &["commit", "--quiet", "-m", "記事"]);
+    git(&site, &["remote", "add", "origin", remote.to_str().unwrap()]);
+    let head = git(&site, &["rev-parse", "HEAD"]);
+
+    let output = run(&["deploy", site.to_str().unwrap()], tmp.path());
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("Settings → Pages"), "{}", stdout(&output));
+
+    let files = git(&remote, &["ls-tree", "-r", "--name-only", "gh-pages"]);
+    for file in ["index.html", "404.html", ".nojekyll", "CNAME", "db/manifest.json", "media/sample.svg"] {
+        assert!(files.lines().any(|line| line == file), "{file} がありません: {files}");
+    }
+    let index = git(&remote, &["show", "gh-pages:index.html"]);
+    assert!(index.contains("src=\"/my-blog/assets/"), "{index}");
+    assert!(index.contains("<meta name=\"sqlite-cms-base\" content=\"/my-blog/\""), "{index}");
+    assert_eq!(git(&remote, &["show", "gh-pages:CNAME"]), "blog.example.com");
+    assert!(git(&remote, &["log", "-1", "--format=%s", "gh-pages"]).contains(&head[..7]));
+
+    // 記事リポジトリの作業ツリー、インデックス、ブランチは変わらない。
+    assert_eq!(git(&site, &["status", "--porcelain"]), "");
+    assert_eq!(git(&site, &["rev-parse", "HEAD"]), head);
+    assert_eq!(git(&site, &["branch", "--format=%(refname:short)"]), "main");
+
+    // 二度目も同じように上書きできる。
+    let output = run(&["deploy", site.to_str().unwrap()], tmp.path());
+    assert!(output.status.success(), "{}", stderr(&output));
+}
+
+#[test]
+fn deploy_to_github_pages_requires_a_git_repository() {
+    let tmp = testutil::tempdir();
+    let site = site_with_config(tmp.path(), "\n[deploy]\ntarget = \"github-pages\"\n");
+    let output = run(&["deploy", site.to_str().unwrap()], tmp.path());
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("Git のリポジトリ"), "{}", stderr(&output));
+}
+
+#[test]
+fn serve_and_build_use_the_base_path() {
+    require_spa();
+    let tmp = testutil::tempdir();
+    let site = tmp.path().join("site");
+    copy_dir(&example_dir(), &site);
+    let toml = fs::read_to_string(site.join("site.toml")).unwrap();
+    fs::write(site.join("site.toml"), format!("base_path = \"/blog\"\n{toml}")).unwrap();
+
+    let dist = tmp.path().join("dist");
+    let output = run(&["build", site.to_str().unwrap(), "--out", dist.to_str().unwrap()], tmp.path());
+    assert!(output.status.success(), "{}", stderr(&output));
+    let index = fs::read_to_string(dist.join("index.html")).unwrap();
+    assert!(index.contains("href=\"/blog/favicon.svg\""), "{index}");
+    assert_eq!(fs::read(dist.join("404.html")).unwrap(), index.as_bytes());
+
+    let mut child = sqlite_cms()
+        .args(["serve", site.to_str().unwrap(), "--port", "0"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut line = String::new();
+    BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    assert!(line.contains("/blog/ でプレビュー"), "{line}");
+    let address = line.strip_prefix("http://").and_then(|rest| rest.split('/').next()).unwrap().to_string();
+    let server = ServeProcess { child, address };
+
+    let (status, _, body) = http_get(&server.address, "/blog/posts/hello");
+    assert_eq!(status, 200);
+    assert!(String::from_utf8_lossy(&body).contains("content=\"/blog/\""));
+    assert_eq!(http_get(&server.address, "/blog/db/manifest.json").0, 200);
+    let (status, head, _) = http_request(&server.address, "/", "");
+    assert_eq!(status, 302);
+    assert!(head.contains("\r\nLocation: /blog/\r\n"), "{head}");
 }

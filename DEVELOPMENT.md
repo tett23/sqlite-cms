@@ -34,6 +34,7 @@ npm がプラットフォーム用のバイナリを自動で入れるので、G
 - `web/`：ルーター（`web/src/router.tsx`）と sql.js の型（`web/src/types/sql.js.d.ts`）を自前にしている。sql.js の API を新しく使うときは、型の宣言も足す。
 - `web/`：シンタックスハイライトは Shiki（ADR 0017）。言語は `web/src/highlight.ts` の `LANGUAGES` に登録したものだけが色付きになる。言語を足すときは、`@shikijs/langs/<言語>` を登録し、`web/src/highlight.test.tsx` の `SAMPLES` に見本を足し（足さないとテストが落ちる）、`web/src/highlightLanguages.ts` の `HIGHLIGHT_LANGUAGES` に言語名と別名を足し（足さないとテストが落ちる。Shiki を読み込むかをこの一覧で決める、ADR 0029）、README の対応表を更新する。Shiki は、色を付ける言語のコードブロックが表示されたときに `web/src/highlightLoader.ts` 経由で読み込む別チャンクなので、`web/src/highlight.ts` と Shiki のモジュールを本体のコードから静的に import しない（すると本体に取り込まれる）。1 言語で gzip 後 1〜16 KB 増えるので、`web/vite.config.ts` の `chunkSizeWarningLimit` も必要に応じて見直す。
 - `web/`：Markdown の拡張の記法（ADR 0025）は、micromark の構文拡張と mdast の書き換えを `web/src/markdown/` に自前で書く。remark や rehype のプラグインのライブラリは足さず、再実装が現実的でない描画のライブラリ（KaTeX、mermaid）だけを使う。KaTeX と mermaid は `web/src/render/loaders.ts` 経由で非同期に読み込む別チャンクなので、`web/src/render/katex.ts` と `web/src/render/mermaid.ts` を本体のコードから静的に import しない。KaTeX のフォントは `web/vite.config.ts` のプラグインで woff2 だけを残す。
+- `web/`：SPA は相対のパス（Vite の `base: "./"`）でビルドする。どのパスに置いても読めるよう、CLI が `index.html` のパスを `site.toml` の `base_path` に合わせて書き換え、SPA は `<meta name="sqlite-cms-base">` を読んでパスを組み立てる（ADR 0030）。SPA の中でサイト内のパスを URL にするときは `web/src/base.ts` の `withBasePath` を通す。
 - `web/`：本文の HTML は `rehype-raw` で取り込み、`rehype-sanitize` で `web/src/sanitize.ts` の許可一覧以外を取り除く（ADR 0018）。許可するタグを足すときは `EXTRA_TAGS` に足し、`web/src/sanitize.test.tsx` にテストを足す。sanitize は Markdown が作る要素（脚注、タスクリスト、コードブロックの言語名）も検査するので、許可一覧から外すと Markdown の出力が壊れる。Shiki は sanitize の後に通す。
 - `cli/`：base64（`base64.rs`）、MIME の対応表（`mime.rs`）、frontmatter のパーサ（`frontmatter.rs`）、テスト用の一時ディレクトリ（`testutil.rs`）を自前にしている。配信するファイルの種類を増やすときは `mime.rs` の表に足す。
 
@@ -63,6 +64,7 @@ cargo clippy --all-targets -- -D warnings
 `deploy` のテストは、テスト内に立てた偽の Cloudflare API に向けて実行する（`CLOUDFLARE_API_BASE_URL`）。
 結合テストは `SQLITE_CMS_OFFLINE=1` で起動し、見本の記事のリンクカードの画像を外部から取得しない。リンクカードの取得のテストは、テスト内に立てた偽のサイトから取得する。
 テストは `example/.env` を一時ディレクトリに写さない（本物の認証情報で公開しないため）。
+GitHub Pages と rsync への公開の結合テストは、手元の空のリモート（`git init --bare`）と手元のディレクトリに向けて実行する。`git` と `rsync` が要る（macOS の openrsync でも動く）。
 
 `serve` や Lighthouse の計測で見本を配信すると、リンクカードの画像を取得して `example/.sqlite-cms-cache/` に保存する（Git には入れない）。
 

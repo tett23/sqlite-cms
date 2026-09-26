@@ -1,7 +1,7 @@
 ---
 title: "sqlite-cms の使い方"
 date: 2026-09-26
-description: 記事リポジトリを作ってから、記事を書き、手元で確かめ、Cloudflare に公開するまでの手順。
+description: 記事リポジトリを作ってから、記事を書き、手元で確かめ、Cloudflare や GitHub Pages に公開するまでの手順。
 ---
 
 sqlite-cms は、Markdown で書いた記事から個人サイトを組み立てるコマンドです。
@@ -100,6 +100,23 @@ sqlite-cms deploy
 
 公開が終わると、`https://<Worker 名>.<サブドメイン>.workers.dev` の URL が表示されます。
 `.env` は `.gitignore` に書いてあるので、Git には入りません。
+
+:::details Cloudflare 以外に公開する
+`site.toml` の `[deploy]` に `target` を書くと、GitHub Pages か、rsync で送る任意のサーバーに公開できます。
+
+```toml
+[deploy]
+target = "github-pages"   # 記事リポジトリの gh-pages ブランチに push する
+```
+
+```toml
+[deploy]
+target = "rsync"
+destination = "user@example.com:/var/www/blog/"
+```
+
+`https://<user>.github.io/my-blog/` のように、ドメインの直下でない場所に置くときは、`site.toml` の先頭に `base_path = "/my-blog/"` も書きます。
+:::
 
 <details>
 <summary>GitHub Actions で自動で公開する</summary>

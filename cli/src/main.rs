@@ -13,6 +13,9 @@ mod media;
 mod migrations;
 mod mime;
 mod output;
+mod pages;
+mod rsync;
+mod scratch;
 mod scaffold;
 mod serve;
 mod site;
@@ -30,11 +33,12 @@ use anyhow::{anyhow, bail, Context, Result};
 
 use output::SiteOutput;
 use scaffold::Kind;
+use site::DeployTarget;
 
 const USAGE: &str = "usage: sqlite-cms <init|new|serve|build|deploy> [引数] [オプション]";
 
 const HELP: &str = "\
-sqlite-cms: 記事リポジトリの Markdown からサイトを組み立て、プレビューし、Cloudflare に公開する
+sqlite-cms: 記事リポジトリの Markdown からサイトを組み立て、プレビューし、公開する
 
 usage: sqlite-cms <コマンド> [引数] [オプション]
 
@@ -43,7 +47,7 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
   new <種別> [SLUG] [SITE_DIR]  記事の雛形を作る（種別は post、article、page）
   serve [SITE_DIR]              サイトを組み立てて手元でプレビューする
   build [SITE_DIR]              サイトを組み立てて配信用のディレクトリに書き出す
-  deploy [SITE_DIR]             サイトを組み立てて Cloudflare Workers に公開する
+  deploy [SITE_DIR]             サイトを組み立てて公開する（Cloudflare Workers、GitHub Pages、rsync）
 
 引数:
   SITE_DIR  記事リポジトリのディレクトリ（既定: .）
@@ -81,12 +85,21 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
   取得したものは .sqlite-cms-cache/ に保存し、次からはそれを使う。
   環境変数 SQLITE_CMS_OFFLINE=1 を付けると取得しない（保存したものだけを使う）
 
-deploy に要るもの:
-  site.toml の [deploy] worker    公開先の Worker 名
-  環境変数 CLOUDFLARE_API_TOKEN   Workers のスクリプトを編集できる API トークン
-  環境変数 CLOUDFLARE_ACCOUNT_ID  Cloudflare のアカウント ID
-  環境変数は記事リポジトリの .env にも書ける（init が作る .env.example をコピーする）。
-  実際の環境変数があれば、そちらを優先する
+deploy の公開先（site.toml の [deploy]）:
+  Cloudflare Workers（target = \"cloudflare\"。省略できる）
+    worker = \"Worker 名\"
+    環境変数 CLOUDFLARE_API_TOKEN   Workers のスクリプトを編集できる API トークン
+    環境変数 CLOUDFLARE_ACCOUNT_ID  Cloudflare のアカウント ID
+    環境変数は記事リポジトリの .env にも書ける（init が作る .env.example をコピーする）。
+    実際の環境変数があれば、そちらを優先する
+  GitHub Pages（target = \"github-pages\"）
+    記事リポジトリの gh-pages ブランチ（branch で変えられる）に、リモート origin（remote で
+    変えられる）を通して push する。作業ツリーとブランチには触れない。独自ドメインは cname に書く。
+    プロジェクトのページ（https://<user>.github.io/<repo>/）なら base_path = \"/<repo>/\" も書く
+  rsync（target = \"rsync\"）
+    destination = \"user@host:/path/\" に rsync で送る（ssh の設定をそのまま使う）。
+    送り先にあって一式にないファイルは消すので、送り先は空か、前に sqlite-cms が公開した
+    ディレクトリに限る
 
 例:
   sqlite-cms init my-blog                        my-blog/ に記事リポジトリを作る
@@ -261,13 +274,14 @@ fn build(site_dir: PathBuf, out_dir: PathBuf, data_only: bool) -> Result<()> {
 }
 
 fn serve(site_dir: PathBuf, port: u16) -> Result<()> {
+    let base_path = site::read_site_config(&site_dir)?.base_path();
     let output = SiteOutput::site(&site_dir, spa::embedded(), linkcard::fetcher_from_env().as_ref())?;
     let listener =
         TcpListener::bind(("127.0.0.1", port)).with_context(|| format!("ポート {port} で待ち受けられません"))?;
     let address = listener.local_addr()?;
-    println!("http://{address}/ でプレビューしています（記事を変えたら再起動してください。Ctrl-C で終了）");
+    println!("http://{address}{base_path} でプレビューしています（記事を変えたら再起動してください。Ctrl-C で終了）");
     std::io::stdout().flush()?;
-    serve::serve(output, listener);
+    serve::serve(output, base_path, listener);
     Ok(())
 }
 
@@ -279,11 +293,40 @@ fn required_env(env: &dotenv::Env, name: &str) -> Result<String> {
 
 fn deploy(site_dir: PathBuf) -> Result<()> {
     let config = site::read_site_config(&site_dir)?;
-    let worker = config
-        .deploy
-        .map(|d| d.worker)
-        .ok_or_else(|| anyhow!("site.toml に公開先がありません。[deploy] に worker = \"Worker 名\" を書いてください"))?;
-    let env = dotenv::Env::load(&site_dir)?;
+    let target = config.deploy_target().ok_or_else(|| {
+        anyhow!(
+            "site.toml に公開先がありません。[deploy] に公開先を書いてください（Cloudflare なら worker = \"Worker 名\"。詳しくは sqlite-cms --help）"
+        )
+    })?;
+    match target {
+        DeployTarget::Cloudflare { worker } => deploy_cloudflare(&site_dir, &worker),
+        DeployTarget::GitHubPages { remote, branch, cname } => {
+            let output = SiteOutput::site(&site_dir, spa::embedded(), linkcard::fetcher_from_env().as_ref())?;
+            println!(
+                "{} ファイル（{} バイト）を {remote} の {branch} ブランチに公開します（GitHub Pages）",
+                output.files.len(),
+                output.total_bytes()
+            );
+            let report = pages::deploy(&site_dir, &output, &remote, &branch, cname.as_deref())?;
+            println!("公開しました（{} ブランチ、コミット {}）", report.branch, &report.commit[..report.commit.len().min(12)]);
+            println!(
+                "初めて公開したときは、GitHub のリポジトリの Settings → Pages で、公開元を {} ブランチの / (root) にしてください",
+                report.branch
+            );
+            Ok(())
+        }
+        DeployTarget::Rsync { destination } => {
+            let output = SiteOutput::site(&site_dir, spa::embedded(), linkcard::fetcher_from_env().as_ref())?;
+            println!("{} ファイル（{} バイト）を {destination} に rsync で公開します", output.files.len(), output.total_bytes());
+            rsync::deploy(&output, &destination)?;
+            println!("公開しました");
+            Ok(())
+        }
+    }
+}
+
+fn deploy_cloudflare(site_dir: &Path, worker: &str) -> Result<()> {
+    let env = dotenv::Env::load(site_dir)?;
     let api_token = required_env(&env, "CLOUDFLARE_API_TOKEN")?;
     let account_id = required_env(&env, "CLOUDFLARE_ACCOUNT_ID")?;
     if !account_id.bytes().all(|b| b.is_ascii_alphanumeric()) {
@@ -291,12 +334,12 @@ fn deploy(site_dir: PathBuf) -> Result<()> {
     }
     let api_base = env.get("CLOUDFLARE_API_BASE_URL").unwrap_or_else(|| cloudflare::DEFAULT_API_BASE.to_string());
 
-    let output = SiteOutput::site(&site_dir, spa::embedded(), linkcard::fetcher_from_env().as_ref())?;
+    let output = SiteOutput::site(site_dir, spa::embedded(), linkcard::fetcher_from_env().as_ref())?;
     println!("{} ファイル（{} バイト）を Worker {worker} に公開します", output.files.len(), output.total_bytes());
 
     let http = cloudflare::UreqHttp::new();
     let client = cloudflare::Client::new(&http, &api_base, &account_id, &api_token);
-    let report = deploy::deploy(&client, &worker, &output)?;
+    let report = deploy::deploy(&client, worker, &output)?;
 
     println!("公開しました（{} ファイル中 {} ファイルをアップロード）", report.total, report.uploaded);
     if let Some(url) = report.url {

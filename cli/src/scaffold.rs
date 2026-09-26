@@ -123,13 +123,22 @@ const SITE_TOML_REST: &str = r#"
 # author = "名前"             # フッターに表示する
 # description = "サイトの説明" # ページの meta description。省略するとサイト名から組み立てる
 # timezone = "Asia/Tokyo"     # new が入れる日付のタイムゾーン（"+09:00" の形も可）。省略すると環境のタイムゾーン
+# base_path = "/my-blog/"     # サイトを置くパス。GitHub Pages のプロジェクトのページ（https://<user>.github.io/<repo>/）なら "/<repo>/"
 
 # [license]                   # フッターに表示する
 # name = "CC0 1.0"
 # url = "https://creativecommons.org/publicdomain/zero/1.0/"
 
-# [deploy]                    # sqlite-cms deploy の公開先
-# worker = "my-blog"
+# [deploy]                    # sqlite-cms deploy の公開先。次のどれか一つ
+# worker = "my-blog"          # Cloudflare Workers（target は省略できる）
+#
+# target = "github-pages"     # GitHub Pages（記事リポジトリの gh-pages ブランチに push する）
+# branch = "gh-pages"         # 省略すると gh-pages
+# remote = "origin"           # 省略すると origin
+# cname = "blog.example.com"  # 独自ドメイン（任意）
+#
+# target = "rsync"            # rsync で任意のサーバーに送る
+# destination = "user@example.com:/var/www/blog/"
 "#;
 
 const INDEX_MD: &str = "<!-- トップページの本文をここに Markdown で書く。このコメントは表示されない -->\n";
