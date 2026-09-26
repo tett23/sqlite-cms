@@ -19,7 +19,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: build-db
+          workspaces: cli
 
       - run: npm ci
       - run: npm test

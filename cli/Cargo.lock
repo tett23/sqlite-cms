@@ -24,17 +24,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "build-db"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "rusqlite",
- "serde_yaml",
- "sha2",
- "tempfile",
-]
-
-[[package]]
 name = "cc"
 version = "1.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -342,6 +331,17 @@ name = "smallvec"
 version = "1.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba467056f1b547ed52077911161fc86985becbc60e8e1857c8a144dab0def891"
+
+[[package]]
+name = "sqlite-cms"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rusqlite",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+]
 
 [[package]]
 name = "syn"

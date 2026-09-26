@@ -27,7 +27,7 @@ post と article の境界は書き手の判断に委ねる。
 
 コンテンツは Markdown ファイルとしてリポジトリで管理する。
 ビルド時に全コンテンツを単一の SQLite ファイルへ格納し、静的アセットとして配信する。
-格納は Rust の単一バイナリ `build-db` が行う（ADR 0006）。
+格納は Rust の単一バイナリ `sqlite-cms` が行う（ADR 0006、0008）。
 DB に入れる本文は Markdown のままであり、HTML への変換はブラウザが行う（ADR 0007）。
 スキーマは連番 SQL マイグレーションの適用列として定義し、ビルドごとに空 DB へ全件適用する（ADR 0005）。
 フロントエンドは React SPA であり、起動時に SQLite ファイルを取得してブラウザ内（sql.js）で開き、以後の一覧・本文表示はローカルの DB 参照だけで完結する。
@@ -65,12 +65,12 @@ content/
   articles/    -- article の Markdown
   pages/       -- 固定ページの Markdown
 migrations/    -- 連番 SQL マイグレーション
-build-db/      -- ビルダー（Rust。Markdown を検証して SQLite へ格納）
+cli/           -- ビルダー `sqlite-cms`（Rust。Markdown を検証して SQLite へ格納）
 src/           -- React SPA
 public/        -- 静的アセット（生成された DB、画像）
 ```
 
-処理は `content/**.md → build-db（マイグレーション適用 + 挿入）→ public/db/articles-<hash>.sqlite → SPA が取得` の順に流れる。
+処理は `content/**.md → sqlite-cms（マイグレーション適用 + 挿入）→ public/db/articles-<hash>.sqlite → SPA が取得` の順に流れる。
 
 ## コンテンツフォーマット
 

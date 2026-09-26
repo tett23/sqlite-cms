@@ -18,14 +18,14 @@ npm run deploy   # build + wrangler deploy（要 wrangler login）
 
 ## ビルダー
 
-Markdown を検証して SQLite に格納する処理は、Rust のバイナリ `build-db`（`build-db/`）が行う。
+Markdown を検証して SQLite に格納する処理は、Rust のバイナリ `sqlite-cms`（`cli/`）が行う。
 本文は Markdown のまま格納し、HTML への変換はしない。
 `npm run build:db` が `cargo run --release` 経由で実行する。
 単体で使うときは、リポジトリルートを引数に渡す。
 
 ```sh
-cargo build --release --manifest-path build-db/Cargo.toml
-build-db/target/release/build-db .
+cargo build --release --manifest-path cli/Cargo.toml
+cli/target/release/sqlite-cms .
 ```
 
 ## コンテンツ

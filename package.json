@@ -4,11 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build:db": "cargo run --quiet --release --manifest-path build-db/Cargo.toml",
+    "build:db": "cargo run --quiet --release --manifest-path cli/Cargo.toml",
     "dev": "npm run build:db && vite",
     "build": "npm run build:db && tsc --noEmit && vite build",
     "preview": "vite preview --port 4173 --strictPort",
-    "test:db": "cargo test --quiet --manifest-path build-db/Cargo.toml",
+    "test:db": "cargo test --quiet --manifest-path cli/Cargo.toml",
     "test": "npm run test:db && vitest run",
     "deploy": "npm run build && wrangler deploy"
   },

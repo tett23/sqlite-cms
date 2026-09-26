@@ -21,7 +21,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("build-db: {e:#}");
+            eprintln!("sqlite-cms: {e:#}");
             ExitCode::FAILURE
         }
     }
