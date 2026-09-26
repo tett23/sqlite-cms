@@ -1,0 +1,5 @@
+/db/*.sqlite
+  Cache-Control: public, max-age=31536000, immutable
+
+/db/manifest.json
+  Cache-Control: no-cache
