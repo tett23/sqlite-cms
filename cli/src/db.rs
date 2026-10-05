@@ -8,6 +8,7 @@ use rusqlite::{Connection, MAIN_DB};
 use crate::content::{parse_article, parse_page, parse_post, Article, Page, Post};
 use crate::header;
 use crate::linkcard::LinkCard;
+use crate::media::MediaSize;
 use crate::migrations::{apply_migrations, embedded_migrations};
 use crate::site::{read_site_config, SiteConfig};
 
@@ -80,7 +81,7 @@ fn insert_tags(conn: &Connection, kind: &str, slug: &str, tags: &[String]) -> Re
     Ok(())
 }
 
-pub fn build_db_bytes(site_dir: &Path, link_cards: &[LinkCard]) -> Result<Vec<u8>> {
+pub fn build_db_bytes(site_dir: &Path, link_cards: &[LinkCard], media_sizes: &[MediaSize]) -> Result<Vec<u8>> {
     let config = read_site_config(site_dir)?;
 
     let content_dir = site_dir.join("content");
@@ -129,6 +130,13 @@ pub fn build_db_bytes(site_dir: &Path, link_cards: &[LinkCard]) -> Result<Vec<u8
 
     for card in link_cards {
         conn.execute("INSERT INTO link_cards (url, image_path) VALUES (?1, ?2)", (&card.url, &card.path))?;
+    }
+
+    for size in media_sizes {
+        conn.execute(
+            "INSERT INTO media_sizes (path, width, height) VALUES (?1, ?2, ?3)",
+            (&size.path, size.width, size.height),
+        )?;
     }
 
     Ok(conn.serialize(MAIN_DB)?.to_vec())
@@ -192,7 +200,7 @@ mod tests {
             ("articles/long.md", ARTICLE),
             ("pages/about.md", PAGE),
         ]);
-        let bytes = build_db_bytes(site.path(), &[]).unwrap();
+        let bytes = build_db_bytes(site.path(), &[], &[]).unwrap();
 
         let (_dir, conn) = open(&bytes);
         assert_eq!(column(&conn, "SELECT slug FROM posts ORDER BY slug"), ["a", "b"]);
@@ -204,7 +212,7 @@ mod tests {
         );
         assert_eq!(
             column(&conn, "SELECT version FROM schema_migrations ORDER BY version"),
-            ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008"]
+            ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009"]
         );
     }
 
@@ -212,8 +220,10 @@ mod tests {
     fn link_cards_go_into_their_table_and_sources_include_every_body() {
         let site = site_fixture(&[("posts/a.md", POST), ("index.md", "https://example.com/home\n")]);
         let cards = [LinkCard { url: "https://example.com/".into(), path: "/link-cards/abc.png".into(), bytes: vec![1] }];
-        let (_dir, conn) = open(&build_db_bytes(site.path(), &cards).unwrap());
+        let sizes = [MediaSize { path: "/media/a.png".into(), width: 640, height: 150 }];
+        let (_dir, conn) = open(&build_db_bytes(site.path(), &cards, &sizes).unwrap());
         assert_eq!(column(&conn, "SELECT url || ' ' || image_path FROM link_cards"), ["https://example.com/ /link-cards/abc.png"]);
+        assert_eq!(column(&conn, "SELECT path || ' ' || width || 'x' || height FROM media_sizes"), ["/media/a.png 640x150"]);
 
         let sources = markdown_sources(site.path()).unwrap();
         assert_eq!(sources.len(), 2);
@@ -224,7 +234,7 @@ mod tests {
     #[test]
     fn missing_content_directories_are_treated_as_empty() {
         let site = site_fixture(&[("posts/a.md", POST)]);
-        let bytes = build_db_bytes(site.path(), &[]).unwrap();
+        let bytes = build_db_bytes(site.path(), &[], &[]).unwrap();
         let (_dir, conn) = open(&bytes);
         assert!(column(&conn, "SELECT slug FROM articles").is_empty());
     }
@@ -232,7 +242,7 @@ mod tests {
     #[test]
     fn site_metadata_and_home_go_into_site_table() {
         let site = site_fixture(&[("index.md", "トップの**導入**。\n")]);
-        let bytes = build_db_bytes(site.path(), &[]).unwrap();
+        let bytes = build_db_bytes(site.path(), &[], &[]).unwrap();
         let (_dir, conn) = open(&bytes);
         type Row = (String, Option<String>, Option<String>, Option<String>, Option<String>);
         let row: Row = conn
@@ -257,7 +267,7 @@ mod tests {
     #[test]
     fn description_is_stored_with_the_default_sentence() {
         let site = site_fixture(&[]);
-        let (_dir, conn) = open(&build_db_bytes(site.path(), &[]).unwrap());
+        let (_dir, conn) = open(&build_db_bytes(site.path(), &[], &[]).unwrap());
         let description: String = conn.query_row("SELECT description FROM site", [], |r| r.get(0)).unwrap();
         assert_eq!(description, "記事置き場。記事とブログを置いているサイトです。");
     }
@@ -265,7 +275,7 @@ mod tests {
     #[test]
     fn home_is_optional() {
         let site = site_fixture(&[]);
-        let bytes = build_db_bytes(site.path(), &[]).unwrap();
+        let bytes = build_db_bytes(site.path(), &[], &[]).unwrap();
         let (_dir, conn) = open(&bytes);
         let home: Option<String> = conn.query_row("SELECT home_md FROM site", [], |r| r.get(0)).unwrap();
         assert_eq!(home, None);
@@ -275,7 +285,7 @@ mod tests {
     fn header_is_rendered_with_site_values() {
         let header = "[{{title}}](/)\n\n{{#author}}\n{{author}} の記事\n{{/author}}\n{{> search}}\n";
         let site = site_fixture(&[("header.md", header)]);
-        let (_dir, conn) = open(&build_db_bytes(site.path(), &[]).unwrap());
+        let (_dir, conn) = open(&build_db_bytes(site.path(), &[], &[]).unwrap());
         let header: Option<String> = conn.query_row("SELECT header_md FROM site", [], |r| r.get(0)).unwrap();
         assert_eq!(header.as_deref(), Some("[記事置き場](/)\n\ntett23 の記事\n\n<div class=\"partial-search\"></div>\n\n"));
     }
@@ -285,7 +295,7 @@ mod tests {
         let post = "---\ntitle: p\ndate: 2026-09-17\ntags: [日記, SQLite]\n---\n本文\n";
         let article = "---\ntitle: a\ndate: 2026-09-17\ntags:\n  - 組版\n  - \"#SQLite\"\n---\n本文\n";
         let site = site_fixture(&[("posts/p.md", post), ("posts/plain.md", POST), ("articles/a.md", article)]);
-        let (_dir, conn) = open(&build_db_bytes(site.path(), &[]).unwrap());
+        let (_dir, conn) = open(&build_db_bytes(site.path(), &[], &[]).unwrap());
         assert_eq!(
             column(&conn, "SELECT kind || '/' || slug || ' ' || position || ' ' || tag FROM tags ORDER BY kind, slug, position"),
             ["article/a 0 組版", "article/a 1 SQLite", "post/p 0 日記", "post/p 1 SQLite"]
@@ -295,7 +305,7 @@ mod tests {
     #[test]
     fn header_is_optional() {
         let site = site_fixture(&[]);
-        let (_dir, conn) = open(&build_db_bytes(site.path(), &[]).unwrap());
+        let (_dir, conn) = open(&build_db_bytes(site.path(), &[], &[]).unwrap());
         let header: Option<String> = conn.query_row("SELECT header_md FROM site", [], |r| r.get(0)).unwrap();
         assert_eq!(header, None);
     }
@@ -303,7 +313,7 @@ mod tests {
     #[test]
     fn header_errors_name_the_file_and_line() {
         let site = site_fixture(&[("header.md", "a\n{{#title}}\n")]);
-        let message = build_db_bytes(site.path(), &[]).unwrap_err().to_string();
+        let message = build_db_bytes(site.path(), &[], &[]).unwrap_err().to_string();
         assert!(message.ends_with("header.md の 2 行目: セクションが閉じていません: {{#title}}"), "{message}");
     }
 
@@ -312,7 +322,7 @@ mod tests {
     #[test]
     fn db_stays_readable_by_the_spa_reader() {
         let site = site_fixture(&[("posts/a.md", POST), ("index.md", "トップ\n"), ("header.md", "[{{title}}](/)\n")]);
-        let (_dir, conn) = open(&build_db_bytes(site.path(), &[]).unwrap());
+        let (_dir, conn) = open(&build_db_bytes(site.path(), &[], &[]).unwrap());
         let encoding: String = conn.query_row("PRAGMA encoding", [], |r| r.get(0)).unwrap();
         assert_eq!(encoding, "UTF-8");
         let page_size: i64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0)).unwrap();
@@ -339,7 +349,7 @@ mod tests {
     fn missing_site_toml_is_error() {
         let dir = crate::testutil::tempdir();
         fs::create_dir_all(dir.path().join("content")).unwrap();
-        let err = build_db_bytes(dir.path(), &[]).unwrap_err();
+        let err = build_db_bytes(dir.path(), &[], &[]).unwrap_err();
         assert!(err.to_string().contains("site.toml を読めません"));
     }
 
@@ -347,22 +357,22 @@ mod tests {
     fn missing_content_root_is_error() {
         let dir = crate::testutil::tempdir();
         fs::write(dir.path().join("site.toml"), SITE).unwrap();
-        let err = build_db_bytes(dir.path(), &[]).unwrap_err();
+        let err = build_db_bytes(dir.path(), &[], &[]).unwrap_err();
         assert!(err.to_string().contains("コンテンツのディレクトリがありません"));
     }
 
     #[test]
     fn invalid_document_fails_the_build() {
         let site = site_fixture(&[("posts/bad.md", "---\ntitle: t\n---\n本文")]);
-        let err = build_db_bytes(site.path(), &[]).unwrap_err();
+        let err = build_db_bytes(site.path(), &[], &[]).unwrap_err();
         assert!(err.to_string().contains("date"));
     }
 
     #[test]
     fn same_input_yields_same_file_name() {
         let site = site_fixture(&[("posts/a.md", POST), ("articles/long.md", ARTICLE)]);
-        let first = db_file_name(&build_db_bytes(site.path(), &[]).unwrap());
-        let second = db_file_name(&build_db_bytes(site.path(), &[]).unwrap());
+        let first = db_file_name(&build_db_bytes(site.path(), &[], &[]).unwrap());
+        let second = db_file_name(&build_db_bytes(site.path(), &[], &[]).unwrap());
         assert_eq!(first, second);
         assert!(first.starts_with("articles-") && first.ends_with(".sqlite"));
         assert_eq!(first.len(), "articles-".len() + 16 + ".sqlite".len());

@@ -119,6 +119,22 @@ scenario("リンクカードは画面の近くに来てから部品を読み込�
   noProblems(tab, "リンクカード");
 });
 
+scenario("長い本文は先頭から少しずつ描き、最後まで描く。本文の画像には大きさを付ける（ADR 0051）", async ({ tab, origin }) => {
+  await tab.goto(origin + "/articles/heavy-long");
+  await tab.waitFor(
+    "[...document.querySelectorAll('.article-body h3')].some((h) => h.textContent === 'CJK の記号と句読点') && document.querySelector('.article-body section.footnotes') !== null",
+    { message: "長い本文が最後まで描かれない" },
+  );
+  // 先頭の部分に足した定義の脚注の欄は描かず、全体の脚注の欄だけが、本文の最後にある。
+  assertEqual(await tab.eval("document.querySelectorAll('.article-body section.footnotes').length"), 1, "脚注の欄の数");
+  assert(await tab.eval("document.querySelector('.article-body').lastElementChild.matches('section.footnotes')"), "脚注の欄が本文の最後にない");
+  await tab.goto(origin + "/articles/complex-mixed");
+  const image = `document.querySelector('.article-body img[src$="/media/architecture.svg"]')`;
+  await tab.waitFor(`${image} !== null`, { message: "本文の画像が描かれない" });
+  assertEqual(await tab.eval(`[${image}.getAttribute("width"), ${image}.getAttribute("height")]`), ["640", "150"], "本文の画像の大きさ");
+  noProblems(tab, "少しずつ描く");
+});
+
 scenario("elk は、図で指定したときだけ読み込む（ADR 0040）", async ({ tab, origin }) => {
   await tab.size(1200, 30000);
   // 図の数。すべて描き終わるまで待ってから、elk を読み込んだかを見る（一つ目が描けた時点では、elk の図がまだのことがある）。

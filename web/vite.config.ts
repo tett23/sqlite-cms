@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 
@@ -59,6 +60,8 @@ export default defineConfig({
       { find: /^react\/jsx-runtime$/, replacement: "preact/compat/jsx-runtime" },
       { find: /^react\/jsx-dev-runtime$/, replacement: "preact/compat/jsx-dev-runtime" },
       { find: /^react$/, replacement: "preact/compat" },
+      // 互換の structuredClone の代わりに、ブラウザのものを使う（ADR 0051）。
+      { find: /^@ungap\/structured-clone$/, replacement: fileURLToPath(new URL("./src/structuredClone.ts", import.meta.url)) },
     ],
   },
   // 相対のパスで出力し、どのパスに置いても読めるようにする。index.html のパスは CLI が base_path に合わせて書き換える（ADR 0030）。
