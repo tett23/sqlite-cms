@@ -69,3 +69,18 @@ jobs:
           name: lighthouse-reports
           path: web/lighthouse-reports
           if-no-files-found: ignore
+
+      # 操作まで含めて Core Web Vitals を計測する（ADR 0050）。CPU を取り合うと INP が揺れるので、Lighthouse の後に一つずつ計測する。
+      - name: Core Web Vitals
+        timeout-minutes: 5
+        run: npm run web-vitals
+        working-directory: web
+        env:
+          SQLITE_CMS_BIN: ${{ github.workspace }}/target/debug/sqlite-cms
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: web-vitals-reports
+          path: web/web-vitals-reports
+          if-no-files-found: ignore

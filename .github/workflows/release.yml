@@ -70,6 +70,21 @@ jobs:
           path: web/lighthouse-reports
           if-no-files-found: ignore
 
+      - name: Core Web Vitals
+        if: matrix.os == 'ubuntu-latest'
+        timeout-minutes: 5
+        run: npm run web-vitals
+        working-directory: web
+        env:
+          SQLITE_CMS_BIN: ${{ github.workspace }}/target/${{ matrix.target }}/release/sqlite-cms
+
+      - uses: actions/upload-artifact@v7
+        if: always() && matrix.os == 'ubuntu-latest'
+        with:
+          name: web-vitals-reports
+          path: web/web-vitals-reports
+          if-no-files-found: ignore
+
       - name: Package
         run: tar -czf sqlite-cms-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release sqlite-cms
 
