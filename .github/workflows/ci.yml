@@ -46,41 +46,73 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
 
-      # cargo test が作った CLI（target/debug/sqlite-cms）で配信し、cargo run で組み立て直すのを省く。
-      - name: E2E
-        timeout-minutes: 5
-        run: npm run e2e
-        working-directory: web
-        env:
-          SQLITE_CMS_BIN: ${{ github.workspace }}/target/debug/sqlite-cms
+      # cargo test が作った CLI（target/debug/sqlite-cms）を、ブラウザの検査のジョブに渡す（ADR 0052）。
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sqlite-cms-debug
+          path: target/debug/sqlite-cms
+          retention-days: 1
 
-      - name: Lighthouse
-        timeout-minutes: 8
-        run: npm run lighthouse
+  # E2E、Lighthouse、Core Web Vitals を、別々の機械で並行して行う（ADR 0052）。
+  # 一つの機械で順に行うと 3 分かかっていた。Core Web Vitals は、ページを二つに分けて計測する。
+  # 別々の機械なので、CPU を取り合って INP や LCP が揺れることもない。
+  browser:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      # どれかが失敗しても、ほかの検査の結果とレポートを残す。
+      fail-fast: false
+      matrix:
+        include:
+          - name: E2E
+            script: e2e
+          - name: Lighthouse
+            script: lighthouse
+            reports: lighthouse-reports
+            artifact: lighthouse-reports
+          - name: Core Web Vitals 1/2
+            script: web-vitals
+            shard: 1/2
+            reports: web-vitals-reports
+            artifact: web-vitals-reports-1
+          - name: Core Web Vitals 2/2
+            script: web-vitals
+            shard: 2/2
+            reports: web-vitals-reports
+            artifact: web-vitals-reports-2
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+        working-directory: web
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: sqlite-cms-debug
+          path: bin
+      - run: chmod +x bin/sqlite-cms
+
+      - name: ${{ matrix.name }}
+        timeout-minutes: 6
+        run: npm run ${{ matrix.script }}
         working-directory: web
         env:
-          SQLITE_CMS_BIN: ${{ github.workspace }}/target/debug/sqlite-cms
-          # ページを分けて 3 つの Chrome で並行して計測する。パフォーマンスの点数は揺れるが、記録するだけなので許す。
+          SQLITE_CMS_BIN: ${{ github.workspace }}/bin/sqlite-cms
+          # Lighthouse は、ページを分けて 3 つの Chrome で並行して計測する。パフォーマンスの点数は揺れるが、記録するだけなので許す。
           LIGHTHOUSE_CONCURRENCY: 3
+          WEB_VITALS_SHARD: ${{ matrix.shard }}
 
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: always() && matrix.reports
         with:
-          name: lighthouse-reports
-          path: web/lighthouse-reports
-          if-no-files-found: ignore
-
-      # 操作まで含めて Core Web Vitals を計測する（ADR 0050）。CPU を取り合うと INP が揺れるので、Lighthouse の後に一つずつ計測する。
-      - name: Core Web Vitals
-        timeout-minutes: 5
-        run: npm run web-vitals
-        working-directory: web
-        env:
-          SQLITE_CMS_BIN: ${{ github.workspace }}/target/debug/sqlite-cms
-
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: web-vitals-reports
-          path: web/web-vitals-reports
+          name: ${{ matrix.artifact }}
+          path: web/${{ matrix.reports }}
           if-no-files-found: ignore
