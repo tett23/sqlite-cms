@@ -2,6 +2,7 @@
 title: "重いページの見本：図の多い記事"
 date: 2026-09-26
 description: 表示の重さを確かめるための見本。sqlite-cms の仕組みを、フローチャート、シーケンス図、ER 図など 10 種類の mermaid の図で描く。
+tags: [見本, 計測]
 ---
 
 :::message

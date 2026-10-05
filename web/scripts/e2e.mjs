@@ -283,6 +283,26 @@ scenario("検索のページは、URL の言葉で結果を出し、ヘッダか
   await tab.waitFor("decodeURIComponent(location.search) === '?q=Rust' && document.querySelector('#search-query').value === 'Rust'");
 });
 
+scenario("記事のタグを出し、タグを押すとそのタグの付いた記事だけを探す（ADR 0048）", async ({ tab, origin }) => {
+  await tab.goto(origin + "/posts/ruby");
+  assertEqual(await tab.eval("[...document.querySelectorAll('article ul[aria-label=タグ] a')].map((a) => a.textContent)"), ["#書き方", "#HTML", "#組版"], "記事のタグ");
+  await tab.eval("window.__marker = true");
+  await tab.eval("[...document.querySelectorAll('article ul[aria-label=タグ] a')].find((a) => a.textContent === '#組版').click()");
+  await tab.waitFor("location.pathname === '/search' && decodeURIComponent(location.search) === '?q=#組版' && document.querySelector('main [role=status]')?.textContent.endsWith('件')");
+  assert(await tab.eval("window.__marker === true"), "ページを読み直した");
+  assertEqual(await tab.eval("document.querySelector('#search-query').value"), "#組版", "検索欄の言葉");
+  // 本文に「組版」とある記事はほかにもあるが、タグの付いた記事だけが出る。
+  assertEqual(await tab.eval("[...document.querySelectorAll('main > div > ul > li > a')].map((a) => a.textContent)"), ["ルビを振る"], "タグで探した結果");
+  assert((await count(tab, "main > div > ul > li")) < (await tab.eval("(async () => { history.replaceState(null, '', '/search?q=組版'); dispatchEvent(new Event('sqlite-cms:navigate')); await new Promise((r) => setTimeout(r, 300)); return document.querySelectorAll('main > div > ul > li').length; })()")), "語で探すと、タグで探すより多く出るはず");
+
+  // ヘッダの検索ボックスでも、# で始まる語でタグを探せる。
+  await tab.goto(origin + "/about");
+  await tab.eval("document.querySelector('#header-search').focus()");
+  await tab.type("#日記");
+  await tab.waitFor("document.querySelectorAll('#header-search-suggestions [role=option]').length === 2", { message: "タグの候補が 2 件出ない" });
+  noProblems(tab, "タグ");
+});
+
 scenario("知らないページは「見つかりません」を出す", async ({ tab, origin }) => {
   await tab.goto(origin + "/articles/does-not-exist");
   assert((await tab.eval("document.querySelector('main').textContent")).includes("見つかりません"), "見つかりませんを出さない");

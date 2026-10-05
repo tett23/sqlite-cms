@@ -467,7 +467,7 @@ fn new_creates_a_document_that_builds() {
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(stdout(&output).contains("hello.md を作りました"));
     let written = fs::read_to_string(site.join("content/posts/hello.md")).unwrap();
-    assert!(written.starts_with("---\ntitle: \"[はじめまして] \\\"引用\\\"\"\ndate: 2026-09-26\n---\n"));
+    assert!(written.starts_with("---\ntitle: \"[はじめまして] \\\"引用\\\"\"\ndate: 2026-09-26\ntags: []\n---\n"));
 
     for (kind, slug) in [("article", "long"), ("page", "about")] {
         let output = run(&["new", kind, slug], &site);

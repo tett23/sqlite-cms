@@ -69,6 +69,17 @@ pub fn pages(site_dir: &Path) -> Result<Vec<Page>> {
     read_docs(&site_dir.join("content").join("pages"), parse_page)
 }
 
+/// 記事のタグを、書いた順に入れる（ADR 0048）。
+fn insert_tags(conn: &Connection, kind: &str, slug: &str, tags: &[String]) -> Result<()> {
+    for (position, tag) in tags.iter().enumerate() {
+        conn.execute(
+            "INSERT INTO tags (kind, slug, position, tag) VALUES (?1, ?2, ?3, ?4)",
+            (kind, slug, position as i64, tag),
+        )?;
+    }
+    Ok(())
+}
+
 pub fn build_db_bytes(site_dir: &Path, link_cards: &[LinkCard]) -> Result<Vec<u8>> {
     let config = read_site_config(site_dir)?;
 
@@ -97,6 +108,7 @@ pub fn build_db_bytes(site_dir: &Path, link_cards: &[LinkCard]) -> Result<Vec<u8
             "INSERT INTO posts (slug, title, published_at, body_md) VALUES (?1, ?2, ?3, ?4)",
             (&p.slug, &p.title, &p.published_at, &p.body_md),
         )?;
+        insert_tags(&conn, "post", &p.slug, &p.tags)?;
     }
 
     for a in read_docs(&content_dir.join("articles"), parse_article)? {
@@ -105,6 +117,7 @@ pub fn build_db_bytes(site_dir: &Path, link_cards: &[LinkCard]) -> Result<Vec<u8
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             (&a.slug, &a.title, &a.published_at, &a.updated_at, &a.description, &a.body_md),
         )?;
+        insert_tags(&conn, "article", &a.slug, &a.tags)?;
     }
 
     for p in read_docs(&content_dir.join("pages"), parse_page)? {
@@ -191,7 +204,7 @@ mod tests {
         );
         assert_eq!(
             column(&conn, "SELECT version FROM schema_migrations ORDER BY version"),
-            ["0001", "0002", "0003", "0004", "0005", "0006", "0007"]
+            ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008"]
         );
     }
 
@@ -265,6 +278,18 @@ mod tests {
         let (_dir, conn) = open(&build_db_bytes(site.path(), &[]).unwrap());
         let header: Option<String> = conn.query_row("SELECT header_md FROM site", [], |r| r.get(0)).unwrap();
         assert_eq!(header.as_deref(), Some("[記事置き場](/)\n\ntett23 の記事\n\n<div class=\"partial-search\"></div>\n\n"));
+    }
+
+    #[test]
+    fn tags_go_into_the_tags_table_in_order() {
+        let post = "---\ntitle: p\ndate: 2026-09-17\ntags: [日記, SQLite]\n---\n本文\n";
+        let article = "---\ntitle: a\ndate: 2026-09-17\ntags:\n  - 組版\n  - \"#SQLite\"\n---\n本文\n";
+        let site = site_fixture(&[("posts/p.md", post), ("posts/plain.md", POST), ("articles/a.md", article)]);
+        let (_dir, conn) = open(&build_db_bytes(site.path(), &[]).unwrap());
+        assert_eq!(
+            column(&conn, "SELECT kind || '/' || slug || ' ' || position || ' ' || tag FROM tags ORDER BY kind, slug, position"),
+            ["article/a 0 組版", "article/a 1 SQLite", "post/p 0 日記", "post/p 1 SQLite"]
+        );
     }
 
     #[test]

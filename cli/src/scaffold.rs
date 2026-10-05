@@ -57,8 +57,8 @@ fn quote(s: &str) -> String {
 pub fn template(kind: Kind, title: &str, date: &str) -> String {
     let title = quote(title);
     match kind {
-        Kind::Post => format!("---\ntitle: {title}\ndate: {date}\n---\n\n"),
-        Kind::Article => format!("---\ntitle: {title}\ndate: {date}\ndescription:\n---\n\n"),
+        Kind::Post => format!("---\ntitle: {title}\ndate: {date}\ntags: []\n---\n\n"),
+        Kind::Article => format!("---\ntitle: {title}\ndate: {date}\ndescription:\ntags: []\n---\n\n"),
         Kind::Page => format!("---\ntitle: {title}\n---\n\n"),
     }
 }
@@ -429,8 +429,12 @@ mod tests {
 
     #[test]
     fn templates_have_empty_bodies() {
-        assert_eq!(template(Kind::Post, "t", "2026-09-26"), "---\ntitle: \"t\"\ndate: 2026-09-26\n---\n\n");
+        assert_eq!(template(Kind::Post, "t", "2026-09-26"), "---\ntitle: \"t\"\ndate: 2026-09-26\ntags: []\n---\n\n");
         assert!(template(Kind::Article, "t", "2026-09-26").contains("\ndescription:\n"));
+        // タグを書く場所がわかるよう、空のリストを入れておく（ADR 0048）。page には入れない。
+        assert!(template(Kind::Post, "t", "2026-09-26").contains("\ntags: []\n"));
+        assert!(template(Kind::Article, "t", "2026-09-26").contains("\ndescription:\ntags: []\n"));
+        assert!(!template(Kind::Page, "t", "2026-09-26").contains("tags"));
         assert!(!template(Kind::Page, "t", "2026-09-26").contains("date:"));
     }
 

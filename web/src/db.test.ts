@@ -1,6 +1,6 @@
 import initSqlJs from "sql.js";
 import { beforeAll, describe, expect, it } from "vitest";
-import { getArticle, getLinkCardImages, getPage, getPost, getSite, listAll, listArticles, listPosts } from "./db";
+import { getArticle, getLinkCardImages, getPage, getPost, getSite, listAll, listArticles, listPosts, tagsOf } from "./db";
 import { SqliteFile } from "./sqlite";
 
 let db: SqliteFile;
@@ -40,6 +40,10 @@ beforeAll(async () => {
     "[記事置き場](/)",
   ]);
   sql.run("INSERT INTO link_cards VALUES (?, ?)", ["https://example.com/", "/link-cards/0123456789abcdef.png"]);
+  // タグ（ADR 0048）。position の順に返すことを確かめるため、逆の順に入れる。
+  sql.run("INSERT INTO tags VALUES ('article', 'long', 1, 'SQLite')");
+  sql.run("INSERT INTO tags VALUES ('article', 'long', 0, '組版')");
+  sql.run("INSERT INTO tags VALUES ('post', 'new', 0, '日記')");
   // sql.js で作った DB を書き出し、ページの表示と同じく自前の読み手で開く（ADR 0047）。
   db = new SqliteFile(sql.export());
   sql.close();
@@ -64,6 +68,7 @@ describe("listPosts / getPost", () => {
       title: "古い記事",
       publishedAt: "2026-01-01",
       bodyMd: "**old**",
+      tags: [],
     });
   });
 
@@ -87,6 +92,7 @@ describe("listArticles / getArticle", () => {
       updatedAt: "2026-09-16",
       description: "要約。",
       bodyMd: "| a |\n|---|\n| 1 |",
+      tags: ["組版", "SQLite"],
     });
   });
 });
@@ -134,5 +140,24 @@ describe("listAll（ADR 0033）", () => {
       ["article", "long", "2026-09-15", "要約。"],
       ["post", "old", "2026-01-01", null],
     ]);
+  });
+});
+
+describe("タグ（ADR 0048）", () => {
+  it("記事と post のタグを、書いた順に返す。タグがなければ空", () => {
+    expect(getArticle(db, "long")?.tags).toEqual(["組版", "SQLite"]);
+    expect(getPost(db, "new")?.tags).toEqual(["日記"]);
+    expect(getPost(db, "old")?.tags).toEqual([]);
+    // 同じ slug でも、種類が違えば別のタグ。
+    expect(tagsOf(db, "post", "long")).toEqual([]);
+  });
+
+  it("タグの表のない DB では、空を返す", async () => {
+    const SQL = await initSqlJs();
+    const old = new SQL.Database();
+    old.run("CREATE TABLE posts (slug TEXT PRIMARY KEY, title TEXT, published_at TEXT, body_md TEXT)");
+    old.run("INSERT INTO posts VALUES ('p', 't', '2026-01-01', '本文')");
+    expect(getPost(new SqliteFile(old.export()), "p")?.tags).toEqual([]);
+    old.close();
   });
 });

@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Result};
 
 use crate::date::is_valid_date;
-use crate::frontmatter::{self, Frontmatter};
+use crate::frontmatter::{self, Frontmatter, Value};
 
 #[derive(Debug, PartialEq)]
 pub struct Post {
@@ -9,6 +9,8 @@ pub struct Post {
     pub title: String,
     pub published_at: String,
     pub body_md: String,
+    /// タグ（ADR 0048）。先頭の # は付けない。
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -19,6 +21,8 @@ pub struct Article {
     pub updated_at: Option<String>,
     pub description: Option<String>,
     pub body_md: String,
+    /// タグ（ADR 0048）。先頭の # は付けない。
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -55,6 +59,11 @@ fn parse_doc(slug: &str, raw: &str) -> Result<Doc> {
     let frontmatter =
         frontmatter::parse(yaml).map_err(|e| anyhow!("{slug}: frontmatter を解釈できません: {e:#}"))?;
 
+    // リストを書けるのは tags だけ。ほかのキーにリストを書いたら、値なしとして読まずに知らせる。
+    if let Some(key) = frontmatter.iter().find(|(key, v)| *key != "tags" && matches!(v, Value::List(_))).map(|(key, _)| key) {
+        bail!("{slug}: {key} にリストは書けません");
+    }
+
     let title = match value(&frontmatter, "title") {
         Some(s) if !s.is_empty() => s.to_string(),
         _ => bail!("{slug}: frontmatter に title がありません"),
@@ -68,7 +77,32 @@ fn parse_doc(slug: &str, raw: &str) -> Result<Doc> {
 }
 
 fn value<'a>(frontmatter: &'a Frontmatter, key: &str) -> Option<&'a str> {
-    frontmatter.get(key).and_then(|v| v.as_deref())
+    frontmatter.get(key).and_then(Value::as_str)
+}
+
+/// タグを読む（ADR 0048）。`tags: [組版, SQLite]` のリストで書く。
+/// 先頭の # は外す（`"#組版"` とクォートして書いてもよい）。同じタグは一つにまとめる。
+fn tags(slug: &str, frontmatter: &Frontmatter) -> Result<Vec<String>> {
+    let items = match frontmatter.get("tags") {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::Scalar(_)) => bail!("{slug}: tags は [組版, SQLite] のようにリストで書いてください"),
+        Some(Value::List(items)) => items,
+    };
+    let mut tags: Vec<String> = Vec::new();
+    for item in items {
+        let tag = item.trim();
+        let tag = tag.strip_prefix(['#', '＃']).unwrap_or(tag);
+        if tag.is_empty() {
+            bail!("{slug}: tags に空のタグがあります");
+        }
+        if tag.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '#' | '＃')) {
+            bail!("{slug}: タグ {tag:?} に、空白か # が含まれています（検索では空白で語を区切るので、タグには使えません）");
+        }
+        if !tags.iter().any(|t| t == tag) {
+            tags.push(tag.to_string());
+        }
+    }
+    Ok(tags)
 }
 
 fn date_field(frontmatter: &Frontmatter, key: &str) -> Option<String> {
@@ -85,6 +119,7 @@ pub fn parse_post(slug: &str, raw: &str) -> Result<Post> {
     Ok(Post {
         slug: slug.to_string(),
         published_at: require_date(slug, &doc.frontmatter)?,
+        tags: tags(slug, &doc.frontmatter)?,
         title: doc.title,
         body_md: doc.body_md,
     })
@@ -108,6 +143,7 @@ pub fn parse_article(slug: &str, raw: &str) -> Result<Article> {
         published_at: require_date(slug, &doc.frontmatter)?,
         updated_at,
         description,
+        tags: tags(slug, &doc.frontmatter)?,
         title: doc.title,
         body_md: doc.body_md,
     })
@@ -203,5 +239,37 @@ mod tests {
     fn document_without_frontmatter_is_error() {
         let err = parse_page("bare", "本文だけ").unwrap_err();
         assert!(err.to_string().contains("title"));
+    }
+
+    #[test]
+    fn tags_are_read_from_a_list() {
+        let raw = "---\ntitle: t\ndate: 2026-01-01\ntags: [組版, \"#SQLite\", ＃日本語, 組版]\n---\n本文";
+        assert_eq!(parse_post("p", raw).unwrap().tags, ["組版", "SQLite", "日本語"]);
+        assert_eq!(parse_article("a", raw).unwrap().tags, ["組版", "SQLite", "日本語"]);
+        let block = "---\ntitle: t\ndate: 2026-01-01\ntags:\n  - a\n  - b\n---\n本文";
+        assert_eq!(parse_post("p", block).unwrap().tags, ["a", "b"]);
+    }
+
+    #[test]
+    fn tags_are_optional() {
+        assert!(parse_post("p", POST).unwrap().tags.is_empty());
+        assert!(parse_post("p", "---\ntitle: t\ndate: 2026-01-01\ntags:\n---\n").unwrap().tags.is_empty());
+        assert!(parse_post("p", "---\ntitle: t\ndate: 2026-01-01\ntags: []\n---\n").unwrap().tags.is_empty());
+    }
+
+    #[test]
+    fn broken_tags_are_errors() {
+        let post = |tags: &str| parse_post("p", &format!("---\ntitle: t\ndate: 2026-01-01\ntags: {tags}\n---\n")).unwrap_err().to_string();
+        assert!(post("組版").contains("リストで書いてください"));
+        assert!(post("[\"a b\"]").contains("空白か # が含まれています"));
+        assert!(post("[\"a#b\"]").contains("空白か # が含まれています"));
+        assert!(post("[\"#\"]").contains("空のタグ"));
+        assert!(post("[\"\"]").contains("空のタグ"));
+    }
+
+    #[test]
+    fn lists_are_only_allowed_for_tags() {
+        let err = parse_post("p", "---\ntitle: [a, b]\ndate: 2026-01-01\n---\n").unwrap_err();
+        assert!(err.to_string().contains("p: title にリストは書けません"), "{err}");
     }
 }

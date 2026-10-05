@@ -2,6 +2,7 @@
 title: "拡張の記法"
 date: 2026-09-26
 description: Zenn を参考にした Markdown の拡張（メッセージ、折りたたみ、数式、図、コードのファイル名など）を、実際の表示と一緒に並べたもの。
+tags: [書き方, 記法]
 ---
 
 [記法の一覧](/articles/syntax) の Markdown と GFM に加えて、[Zenn の記法](https://zenn.dev/zenn/articles/markdown-guide)を参考にした拡張が使えます。
