@@ -14,7 +14,7 @@ import { pageDescription, setMetaDescription } from "./documentMeta";
 import { MarkdownBody } from "./MarkdownBody";
 import { withBasePath } from "./base";
 import { Link, matchPath, navigate, usePath, useSearch } from "./router";
-import { search, searchPath, type SearchKind } from "./search";
+import { search, searchPath, tagQuery, type SearchKind } from "./search";
 import type { SqliteFile } from "./sqlite";
 import { moveActive, suggest } from "./suggest";
 
@@ -116,6 +116,23 @@ function Home() {
   );
 }
 
+/** 記事のタグ（ADR 0048）。押すと、そのタグの付いた記事を探す（/search?q=#タグ）。 */
+function Tags({ tags, className = "" }: { tags: string[]; className?: string }) {
+  if (tags.length === 0) return null;
+  return (
+    <ul aria-label="タグ" className={`flex flex-wrap gap-x-4 text-sm ${className}`}>
+      {tags.map((tag) => (
+        <li key={tag}>
+          {/* 指で押しやすいよう、上下に余白を付けて、押せる範囲を 24px 以上にする。 */}
+          <Link to={searchPath(tagQuery(tag))} className="inline-block py-1">
+            #{tag}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function PostPage({ slug }: { slug: string }) {
   const { db, error } = useDb();
   const post = db ? getPost(db, slug) : null;
@@ -129,6 +146,7 @@ function PostPage({ slug }: { slug: string }) {
       <p className="mt-1 text-gray-600">
         <time>{post.publishedAt}</time>
       </p>
+      <Tags tags={post.tags} className="mt-1" />
       <MarkdownBody source={post.bodyMd} linkCardImages={getLinkCardImages(db)} />
     </article>
   );
@@ -148,6 +166,7 @@ function ArticlePage({ slug }: { slug: string }) {
         <time>{article.publishedAt}</time>
         {article.updatedAt && <span className="ml-3">（{article.updatedAt} 改稿）</span>}
       </p>
+      <Tags tags={article.tags} className="mt-1" />
       <MarkdownBody source={article.bodyMd} linkCardImages={getLinkCardImages(db)} />
     </article>
   );
@@ -222,6 +241,7 @@ function SearchPage() {
                   {KIND_LABELS[result.kind]}
                   {result.date && ` ${result.date}`}
                 </span>
+                <Tags tags={result.tags} />
                 <p className="text-sm text-gray-700">
                   {result.snippet.map((part, i) => (part.match ? <mark key={i}>{part.text}</mark> : part.text))}
                 </p>

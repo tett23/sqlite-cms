@@ -1,6 +1,7 @@
 ---
 title: "sqlite-cms を公開した"
 date: 2026-09-26
+tags: [日記, sqlite-cms]
 ---
 
 このサイトを組み立てている sqlite-cms を公開した。

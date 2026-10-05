@@ -221,6 +221,28 @@ scenario("色分け、数式、図を描き、書き誤りだけを元の文字�
   await tab.size(1024, 800);
 });
 
+scenario("リンクカードは画面の近くに来てから部品を読み込み、画像はカードの大きさの WebP で配信する（ADR 0049）", async ({ tab, origin }) => {
+  // カードの画像は loading="lazy" なので、縦に長い画面にして、どのカードも画面の中に置く。
+  await tab.size(1200, 30000);
+  await tab.goto(origin + "/articles/complex-mixed");
+  await tab.waitFor("document.querySelectorAll('a.link-card').length === 2", { timeout: LAZY_TIMEOUT, message: "カードが 2 枚描かれない" });
+  assert(tab.requests.some((url) => /\/LinkCard-[^/]*\.js$/.test(url)), "カードの部品を読み込んでいない");
+  await tab.waitFor("[...document.querySelectorAll('img.link-card-image')].every((img) => img.complete && img.naturalWidth > 0)", {
+    message: "カードの画像が読み込まれない",
+  });
+  assertEqual(
+    await tab.eval("[...document.querySelectorAll('img.link-card-image')].map((img) => [img.getAttribute('src').endsWith('.webp'), img.naturalWidth, img.naturalHeight])"),
+    [[true, 240, 126], [true, 240, 126]],
+    "カードの画像",
+  );
+  // カードのないページでは、カードの部品を読み込まない。
+  await tab.size(1024, 800);
+  await tab.goto(origin + "/about");
+  await sleep(1000);
+  assert(!tab.requests.some((url) => /\/LinkCard-[^/]*\.js$/.test(url)), "カードのないページでカードの部品を読み込んだ");
+  noProblems(tab, "リンクカード");
+});
+
 scenario("elk は、図で指定したときだけ読み込む（ADR 0040）", async ({ tab, origin }) => {
   await tab.size(1200, 30000);
   // 図の数。すべて描き終わるまで待ってから、elk を読み込んだかを見る（一つ目が描けた時点では、elk の図がまだのことがある）。
@@ -281,6 +303,26 @@ scenario("検索のページは、URL の言葉で結果を出し、ヘッダか
   await tab.waitFor("decodeURIComponent(location.search) === '?q=数式' && document.querySelector('#search-query').value === '数式'");
   await tab.eval("history.back()");
   await tab.waitFor("decodeURIComponent(location.search) === '?q=Rust' && document.querySelector('#search-query').value === 'Rust'");
+});
+
+scenario("記事のタグを出し、タグを押すとそのタグの付いた記事だけを探す（ADR 0048）", async ({ tab, origin }) => {
+  await tab.goto(origin + "/posts/ruby");
+  assertEqual(await tab.eval("[...document.querySelectorAll('article ul[aria-label=タグ] a')].map((a) => a.textContent)"), ["#書き方", "#HTML", "#組版"], "記事のタグ");
+  await tab.eval("window.__marker = true");
+  await tab.eval("[...document.querySelectorAll('article ul[aria-label=タグ] a')].find((a) => a.textContent === '#組版').click()");
+  await tab.waitFor("location.pathname === '/search' && decodeURIComponent(location.search) === '?q=#組版' && document.querySelector('main [role=status]')?.textContent.endsWith('件')");
+  assert(await tab.eval("window.__marker === true"), "ページを読み直した");
+  assertEqual(await tab.eval("document.querySelector('#search-query').value"), "#組版", "検索欄の言葉");
+  // 本文に「組版」とある記事はほかにもあるが、タグの付いた記事だけが出る。
+  assertEqual(await tab.eval("[...document.querySelectorAll('main > div > ul > li > a')].map((a) => a.textContent)"), ["ルビを振る"], "タグで探した結果");
+  assert((await count(tab, "main > div > ul > li")) < (await tab.eval("(async () => { history.replaceState(null, '', '/search?q=組版'); dispatchEvent(new Event('sqlite-cms:navigate')); await new Promise((r) => setTimeout(r, 300)); return document.querySelectorAll('main > div > ul > li').length; })()")), "語で探すと、タグで探すより多く出るはず");
+
+  // ヘッダの検索ボックスでも、# で始まる語でタグを探せる。
+  await tab.goto(origin + "/about");
+  await tab.eval("document.querySelector('#header-search').focus()");
+  await tab.type("#日記");
+  await tab.waitFor("document.querySelectorAll('#header-search-suggestions [role=option]').length === 2", { message: "タグの候補が 2 件出ない" });
+  noProblems(tab, "タグ");
 });
 
 scenario("知らないページは「見つかりません」を出す", async ({ tab, origin }) => {

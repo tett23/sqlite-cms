@@ -12,3 +12,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+# リンクカードの画像を読んで縮める（ADR 0049）。PNG、JPEG、GIF、WebP を読む。
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+# 縮めた画像を、非可逆の WebP にする（libwebp）。image の WebP の書き出しは可逆だけで、写真では大きくなる。
+webp = { version = "0.3", default-features = false }

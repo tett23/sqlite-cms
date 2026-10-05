@@ -9,6 +9,8 @@ export interface PostSummary {
 
 export interface Post extends PostSummary {
   bodyMd: string;
+  /** タグ（ADR 0048）。先頭の # は付かない。 */
+  tags: string[];
 }
 
 export interface ArticleSummary extends PostSummary {
@@ -18,6 +20,8 @@ export interface ArticleSummary extends PostSummary {
 export interface Article extends ArticleSummary {
   updatedAt: string | null;
   bodyMd: string;
+  /** タグ（ADR 0048）。先頭の # は付かない。 */
+  tags: string[];
 }
 
 export interface Page {
@@ -82,6 +86,27 @@ const text = (row: Row, column: string) => (row[column] ?? null) as string | nul
 const newestFirst = (a: Row, b: Row) =>
   compareBinary(text(b, "published_at")!, text(a, "published_at")!) || compareBinary(text(b, "slug")!, text(a, "slug")!);
 
+const tagCache = new WeakMap<SqliteFile, Map<string, string[]>>();
+
+/**
+ * 記事（kind は post か article）のタグを、書いた順に返す（ADR 0048）。同じ DB では一度だけ読む。
+ * タグの表のない DB（タグを入れる前の sqlite-cms で作ったもの）では、空を返す。
+ */
+export function tagsOf(db: SqliteFile, kind: "post" | "article", slug: string): string[] {
+  let tags = tagCache.get(db);
+  if (!tags) {
+    tags = new Map();
+    const rows = db.hasTable("tags") ? [...db.table("tags")] : [];
+    rows.sort((a, b) => (a.position as number) - (b.position as number));
+    for (const row of rows) {
+      const key = `${text(row, "kind")}/${text(row, "slug")}`;
+      tags.set(key, [...(tags.get(key) ?? []), text(row, "tag")!]);
+    }
+    tagCache.set(db, tags);
+  }
+  return tags.get(`${kind}/${slug}`) ?? [];
+}
+
 export function listPosts(db: SqliteFile): PostSummary[] {
   return [...db.table("posts")].sort(newestFirst).map((row) => ({
     slug: text(row, "slug")!,
@@ -100,6 +125,7 @@ export function getPost(db: SqliteFile, slug: string): Post | null {
     title: text(row, "title")!,
     publishedAt: text(row, "published_at")!,
     bodyMd: text(row, "body_md")!,
+    tags: tagsOf(db, "post", slug),
   };
 }
 
@@ -124,6 +150,7 @@ export function getArticle(db: SqliteFile, slug: string): Article | null {
     updatedAt: text(row, "updated_at"),
     description: text(row, "description"),
     bodyMd: text(row, "body_md")!,
+    tags: tagsOf(db, "article", slug),
   };
 }
 

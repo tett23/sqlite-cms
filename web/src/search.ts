@@ -2,6 +2,7 @@
 // すべての文書（post、article、自己紹介）の題名と本文を正規化し、検索する言葉のすべての語を含むものを探す。
 // 以前は sql.js の FTS4 の索引で候補を絞っていたが、最後にこの確かめで結果を決めていたので、索引なしでも結果は同じになる。
 // 記事の数が少ないので、すべての文書を確かめても速い。文書は最初に検索したときに一度だけ作る。
+import { tagsOf } from "./db";
 import type { SqliteFile } from "./sqlite";
 
 export type SearchKind = "post" | "article" | "page";
@@ -18,6 +19,8 @@ export interface SearchResult {
   date: string | null;
   /** サイトの中のパス。 */
   path: string;
+  /** タグ（ADR 0048）。先頭の # は付かない。 */
+  tags: string[];
   /** 本文の、最初に語が現れるあたりの抜き出し。 */
   snippet: SnippetPart[];
 }
@@ -49,13 +52,6 @@ function runs(text: string): { cjk: boolean; text: string }[] {
     }
   }
   return out;
-}
-
-/** 検索する言葉を、空白で区切った語に分ける。記号だけの語は除く。 */
-export function queryTerms(query: string): string[] {
-  return normalize(query)
-    .split(/\s+/)
-    .filter((term) => runs(term).length > 0);
 }
 
 /** 本文の Markdown から、検索と抜き出しに使う文字列を作る（記号を大まかに取り除く）。 */
@@ -113,6 +109,7 @@ interface Document {
   title: string;
   date: string | null;
   text: string;
+  tags: string[];
 }
 
 const PATHS: Record<SearchKind, (slug: string) => string> = {
@@ -141,6 +138,7 @@ function documents(db: SqliteFile): Document[] {
         title: text(row.title)!,
         date: text(row.published_at),
         text: plainText(text(row.body_md)!),
+        tags: tagsOf(db, "post", text(row.slug)!),
       })),
       ...db.table("articles").map((row) => ({
         kind: "article" as const,
@@ -148,26 +146,58 @@ function documents(db: SqliteFile): Document[] {
         title: text(row.title)!,
         date: text(row.published_at),
         text: plainText(`${text(row.description) ?? ""}\n${text(row.body_md)!}`),
+        tags: tagsOf(db, "article", text(row.slug)!),
       })),
       // ページは自己紹介だけに URL がある。
       ...db
         .table("pages")
         .filter((row) => row.slug === "about")
-        .map((row) => ({ kind: "page" as const, slug: text(row.slug)!, title: text(row.title)!, date: null, text: plainText(text(row.body_md)!) })),
+        .map((row) => ({
+          kind: "page" as const,
+          slug: text(row.slug)!,
+          title: text(row.title)!,
+          date: null,
+          text: plainText(text(row.body_md)!),
+          tags: [],
+        })),
     ];
     documentCache.set(db, docs);
   }
   return docs;
 }
 
+/** 検索する言葉を、語（本文と題名とタグから探す）と、タグ（`#` で始まる語。そのタグの付いた記事だけに一致する）に分ける（ADR 0048）。 */
+export function parseQuery(query: string): { terms: string[]; tags: string[] } {
+  const terms: string[] = [];
+  const tags: string[] = [];
+  // 全角の ＃ は、正規化（NFKC）で # になる。
+  for (const word of normalize(query).split(/\s+/)) {
+    if (word.startsWith("#")) {
+      const tag = word.replace(/^#+/, "");
+      if (tag) tags.push(tag);
+    } else if (runs(word).length > 0) {
+      terms.push(word);
+    }
+  }
+  return { terms, tags };
+}
+
+/** タグで探すための言葉（`#タグ`）。タグのリンクと、検索の欄に入れる言葉に使う（ADR 0048）。 */
+export function tagQuery(tag: string): string {
+  return `#${tag}`;
+}
+
 /**
- * 検索する。すべての語を含むものを、題名に語を含むものを先に、新しい順に返す。
+ * 検索する。すべての語を含み、すべてのタグの付いたものを、題名に語を含むものを先に、新しい順に返す。
+ * 語は、題名、タグ、本文から探す。`#` で始まる語は、タグがちょうど一致するものだけを探す（大文字と小文字、全角と半角は区別しない）。
  */
 export function search(db: SqliteFile, query: string): SearchResult[] {
-  const terms = queryTerms(query);
-  if (terms.length === 0) return [];
+  const { terms, tags } = parseQuery(query);
+  if (terms.length === 0 && tags.length === 0) return [];
   const results = documents(db).filter((doc) => {
-    const haystack = normalize(`${doc.title}\n${doc.text}`);
+    const docTags = doc.tags.map(normalize);
+    if (!tags.every((tag) => docTags.includes(tag))) return false;
+    const haystack = normalize(`${doc.title}\n${doc.tags.join(" ")}\n${doc.text}`);
     return terms.every((term) => haystack.includes(term));
   });
   const titleHits = (doc: { title: string }) => terms.filter((term) => normalize(doc.title).includes(term)).length;
@@ -178,6 +208,7 @@ export function search(db: SqliteFile, query: string): SearchResult[] {
     title: doc.title,
     date: doc.date,
     path: PATHS[doc.kind](doc.slug),
+    tags: doc.tags,
     snippet: snippet(doc.text, terms),
   }));
 }

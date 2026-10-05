@@ -20,6 +20,8 @@ pub struct FeedItem {
     pub title: String,
     pub date: String,
     pub summary: String,
+    /// タグ（ADR 0048）。RSS の category として載せる。
+    pub tags: Vec<String>,
 }
 
 /// post と article を、日付の新しい順（同じ日付ならパスの逆順）に並べ、先頭の MAX_ITEMS 件を返す。
@@ -31,12 +33,14 @@ pub fn items(posts: &[Post], articles: &[Article]) -> Vec<FeedItem> {
             title: p.title.clone(),
             date: p.published_at.clone(),
             summary: excerpt(&p.body_md),
+            tags: p.tags.clone(),
         })
         .chain(articles.iter().map(|a| FeedItem {
             path: format!("articles/{}", a.slug),
             title: a.title.clone(),
             date: a.published_at.clone(),
             summary: a.description.clone().filter(|d| !d.trim().is_empty()).unwrap_or_else(|| excerpt(&a.body_md)),
+            tags: a.tags.clone(),
         }))
         .collect();
     items.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| b.path.cmp(&a.path)));
@@ -169,6 +173,9 @@ pub fn rss(site: &SiteConfig, url: &str, items: &[FeedItem]) -> String {
         if !item.summary.is_empty() {
             xml.push_str(&format!("<description>{}</description>\n", escape(&item.summary)));
         }
+        for tag in &item.tags {
+            xml.push_str(&format!("<category>{}</category>\n", escape(tag)));
+        }
         xml.push_str("</item>\n");
     }
     xml.push_str("</channel>\n</rss>\n");
@@ -181,7 +188,7 @@ mod tests {
     use crate::site::parse_site_config;
 
     fn post(slug: &str, date: &str, body: &str) -> Post {
-        Post { slug: slug.into(), title: format!("{slug} の題"), published_at: date.into(), body_md: body.into() }
+        Post { slug: slug.into(), title: format!("{slug} の題"), published_at: date.into(), body_md: body.into(), tags: Vec::new() }
     }
 
     fn article(slug: &str, date: &str, description: Option<&str>) -> Article {
@@ -192,6 +199,7 @@ mod tests {
             updated_at: None,
             description: description.map(str::to_string),
             body_md: "本文の**書き出し**。".into(),
+            tags: vec!["組版".into(), "A&B".into()],
         }
     }
 
@@ -241,6 +249,9 @@ mod tests {
         assert!(xml.contains("<guid isPermaLink=\"true\">https://example.com/blog/posts/hello</guid>"));
         assert!(xml.contains("<title>x &amp; &lt;題&gt;</title>"));
         assert!(xml.contains("<description>こんにちは</description>"));
+        // タグは category として載せる（ADR 0048）。タグのない post には付けない。
+        assert!(xml.contains("<category>組版</category>\n<category>A&amp;B</category>\n</item>"), "{xml}");
+        assert_eq!(xml.matches("<category>").count(), 2);
         assert!(xml.trim_end().ends_with("</rss>"));
     }
 }

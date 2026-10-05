@@ -1,6 +1,7 @@
 ---
 title: "ルビを振る"
 date: 2026-09-23
+tags: [書き方, HTML, 組版]
 ---
 
 本文に <ruby>振<rp>（</rp><rt>ふ</rt><rp>）</rp></ruby>り<ruby>仮名<rp>（</rp><rt>がな</rt><rp>）</rp></ruby>を付けたいときは、`<ruby>` を使う。

@@ -1,6 +1,6 @@
 import initSqlJs from "sql.js";
 import { beforeAll, describe, expect, it } from "vitest";
-import { plainText, queryTerms, search, searchPath, snippet } from "./search";
+import { parseQuery, plainText, search, searchPath, snippet, tagQuery } from "./search";
 import { SqliteFile } from "./sqlite";
 
 let db: SqliteFile;
@@ -23,6 +23,12 @@ beforeAll(async () => {
     null,
     "記事リポジトリを作ってから、Cloudflare に公開するまでの手順。\n\n```sh\nsqlite-cms init my-blog\n```",
   ]);
+  // タグ（ADR 0048）。about の本文にも「日本語」があるが、タグは付いていない。
+  const tag = (kind: string, slug: string, tags: string[]) =>
+    tags.forEach((name, position) => sql.run("INSERT INTO tags VALUES (?, ?, ?, ?)", [kind, slug, position, name]));
+  tag("post", "ruby", ["マークアップ", "日本語"]);
+  tag("post", "shiki", ["マークアップ", "ハイライト"]);
+  tag("article", "getting-started", ["手引き", "HTML"]);
   sql.run("INSERT INTO pages VALUES (?, ?, ?)", ["about", "自己紹介", "組版と日本語の文章が好きです。"]);
   sql.run("INSERT INTO pages VALUES (?, ?, ?)", ["draft", "下書き", "組版の下書き。URL のないページ。"]);
   // sql.js で作った DB を書き出し、ページの表示と同じく自前の読み手で開く（ADR 0047）。
@@ -32,8 +38,13 @@ beforeAll(async () => {
 
 describe("語の分け方", () => {
   it("検索する言葉を、空白で区切った語に分け、全角の英数字を半角に、大文字を小文字にする", () => {
-    expect(queryTerms("  ＳＨＩＫＩ  使い方 ")).toEqual(["shiki", "使い方"]);
-    expect(queryTerms("!!! 字")).toEqual(["字"]);
+    expect(parseQuery("  ＳＨＩＫＩ  使い方 ")).toEqual({ terms: ["shiki", "使い方"], tags: [] });
+    expect(parseQuery("!!! 字")).toEqual({ terms: ["字"], tags: [] });
+  });
+
+  it("# で始まる語は、タグとして分ける。全角の ＃ も同じに扱う（ADR 0048）", () => {
+    expect(parseQuery("#組版 使い方 ＃ＳＱＬｉｔｅ")).toEqual({ terms: ["使い方"], tags: ["組版", "sqlite"] });
+    expect(parseQuery("# ## C#入門")).toEqual({ terms: ["c#入門"], tags: [] });
   });
 
   it("Markdown の記号を大まかに取り除く", () => {
@@ -83,6 +94,43 @@ describe("検索", () => {
 
   it("空の言葉では何も返さない", () => {
     expect(search(db, "  ")).toEqual([]);
+    expect(search(db, " # ")).toEqual([]);
+  });
+});
+
+describe("タグで探す（ADR 0048）", () => {
+  const titles = (query: string) => search(db, query).map((r) => r.title);
+
+  it("# で始まる語は、そのタグの付いた記事だけに一致する", () => {
+    expect(titles("#マークアップ")).toEqual(["コードの色分け", "ルビを振る"]);
+    // 本文に「日本語」がある自己紹介は、タグが付いていないので出ない。
+    expect(titles("#日本語")).toEqual(["ルビを振る"]);
+  });
+
+  it("タグは、全体が一致するものだけを探す。大文字と小文字、全角と半角は区別しない", () => {
+    expect(titles("#マーク")).toEqual([]);
+    expect(titles("#html")).toEqual(["sqlite-cms の使い方"]);
+    expect(titles("＃ＨＴＭＬ")).toEqual(["sqlite-cms の使い方"]);
+  });
+
+  it("タグと語、タグとタグを組み合わせられる", () => {
+    expect(titles("#マークアップ 振")).toEqual(["ルビを振る"]);
+    expect(titles("#マークアップ #ハイライト")).toEqual(["コードの色分け"]);
+    expect(titles("#マークアップ #手引き")).toEqual([]);
+  });
+
+  it("# のない語は、タグからも探す", () => {
+    expect(titles("日本語")).toEqual(["ルビを振る", "自己紹介"]);
+    expect(titles("ハイライ")).toEqual(["コードの色分け"]);
+  });
+
+  it("結果にタグを付ける", () => {
+    expect(search(db, "#ハイライト").map((r) => r.tags)).toEqual([["マークアップ", "ハイライト"]]);
+    expect(search(db, "組版").map((r) => r.tags)).toEqual([[]]);
+  });
+
+  it("タグのリンクは、# を付けた言葉での検索になる", () => {
+    expect(searchPath(tagQuery("組版"))).toBe("/search?q=%23%E7%B5%84%E7%89%88");
   });
 });
 

@@ -126,6 +126,11 @@ export class SqliteFile {
     if (this.view.getUint32(56) > 1) throw new Error("UTF-8 以外で符号化したデータベースには対応していません");
   }
 
+  /** 表があるか。 */
+  hasTable(name: string): boolean {
+    return this.schemaTable().has(name);
+  }
+
   /** 表のすべての行を、rowid の順に返す。 */
   table(name: string): Row[] {
     let rows = this.tables.get(name);

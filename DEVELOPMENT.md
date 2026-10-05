@@ -20,6 +20,7 @@ docs/        仕様書と ADR
 ## 必要なもの
 
 - Rust（stable）
+- C コンパイラ（リンクカードの画像を WebP にする libwebp を、ビルドのときに一緒にビルドする。ADR 0049。macOS は Xcode の Command Line Tools）
 - Node 22 以降
 
 型検査には、Go で実装された TypeScript 7 の `tsc` を使う（ADR 0012）。

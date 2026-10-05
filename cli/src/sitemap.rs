@@ -68,7 +68,7 @@ mod tests {
     use super::*;
 
     fn post(slug: &str, date: &str) -> Post {
-        Post { slug: slug.into(), title: "t".into(), published_at: date.into(), body_md: String::new() }
+        Post { slug: slug.into(), title: "t".into(), published_at: date.into(), body_md: String::new(), tags: Vec::new() }
     }
 
     fn article(slug: &str, date: &str, updated: Option<&str>) -> Article {
@@ -79,6 +79,7 @@ mod tests {
             updated_at: updated.map(str::to_string),
             description: None,
             body_md: String::new(),
+            tags: Vec::new(),
         }
     }
 
