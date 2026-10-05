@@ -191,6 +191,28 @@ export function getLinkCardImages(db: SqliteFile): ReadonlyMap<string, string> {
   return images;
 }
 
+/** 本文の画像の大きさ（px、ADR 0051）。 */
+export interface MediaSize {
+  width: number;
+  height: number;
+}
+
+const mediaSizeCache = new WeakMap<SqliteFile, ReadonlyMap<string, MediaSize>>();
+
+/**
+ * 本文の画像（/media/…）のパスと、その大きさ（ADR 0051）。同じ DB では一度だけ読む。
+ * 大きさの表のない DB（表を入れる前の sqlite-cms で作ったもの）では、空を返す。
+ */
+export function getMediaSizes(db: SqliteFile): ReadonlyMap<string, MediaSize> {
+  let sizes = mediaSizeCache.get(db);
+  if (!sizes) {
+    const rows = db.hasTable("media_sizes") ? db.table("media_sizes") : [];
+    sizes = new Map(rows.map((row) => [text(row, "path")!, { width: row.width as number, height: row.height as number }]));
+    mediaSizeCache.set(db, sizes);
+  }
+  return sizes;
+}
+
 /** 統合一覧（ADR 0033）の項目。post と article をまとめたもの。 */
 export interface ListEntry {
   kind: "post" | "article";

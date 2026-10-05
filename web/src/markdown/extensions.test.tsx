@@ -76,7 +76,10 @@ describe(":::message と :::details", () => {
 
 describe("数式", () => {
   it("$$ で囲んだブロックと $ で囲んだ数式を取り出す（KaTeX を読み込む前は TeX のまま）", () => {
-    expect(render("$$\ne^{i\\theta} = \\cos\\theta\n$$")).toBe('<div class="math-display">e^{i\\theta} = \\cos\\theta</div>');
+    expect(render("$$\ne^{i\\theta} = \\cos\\theta\n$$")).toBe(
+      // 組んだときの高さを見積もって、場所を取っておく（ADR 0051）。
+      '<div style="min-height:3.75rem;" class="math-display">e^{i\\theta} = \\cos\\theta</div>',
+    );
     expect(render("式 $a\\ne0$ です")).toBe('<p>式 <span class="math-inline">a\\ne0</span> です</p>');
   });
 

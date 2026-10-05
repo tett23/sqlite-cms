@@ -1,7 +1,7 @@
+import { toChildArray } from "preact";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import Markdown, { type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
-import remarkGfm from "remark-gfm";
 import { withBasePath } from "./base";
 import type { HighlightedBlock } from "./highlight";
 import { highlightLoader } from "./highlightLoader";
@@ -9,6 +9,8 @@ import { needsHighlight } from "./highlightLanguages";
 import { inTurn, useLazy } from "./lazyLoader";
 import { useNearViewport } from "./nearViewport";
 import { MATH_DISPLAY_CLASS, MATH_INLINE_CLASS } from "./markdown/math";
+import { firstPart } from "./markdown/firstPart";
+import { remarkGfmParse } from "./markdown/gfm";
 import { LINK_CARD_SLOT_CLASS } from "./markdown/transforms";
 import { linkCardLoader } from "./render/loaders";
 import { Diagram } from "./render/Diagram";
@@ -17,9 +19,13 @@ import { rehypeRawHtml } from "./markdown/rawHtml";
 import { remarkExtensions } from "./markdown/remarkExtensions";
 import { PARTIAL_SEARCH_CLASS, sanitizeSchema, unwrapPlainElements } from "./sanitize";
 import { Link } from "./router";
+import type { MediaSize } from "./db";
 
 const NO_LINK_CARD_IMAGES: ReadonlyMap<string, string> = new Map();
+const NO_MEDIA_SIZES: ReadonlyMap<string, MediaSize> = new Map();
 const NO_PARTIALS: PartialComponents = {};
+
+const remarkPlugins: Options["remarkPlugins"] = [remarkGfmParse, remarkExtensions];
 
 const remarkRehypeOptions: Options["remarkRehypeOptions"] = {
   allowDangerousHtml: true,
@@ -69,6 +75,27 @@ function isTaskListItem(node: ExtraProps["node"]): boolean {
   return Array.isArray(className) && className.includes("task-list-item");
 }
 
+/** 本文の画像（/media/…）の大きさ（DB の media_sizes、ADR 0051）。 */
+const MediaSizes = createContext<ReadonlyMap<string, MediaSize>>(new Map());
+
+/** 画像に付ける width と height。大きさが分かれば、画像を読み込む前から場所を取り、本文がずれないようにする（ADR 0051）。 */
+function imageSize(src: unknown, width: unknown, sizes: ReadonlyMap<string, MediaSize>): { width?: number; height?: number } {
+  if (typeof src !== "string") return {};
+  let size = sizes.get(src);
+  if (!size) {
+    try {
+      size = sizes.get(decodeURI(src));
+    } catch {
+      return {};
+    }
+  }
+  if (!size) return {};
+  // `=160x` で幅だけを指定したときは、縦横比を保つ高さにする。
+  const shown = typeof width === "number" ? width : typeof width === "string" && /^\d+$/.test(width) ? Number(width) : null;
+  if (shown === null) return { width: size.width, height: size.height };
+  return { width: shown, height: Math.round((shown * size.height) / size.width) };
+}
+
 /** リンクカードの URL と画像のパス（DB の link_cards、ADR 0028）。 */
 const LinkCardImages = createContext<ReadonlyMap<string, string>>(new Map());
 
@@ -110,7 +137,8 @@ const components: Components = {
   },
   // 本文の画像（/media/…）とリンクカードの画像（/link-cards/…）は、サイトを置くパスから始める（ADR 0030）。
   img({ node: _node, src, ...props }) {
-    return <img src={typeof src === "string" ? withBasePath(src) : src} {...props} />;
+    const size = imageSize(src, props.width, useContext(MediaSizes));
+    return <img src={typeof src === "string" ? withBasePath(src) : src} {...props} {...size} />;
   },
   li({ node, ...props }) {
     const item = <li {...props} />;
@@ -181,12 +209,37 @@ const components: Components = {
   },
 };
 
+/** 長い本文を少しずつ描くとき（ADR 0051）、最初に描く要素の数（ブロックの間の改行を含む）。最初の画面に収まるより多くする。 */
+const FIRST_CHILDREN = 24;
+/** 残りを描くときに、一度に描く要素の数。 */
+const NEXT_CHILDREN = 48;
+
+/** GFM の脚注の欄（section.footnotes）。 */
+function isFootnotes(child: unknown): boolean {
+  const vnode = child as { type?: unknown; props?: { className?: unknown } } | null;
+  return typeof vnode === "object" && vnode?.type === "section" && vnode.props?.className === "footnotes";
+}
+
+/** 描いた結果が画面に出た後に、fn を別のタスクで呼ぶ。取り消す関数を返す。 */
+function afterPaint(fn: () => void): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const frame = requestAnimationFrame(() => {
+    timer = setTimeout(fn, 0);
+  });
+  return () => {
+    cancelAnimationFrame(frame);
+    clearTimeout(timer);
+  };
+}
+
 export function MarkdownBody({
   source,
   className = "mt-6",
   baseClassName = "article-body",
   linkCardImages = NO_LINK_CARD_IMAGES,
+  mediaSizes = NO_MEDIA_SIZES,
   partials = NO_PARTIALS,
+  progressive = false,
 }: {
   source: string;
   className?: string;
@@ -194,22 +247,44 @@ export function MarkdownBody({
   baseClassName?: string;
   /** リンクカードの URL と画像のパス（DB の link_cards、ADR 0028）。 */
   linkCardImages?: ReadonlyMap<string, string>;
+  /** 本文の画像の大きさ（DB の media_sizes、ADR 0051）。 */
+  mediaSizes?: ReadonlyMap<string, MediaSize>;
   /** `{{> 名前}}` に置く部品（ヘッダだけで使う）。 */
   partials?: PartialComponents;
+  /**
+   * 少しずつ描く（ADR 0051）。最初は先頭の部分の、先頭の要素だけを解析して描き、画面に出す。
+   * 全体の解析と残りの要素は、画面に出た後に、別のタスクで少しずつ描く。
+   * 長い本文を一度に解析して描くと、最初の画面に出るのが遅れ（LCP）、長いタスクになるためである。
+   */
+  progressive?: boolean;
 }) {
-  const remarkPlugins = useMemo<Options["remarkPlugins"]>(() => [remarkGfm, remarkExtensions], []);
+  // 少しずつ描くときは、最初の画面には先頭の部分（firstPart）だけを解析して描く。全体の解析は、画面に出た後に行う。
+  const part = useMemo(() => (progressive ? firstPart(source) : null), [progressive, source]);
+  const initial = { source, whole: part === null, count: progressive ? FIRST_CHILDREN : Infinity };
+  const [progress, setProgress] = useState(initial);
+  const current = progress.source === source ? progress : initial;
+  // Markdown を解析して要素を作るのは、描く文字列が変わったときだけにする。少しずつ描くときも、作った要素を使い回す。
+  const text = current.whole ? source : part!;
+  const children = useMemo(() => {
+    const all = toChildArray(
+      Markdown({ remarkPlugins, remarkRehypeOptions, rehypePlugins: baseRehypePlugins, components, children: text }).props.children,
+    );
+    // 先頭の部分の脚注の欄は描かない。全体を描くと本文の最後に移り、それまでに画面に出ていれば、ずれになる。
+    return current.whole ? all : all.filter((child) => !isFootnotes(child));
+  }, [text, current.whole]);
+  const done = current.whole && current.count >= children.length;
+  useEffect(() => {
+    if (done) return;
+    return afterPaint(() =>
+      setProgress({ source, whole: true, count: current.whole ? current.count + NEXT_CHILDREN : current.count }),
+    );
+  }, [done, source, current.whole, current.count]);
+  const count = current.count;
   return (
     <div className={className ? `${baseClassName} ${className}` : baseClassName}>
       <Partials value={partials}>
         <LinkCardImages value={linkCardImages}>
-          <Markdown
-            remarkPlugins={remarkPlugins}
-            remarkRehypeOptions={remarkRehypeOptions}
-            rehypePlugins={baseRehypePlugins}
-            components={components}
-          >
-            {source}
-          </Markdown>
+          <MediaSizes value={mediaSizes}>{count >= children.length ? children : children.slice(0, count)}</MediaSizes>
         </LinkCardImages>
       </Partials>
     </div>

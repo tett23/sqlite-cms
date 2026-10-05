@@ -110,13 +110,14 @@ impl SiteOutput {
     /// DB、マニフェスト、画像、favicon、リンクカードの画像を組み立てる。リンクカードの画像は fetcher で取得する。
     pub fn data(site_dir: &Path, fetcher: &dyn Fetcher) -> Result<Self> {
         let cards = linkcard::collect(site_dir, &db::markdown_sources(site_dir)?, fetcher);
-        let bytes = db::build_db_bytes(site_dir, &cards)?;
+        let media = media::read_media(&site_dir.join("content").join("media"))?;
+        let bytes = db::build_db_bytes(site_dir, &cards, &media::sizes(&media))?;
         let db_path = format!("/db/{}", db::db_file_name(&bytes));
 
         let mut files = BTreeMap::new();
         files.insert("/db/manifest.json".to_string(), format!("{{\"db\":\"{db_path}\"}}\n").into_bytes());
         files.insert(db_path, bytes);
-        for (path, bytes) in media::read_media(&site_dir.join("content").join("media"))? {
+        for (path, bytes) in media {
             files.insert(format!("/media/{path}"), bytes);
         }
         files.insert("/favicon.svg".to_string(), read_favicon(site_dir)?);

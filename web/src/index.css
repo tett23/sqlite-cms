@@ -134,6 +134,8 @@ a.site-title:visited {
 
 .article-body img {
   max-width: 100%;
+  /* width と height を付けた画像（ADR 0051）を、幅を縮めたときも縦横比を保って表示する。 */
+  height: auto;
 }
 
 .article-body hr {
