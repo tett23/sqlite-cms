@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "preact-render-to-string";
 import { beforeAll, describe, expect, it } from "vitest";
 import { highlightLoader } from "../highlightLoader";
 import { MarkdownBody } from "../MarkdownBody";
-import { katexLoader } from "../render/loaders";
+import { katexLoader, linkCardLoader } from "../render/loaders";
 import { parseContainerInfo } from "./container";
 import { parseCodeInfo } from "./transforms";
 
@@ -208,18 +208,23 @@ describe("画像の幅", () => {
 });
 
 describe("リンクカード", () => {
+  // カードの部品は後から読み込む（ADR 0049）。読み込む前の表示は linkCard.test.tsx で確かめる。
+  beforeAll(async () => {
+    await linkCardLoader.load();
+  });
+
   it("URL だけの段落をカードにする", () => {
     expect(render("https://example.com/path")).toBe(
-      '<p><a href="https://example.com/path" class="link-card"><span class="link-card-text"><span class="link-card-host">example.com</span><span class="link-card-url">https://example.com/path</span></span></a></p>',
+      '<a href="https://example.com/path" class="link-card"><span class="link-card-text"><span class="link-card-host">example.com</span><span class="link-card-url">https://example.com/path</span></span></a>',
     );
     expect(render("<https://example.com>")).toContain('class="link-card"');
   });
 
   it("ビルドのときに取得した画像があれば、カードに表示する（代替テキストは空）", () => {
-    const images = new Map([["https://example.com/path", "/link-cards/0123456789abcdef.png"]]);
+    const images = new Map([["https://example.com/path", "/link-cards/0123456789abcdef.webp"]]);
     const html = renderToStaticMarkup(<MarkdownBody source={"https://example.com/path\n\nhttps://example.com/other"} linkCardImages={images} />);
     expect(html).toContain(
-      '<span class="link-card-url">https://example.com/path</span></span><img src="/link-cards/0123456789abcdef.png" alt loading="lazy" class="link-card-image"/></a>',
+      '<span class="link-card-url">https://example.com/path</span></span><img src="/link-cards/0123456789abcdef.webp" alt loading="lazy" class="link-card-image"/></a>',
     );
     // 画像のない URL のカードには img を付けない。
     expect(html.match(/<img /g)).toHaveLength(1);

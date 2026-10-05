@@ -221,6 +221,28 @@ scenario("色分け、数式、図を描き、書き誤りだけを元の文字�
   await tab.size(1024, 800);
 });
 
+scenario("リンクカードは画面の近くに来てから部品を読み込み、画像はカードの大きさの WebP で配信する（ADR 0049）", async ({ tab, origin }) => {
+  // カードの画像は loading="lazy" なので、縦に長い画面にして、どのカードも画面の中に置く。
+  await tab.size(1200, 30000);
+  await tab.goto(origin + "/articles/complex-mixed");
+  await tab.waitFor("document.querySelectorAll('a.link-card').length === 2", { timeout: LAZY_TIMEOUT, message: "カードが 2 枚描かれない" });
+  assert(tab.requests.some((url) => /\/LinkCard-[^/]*\.js$/.test(url)), "カードの部品を読み込んでいない");
+  await tab.waitFor("[...document.querySelectorAll('img.link-card-image')].every((img) => img.complete && img.naturalWidth > 0)", {
+    message: "カードの画像が読み込まれない",
+  });
+  assertEqual(
+    await tab.eval("[...document.querySelectorAll('img.link-card-image')].map((img) => [img.getAttribute('src').endsWith('.webp'), img.naturalWidth, img.naturalHeight])"),
+    [[true, 240, 126], [true, 240, 126]],
+    "カードの画像",
+  );
+  // カードのないページでは、カードの部品を読み込まない。
+  await tab.size(1024, 800);
+  await tab.goto(origin + "/about");
+  await sleep(1000);
+  assert(!tab.requests.some((url) => /\/LinkCard-[^/]*\.js$/.test(url)), "カードのないページでカードの部品を読み込んだ");
+  noProblems(tab, "リンクカード");
+});
+
 scenario("elk は、図で指定したときだけ読み込む（ADR 0040）", async ({ tab, origin }) => {
   await tab.size(1200, 30000);
   // 図の数。すべて描き終わるまで待ってから、elk を読み込んだかを見る（一つ目が描けた時点では、elk の図がまだのことがある）。

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import Markdown, { type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
@@ -9,7 +9,8 @@ import { needsHighlight } from "./highlightLanguages";
 import { inTurn, useLazy } from "./lazyLoader";
 import { useNearViewport } from "./nearViewport";
 import { MATH_DISPLAY_CLASS, MATH_INLINE_CLASS } from "./markdown/math";
-import { LINK_CARD_IMAGE_CLASS } from "./markdown/transforms";
+import { LINK_CARD_SLOT_CLASS } from "./markdown/transforms";
+import { linkCardLoader } from "./render/loaders";
 import { Diagram } from "./render/Diagram";
 import { MathView } from "./render/Math";
 import { rehypeRawHtml } from "./markdown/rawHtml";
@@ -68,14 +69,31 @@ function isTaskListItem(node: ExtraProps["node"]): boolean {
   return Array.isArray(className) && className.includes("task-list-item");
 }
 
+/** リンクカードの URL と画像のパス（DB の link_cards、ADR 0028）。 */
+const LinkCardImages = createContext<ReadonlyMap<string, string>>(new Map());
+
+const logLinkCardError = (error: unknown) => console.error("リンクカードを読み込めませんでした", error);
+
 /**
- * リンクカードの画像は、画面の近くに来てから読み込む（ADR 0038）。
- * loading="lazy" だけでは、Chrome は画面から 1,250 px 以内の画像をすぐに読み込むので、画面の外のカードの画像が本文の表示と回線を取り合う。
- * 画像の大きさは CSS で固定してあるので、後から読み込んでも本文はずれない。
+ * リンクカードを置く場所（ADR 0049）。画面の近くに来たら、カードの部品を読み込んで描く。
+ * 読み込むまでは中身のリンクを、カードと同じ枠の中に出す（CSS で、カードと同じ最低の高さを取る）。
  */
-function LinkCardImage({ src, ...props }: ComponentProps<"img">) {
-  const [ref, near] = useNearViewport<HTMLImageElement>();
-  return <img ref={ref} src={near ? src : undefined} {...props} />;
+function LinkCardSlot({ url, children }: { url: string; children: ReactNode }) {
+  const [ref, near] = useNearViewport<HTMLDivElement>();
+  const cards = useLazy(linkCardLoader, logLinkCardError, near);
+  const image = useContext(LinkCardImages).get(url);
+  if (cards) return <cards.LinkCard url={url} image={image === undefined ? undefined : withBasePath(image)} />;
+  return (
+    <div ref={ref} className={LINK_CARD_SLOT_CLASS}>
+      {children}
+    </div>
+  );
+}
+
+/** リンクカードを置く場所の、中身のリンクの URL。 */
+function slotUrl(node: HastNode): string | null {
+  const link = node.children?.find((child) => child.tagName === "a") as (HastNode & { properties?: { href?: unknown } }) | undefined;
+  return typeof link?.properties?.href === "string" ? link.properties.href : null;
 }
 
 /** ヘッダの `{{> 名前}}` に置く部品（ADR 0043）。渡さなければ何も置かない。 */
@@ -91,10 +109,8 @@ const components: Components = {
     return isInternal(href) ? <Link to={href} {...props} /> : <a href={href} {...props} />;
   },
   // 本文の画像（/media/…）とリンクカードの画像（/link-cards/…）は、サイトを置くパスから始める（ADR 0030）。
-  img({ node, src, ...props }) {
-    const path = typeof src === "string" ? withBasePath(src) : src;
-    if (hasClass(node as HastNode, LINK_CARD_IMAGE_CLASS)) return <LinkCardImage src={path} {...props} />;
-    return <img src={path} {...props} />;
+  img({ node: _node, src, ...props }) {
+    return <img src={typeof src === "string" ? withBasePath(src) : src} {...props} />;
   },
   li({ node, ...props }) {
     const item = <li {...props} />;
@@ -104,6 +120,8 @@ const components: Components = {
     const partials = useContext(Partials);
     if (hasClass(node as HastNode, MATH_DISPLAY_CLASS)) return <MathView tex={textOf(node as HastNode)} display />;
     if (hasClass(node as HastNode, PARTIAL_SEARCH_CLASS)) return <>{partials.search ?? null}</>;
+    const url = hasClass(node as HastNode, LINK_CARD_SLOT_CLASS) ? slotUrl(node as HastNode) : null;
+    if (url) return <LinkCardSlot url={url}>{props.children}</LinkCardSlot>;
     return <div {...props} />;
   },
   span({ node, ...props }) {
@@ -179,21 +197,20 @@ export function MarkdownBody({
   /** `{{> 名前}}` に置く部品（ヘッダだけで使う）。 */
   partials?: PartialComponents;
 }) {
-  const remarkPlugins = useMemo<Options["remarkPlugins"]>(
-    () => [remarkGfm, [remarkExtensions, { linkCardImage: (url: string) => linkCardImages.get(url) }]],
-    [linkCardImages],
-  );
+  const remarkPlugins = useMemo<Options["remarkPlugins"]>(() => [remarkGfm, remarkExtensions], []);
   return (
     <div className={className ? `${baseClassName} ${className}` : baseClassName}>
       <Partials value={partials}>
-        <Markdown
-          remarkPlugins={remarkPlugins}
-          remarkRehypeOptions={remarkRehypeOptions}
-          rehypePlugins={baseRehypePlugins}
-          components={components}
-        >
-          {source}
-        </Markdown>
+        <LinkCardImages value={linkCardImages}>
+          <Markdown
+            remarkPlugins={remarkPlugins}
+            remarkRehypeOptions={remarkRehypeOptions}
+            rehypePlugins={baseRehypePlugins}
+            components={components}
+          >
+            {source}
+          </Markdown>
+        </LinkCardImages>
       </Partials>
     </div>
   );

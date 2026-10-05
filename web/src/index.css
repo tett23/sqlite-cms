@@ -285,6 +285,25 @@ a.site-title:visited {
   color: #555555;
 }
 
+/*
+ * リンクカードを置く場所（ADR 0049）。カードの部品を読み込むまでは、中身のリンクをカードと同じ枠の中に出し、
+ * カードと同じ最低の高さ（画像の高さ＋上下の余白と枠）を取る。カードに替わるときに、本文がずれないようにするためである。
+ */
+.article-body .link-card-slot,
+.article-body a.link-card {
+  min-height: calc(3.9rem + 1rem + 2px);
+  margin-bottom: 1rem;
+}
+
+.article-body .link-card-slot {
+  display: flex;
+  align-items: center;
+  border: 1px solid #999999;
+  padding: 0.5rem 0.75rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
 .article-body a.link-card {
   display: flex;
   align-items: center;

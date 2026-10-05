@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
+
+use crate::cardimage;
 use serde::{Deserialize, Serialize};
 
 /// 取得の結果を保存するディレクトリ（記事リポジトリからの相対パス）。
@@ -369,6 +371,34 @@ fn fetch_card(fetcher: &dyn Fetcher, url: &str) -> Result<Option<LinkCard>> {
     Ok(Some(LinkCard { url: url.to_string(), path: format!("{PATH_PREFIX}{}.{extension}", key(url)), bytes: image.body }))
 }
 
+/// 配信する形にする（ADR 0049）。カードの大きさに縮めた WebP にし、`/link-cards/<ハッシュ>.webp` で配信する。
+/// 作った WebP は、元の画像の中身から決めた名前で保存し、次のビルドからはそれを使う（元の画像を取り直せば作り直す）。
+/// WebP にできない画像（AVIF など）は、警告を出して、取得したまま配信する。
+fn to_served(site_dir: &Path, card: LinkCard) -> LinkCard {
+    let served_path = format!("{PATH_PREFIX}{}.webp", key(&card.url));
+    let converted = cache_dir(site_dir).join(format!(
+        "{}.{}x{}.webp",
+        &blake3::hash(&card.bytes).to_hex()[..16],
+        cardimage::WIDTH,
+        cardimage::HEIGHT
+    ));
+    if let Ok(bytes) = fs::read(&converted) {
+        return LinkCard { url: card.url, path: served_path, bytes };
+    }
+    match cardimage::to_webp(&card.bytes) {
+        Ok(bytes) => {
+            if let Err(error) = fs::create_dir_all(cache_dir(site_dir)).and_then(|_| fs::write(&converted, &bytes)) {
+                eprintln!("警告: WebP にしたリンクカードの画像を保存できませんでした: {error}");
+            }
+            LinkCard { url: card.url, path: served_path, bytes }
+        }
+        Err(error) => {
+            eprintln!("警告: リンクカードの画像を WebP にできませんでした（取得したまま配信します）: {}: {error:#}", card.url);
+            card
+        }
+    }
+}
+
 /// 本文のリンクカードの画像を集める。保存済みのものはそれを使い、なければ取得して保存する。
 /// 取得できなかったものは警告を出して飛ばす（ビルドは止めない）。
 pub fn collect(site_dir: &Path, sources: &[String], fetcher: &dyn Fetcher) -> Vec<LinkCard> {
@@ -376,7 +406,7 @@ pub fn collect(site_dir: &Path, sources: &[String], fetcher: &dyn Fetcher) -> Ve
     let mut cards = Vec::new();
     for url in urls {
         if let Some(cached) = read_cache(site_dir, &url) {
-            cards.extend(cached);
+            cards.extend(cached.map(|card| to_served(site_dir, card)));
             continue;
         }
         if fetcher.offline() {
@@ -388,7 +418,7 @@ pub fn collect(site_dir: &Path, sources: &[String], fetcher: &dyn Fetcher) -> Ve
                 if let Err(error) = write_cache(site_dir, &url, card.as_ref()) {
                     eprintln!("警告: リンクカードの画像を保存できませんでした: {error:#}");
                 }
-                cards.extend(card);
+                cards.extend(card.map(|card| to_served(site_dir, card)));
             }
             Err(error) => eprintln!("警告: リンクカードの画像を取得できませんでした: {url}: {error:#}"),
         }
@@ -523,6 +553,7 @@ https://
         let cards = collect(site.path(), &sources, &fetcher);
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].url, "https://example.com/a");
+        // PNG の先頭だけの偽の画像は WebP にできないので、取得したまま配信する（ADR 0049）。
         assert_eq!(cards[0].path, format!("/link-cards/{}.png", key("https://example.com/a")));
         assert_eq!(cards[0].bytes, PNG);
 
@@ -539,5 +570,57 @@ https://
         let cards = collect(site.path(), &sources, &Offline);
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].bytes, PNG);
+    }
+
+    /// 読める PNG の画像。
+    fn real_png(color: [u8; 4]) -> Vec<u8> {
+        let image = image::RgbaImage::from_pixel(1200, 630, image::Rgba(color));
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image).write_to(&mut out, image::ImageFormat::Png).unwrap();
+        out.into_inner()
+    }
+
+    fn converted_files(site: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(cache_dir(site))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".240x126.webp"))
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn serves_card_sized_webp_and_reuses_the_conversion() {
+        let site = crate::testutil::tempdir();
+        let png = real_png([200, 30, 30, 255]);
+        let fetcher = FakeFetcher::new(&[
+            ("https://example.com/a", "https://example.com/a", br#"<meta property="og:image" content="/og.png">"#),
+            ("https://example.com/og.png", "https://example.com/og.png", &png),
+        ]);
+        let sources = ["https://example.com/a\n".to_string()];
+
+        let cards = collect(site.path(), &sources, &fetcher);
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].path, format!("/link-cards/{}.webp", key("https://example.com/a")));
+        assert!(cards[0].bytes.starts_with(b"RIFF") && &cards[0].bytes[8..12] == b"WEBP");
+        assert!(cards[0].bytes.len() < png.len() / 2, "{} バイト", cards[0].bytes.len());
+        let webp = image::load_from_memory(&cards[0].bytes).unwrap();
+        assert_eq!((webp.width(), webp.height()), (cardimage::WIDTH, cardimage::HEIGHT));
+        // 取得した元の画像はそのまま保存し、WebP は別に保存する。
+        assert_eq!(fs::read(cache_dir(site.path()).join(format!("{}.png", key("https://example.com/a")))).unwrap(), png);
+        let converted = converted_files(site.path());
+        assert_eq!(converted.len(), 1);
+
+        // 保存した WebP を使い、変換し直さない（保存したものを書き換えると、それが配信される）。
+        fs::write(cache_dir(site.path()).join(&converted[0]), b"cached webp").unwrap();
+        let cards = collect(site.path(), &sources, &Offline);
+        assert_eq!(cards[0].bytes, b"cached webp");
+
+        // 元の画像が変われば（取得し直したとき）、WebP を作り直す。
+        fs::write(cache_dir(site.path()).join(format!("{}.png", key("https://example.com/a"))), real_png([30, 30, 200, 255])).unwrap();
+        let cards = collect(site.path(), &sources, &Offline);
+        assert!(cards[0].bytes.starts_with(b"RIFF"));
+        assert_eq!(converted_files(site.path()).len(), 2);
     }
 }

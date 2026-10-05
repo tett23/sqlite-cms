@@ -5,7 +5,7 @@ import type { Extension as MicromarkExtension } from "micromark-util-types";
 import type { Processor } from "unified";
 import { containerFromMarkdown, containerSyntax, expandContainers } from "./container";
 import { mathFromMarkdown, mathSyntax } from "./math";
-import { transformCodeBlocks, transformImageSize, transformInlineFootnotes, transformLinkCards } from "./transforms";
+import { markLinkCards, transformCodeBlocks, transformImageSize, transformInlineFootnotes } from "./transforms";
 import "./types";
 
 interface ParserData {
@@ -13,12 +13,7 @@ interface ParserData {
   fromMarkdownExtensions?: Array<FromMarkdownExtension | FromMarkdownExtension[]>;
 }
 
-export interface ExtensionOptions {
-  /** リンクカードの URL に対応する画像のパス（ADR 0028）。なければ画像なしのカードにする。 */
-  linkCardImage?: (url: string) => string | undefined;
-}
-
-export function remarkExtensions(this: Processor, options: ExtensionOptions = {}) {
+export function remarkExtensions(this: Processor) {
   const data = this.data() as ParserData;
   (data.micromarkExtensions ??= []).push(containerSyntax, mathSyntax);
   (data.fromMarkdownExtensions ??= []).push(containerFromMarkdown, mathFromMarkdown);
@@ -30,6 +25,6 @@ export function remarkExtensions(this: Processor, options: ExtensionOptions = {}
     transformCodeBlocks(tree);
     transformInlineFootnotes(tree);
     transformImageSize(tree);
-    transformLinkCards(tree, options.linkCardImage);
+    markLinkCards(tree);
   };
 }

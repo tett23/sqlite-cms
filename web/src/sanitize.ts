@@ -5,6 +5,7 @@ import {
   LINK_CARD_CLASS,
   LINK_CARD_HOST_CLASS,
   LINK_CARD_IMAGE_CLASS,
+  LINK_CARD_SLOT_CLASS,
   LINK_CARD_TEXT_CLASS,
   LINK_CARD_URL_CLASS,
 } from "./markdown/transforms";
@@ -102,7 +103,7 @@ export const sanitizeSchema: Schema = {
     abbr: ["title"],
     details: ["open"],
     div: [
-      ["className", MESSAGE_CLASS, MESSAGE_ALERT_CLASS, MATH_DISPLAY_CLASS, PARTIAL_SEARCH_CLASS],
+      ["className", MESSAGE_CLASS, MESSAGE_ALERT_CLASS, MATH_DISPLAY_CLASS, PARTIAL_SEARCH_CLASS, LINK_CARD_SLOT_CLASS],
       ["role", "note"],
     ],
     span: [["className", MATH_INLINE_CLASS, LINK_CARD_TEXT_CLASS, LINK_CARD_HOST_CLASS, LINK_CARD_URL_CLASS]],

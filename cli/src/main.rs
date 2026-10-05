@@ -1,4 +1,5 @@
 mod base64;
+mod cardimage;
 mod cloudflare;
 mod content;
 mod date;
