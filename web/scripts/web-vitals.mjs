@@ -64,6 +64,16 @@ async function pressKey(tab, key, windowsVirtualKeyCode) {
   for (const type of ["keyDown", "keyUp"]) await tab.send("Input.dispatchKeyEvent", { type, key, code: key, windowsVirtualKeyCode });
 }
 
+/** 操作：検索ボックスに打ち（候補を描き直す）、Escape で閉じ、ヘッダの「一覧」でページを移る。 */
+async function interact(tab) {
+  await click(tab, "#header-search");
+  await typeKeys(tab, "sql");
+  await pressKey(tab, "Escape", 27);
+  await sleep(300);
+  await click(tab, 'header a[href$="/archive"]');
+  await sleep(1000);
+}
+
 /** 一つのページを開いて計測する。 */
 async function measure(port, origin, pathname) {
   const tab = await Tab.open(port);
@@ -88,13 +98,7 @@ async function measure(port, origin, pathname) {
     // LCP は最初の入力で決まるので、操作の前に読む。
     const lcpEntries = await tab.eval("window.__vitals.lcp");
 
-    // 操作：検索ボックスに打ち（候補を描き直す）、Escape で閉じ、ヘッダの「一覧」でページを移る。
-    await click(tab, "#header-search");
-    await typeKeys(tab, "sql");
-    await pressKey(tab, "Escape", 27);
-    await sleep(300);
-    await click(tab, 'header a[href$="/archive"]');
-    await sleep(1000);
+    await interact(tab);
 
     const { shifts, events } = await tab.eval("({ shifts: window.__vitals.shifts, events: window.__vitals.events })");
     const metrics = { lcp: lcp(lcpEntries), inp: inp(events), cls: cls(shifts) };
@@ -105,9 +109,11 @@ async function measure(port, origin, pathname) {
 }
 
 /**
- * 計測の前に、計測するページを絞らずに一度ずつ開く（ADR 0052）。
+ * 計測の前に、計測するページを絞らずに一度ずつ開き、計測と同じ操作をする（ADR 0052）。
  * 起動した直後の Chrome（描画のプロセスやフォントの準備）と機械は遅く、最初に計測するページだけ LCP と INP が悪く出る
  * （CI で、ページを分けた計測の最初のページが LCP 2.58 秒、INP 160 ms になった。ほかのページは 2.0 秒前後）。
+ * 開くだけでは、操作で初めて動く JS（検索など）のコンパイルが最初のページの INP に入り、最初のページだけ INP が 130〜280 ms になった
+ * （ほかのページは 40〜80 ms。2 ページ目からは、同じプロセスでコンパイルしたものが使い回される）。
  * 計測ではキャッシュを使わないので、ここで開いても、計測するページの読み込みは速くならない。
  */
 async function warmUp(port, origin) {
@@ -116,6 +122,7 @@ async function warmUp(port, origin) {
     for (const [, pathname] of pages) {
       await tab.goto(origin + pathname);
       await sleep(300);
+      await interact(tab);
     }
   } finally {
     await tab.close().catch(() => {});
