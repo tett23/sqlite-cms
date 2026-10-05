@@ -38,13 +38,23 @@ export function MathView({ tex, display }: { tex: string; display: boolean }) {
   const katex = useLazy(katexLoader, undefined, near);
   // 数式ごとに別のタスクで組む（ADR 0046）。読み込み終わったときに、画面の近くの数式をまとめて一度に組むと、長いタスクになる。
   // 読み込み済みで、初めから画面の近くにあるとき（サーバーでの描画）だけ、最初の描画で組む。
-  const [rendered, setRendered] = useState<{ tex: string; display: boolean; html: string | null } | null>(() =>
-    katex && near ? { tex, display, html: katex.renderMath(tex, display) } : null,
-  );
+  // ブラウザでは Worker で組み（ADR 0053）、結果を数式ごとに別のタスクで描く。
+  const [rendered, setRendered] = useState<{ tex: string; display: boolean; html: string | null } | null>(() => {
+    if (!katex || !near) return null;
+    const html = katex.renderMath(tex, display);
+    return html instanceof Promise ? null : { tex, display, html };
+  });
   const done = rendered?.tex === tex && rendered.display === display;
   useEffect(() => {
     if (done || !katex || !near) return;
-    return inTurn(() => setRendered({ tex, display, html: katex.renderMath(tex, display) }));
+    let cancelled = false;
+    const cancelTurn = inTurn(() => {
+      void Promise.resolve(katex.renderMath(tex, display)).then((html) => !cancelled && setRendered({ tex, display, html }));
+    });
+    return () => {
+      cancelled = true;
+      cancelTurn();
+    };
   }, [done, katex, near, tex, display]);
   const Tag = display ? "div" : "span";
   const className = display ? MATH_DISPLAY_CLASS : MATH_INLINE_CLASS;

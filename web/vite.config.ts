@@ -50,8 +50,30 @@ function inlineEntryCss(): Plugin {
   };
 }
 
+/**
+ * 本体の JS を、index.html の modulepreload で先読みする（ADR 0053）。
+ * Lighthouse と DevTools の「ネットワークの依存関係ツリー」は、優先度の高い要求が二段以上つながると警告する。
+ * HTML から <script type="module"> で読む本体の JS は二段目になるが、先読み（link rel=preload、modulepreload）で取ったものは数えない。
+ * 取得の早さは変わらない（どちらも HTML を読み始めてすぐに見つかる）。
+ */
+function modulePreloadEntry(): Plugin {
+  return {
+    name: "module-preload-entry",
+    apply: "build",
+    enforce: "post",
+    generateBundle(_options, bundle) {
+      const html = bundle["index.html"];
+      if (html?.type !== "asset") return;
+      const source = String(html.source);
+      const script = source.match(/<script type="module" crossorigin src="(\.\/assets\/[^"]+\.js)"><\/script>/);
+      if (!script) throw new Error("index.html に本体の JS の script がありません");
+      html.source = source.replace(script[0], () => `<link rel="modulepreload" crossorigin href="${script[1]}" />\n    ${script[0]}`);
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [tailwindcss(), katexWoff2Only(), inlineEntryCss()],
+  plugins: [tailwindcss(), katexWoff2Only(), inlineEntryCss(), modulePreloadEntry()],
   // React の代わりに Preact（preact/compat）を使う。ソースと依存（react-markdown）は react から import したままにする。
   resolve: {
     alias: [
@@ -77,6 +99,19 @@ export default defineConfig({
     // 非同期で読み込むチャンクのうち、最大は mermaid の elk レイアウト（約 1,460 kB。図で elk を指定したときだけ読み込む、ADR 0025）、
     // 次が Shiki（約 1,070 kB、ADR 0017）。意図しない増加に気付けるよう、上限は今の最大の少し上に置く。
     chunkSizeWarningLimit: 1500,
+    rolldownOptions: {
+      output: {
+        advancedChunks: {
+          groups: [
+            {
+              // Markdown を描く処理（ADR 0053）。本体と別のファイルにし、index.html から本体と並行して先読みする。
+              name: "markdown",
+              test: /node_modules[\\/](react-markdown|unified|bail|trough|vfile|vfile-message|extend|is-plain-obj|devlop|micromark[^\\/]*|mdast-util-[^\\/]*|unist-util-[^\\/]*|hast-util-[^\\/]*|hastscript|remark-[^\\/]*|rehype-[^\\/]*|property-information|space-separated-tokens|comma-separated-tokens|decode-named-character-reference|character-entities[^\\/]*|html-url-attributes|inline-style-parser|style-to-[^\\/]*|zwitch|trim-lines|web-namespaces|ccount|escape-string-regexp)[\\/]/,
+            },
+          ],
+        },
+      },
+    },
   },
   test: {
     environment: "node",
