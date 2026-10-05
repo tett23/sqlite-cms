@@ -104,6 +104,24 @@ async function measure(port, origin, pathname) {
   }
 }
 
+/**
+ * 計測の前に、計測するページを絞らずに一度ずつ開く（ADR 0052）。
+ * 起動した直後の Chrome（描画のプロセスやフォントの準備）と機械は遅く、最初に計測するページだけ LCP と INP が悪く出る
+ * （CI で、ページを分けた計測の最初のページが LCP 2.58 秒、INP 160 ms になった。ほかのページは 2.0 秒前後）。
+ * 計測ではキャッシュを使わないので、ここで開いても、計測するページの読み込みは速くならない。
+ */
+async function warmUp(port, origin) {
+  const tab = await Tab.open(port);
+  try {
+    for (const [, pathname] of pages) {
+      await tab.goto(origin + pathname);
+      await sleep(300);
+    }
+  } finally {
+    await tab.close().catch(() => {});
+  }
+}
+
 const format = {
   lcp: (value) => (value === null ? "-" : `${(value / 1000).toFixed(2)} 秒`),
   inp: (value) => (value === null ? "-" : `${Math.round(value)} ms`),
@@ -117,6 +135,7 @@ async function main() {
   const chrome = await chromeLauncher.launch({ chromeFlags: ["--headless=new", ...(process.env.CI ? ["--no-sandbox"] : [])] });
   const results = [];
   try {
+    await warmUp(chrome.port, server.origin);
     // CPU を取り合うと INP が揺れるので、一つずつ計測する。
     for (const [, pathname] of pages) results.push(await measure(chrome.port, server.origin, pathname));
   } finally {
