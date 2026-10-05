@@ -10,7 +10,8 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "lighthouse": "node scripts/lighthouse.mjs",
-    "e2e": "node scripts/e2e.mjs"
+    "e2e": "node scripts/e2e.mjs",
+    "web-vitals": "node scripts/web-vitals.mjs"
   },
   "dependencies": {
     "@shikijs/langs": "^4.4.3",

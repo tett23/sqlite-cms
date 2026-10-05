@@ -3,4 +3,5 @@ dist/
 target/
 web/public/
 web/lighthouse-reports/
+web/web-vitals-reports/
 .env
