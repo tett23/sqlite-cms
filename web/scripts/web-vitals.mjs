@@ -8,13 +8,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as chromeLauncher from "chrome-launcher";
 import { sleep, Tab } from "./cdp.mjs";
-import { PAGES } from "./pages.mjs";
+import { PAGES, shard } from "./pages.mjs";
 import { startServer } from "./server.mjs";
 import { cls, COLLECTOR, failures, inp, lcp, THRESHOLDS } from "./vitals.mjs";
 
 const webDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const siteDir = path.resolve(webDir, process.env.SITE_DIR ?? "../example");
 const outDir = path.resolve(webDir, process.env.WEB_VITALS_OUT ?? "web-vitals-reports");
+/** 計測するページ。WEB_VITALS_SHARD（"番号/数"）を渡すと、分けたうちの一つだけを計測する（ADR 0052）。 */
+const pages = shard(PAGES, process.env.WEB_VITALS_SHARD);
 
 /**
  * 計測の条件。Lighthouse のスマートフォンの計測（moto g power と遅い 4G）と同じ値にする。
@@ -116,7 +118,7 @@ async function main() {
   const results = [];
   try {
     // CPU を取り合うと INP が揺れるので、一つずつ計測する。
-    for (const [, pathname] of PAGES) results.push(await measure(chrome.port, server.origin, pathname));
+    for (const [, pathname] of pages) results.push(await measure(chrome.port, server.origin, pathname));
   } finally {
     chrome.kill();
     server.stop();
@@ -127,7 +129,8 @@ async function main() {
     (r) =>
       `| \`${r.pathname}\` | ${format.lcp(r.metrics.lcp)} | ${format.inp(r.metrics.inp)} | ${format.cls(r.metrics.cls)} | ${r.failures.length === 0 ? "良好" : "✗"} |`,
   );
-  const summary = `## Core Web Vitals\n\n| ページ | LCP | INP | CLS | 判定 |\n|---|---:|---:|---:|---|\n${rows.join("\n")}\n\n上限: LCP ${format.lcp(THRESHOLDS.lcp)}、INP ${format.inp(THRESHOLDS.inp)}、CLS ${THRESHOLDS.cls}（CPU ${CONDITIONS.cpuThrottle} 倍の遅さ、遅い 4G、412 × 823）\n`;
+  const title = process.env.WEB_VITALS_SHARD ? `Core Web Vitals（${process.env.WEB_VITALS_SHARD}）` : "Core Web Vitals";
+  const summary = `## ${title}\n\n| ページ | LCP | INP | CLS | 判定 |\n|---|---:|---:|---:|---|\n${rows.join("\n")}\n\n上限: LCP ${format.lcp(THRESHOLDS.lcp)}、INP ${format.inp(THRESHOLDS.inp)}、CLS ${THRESHOLDS.cls}（CPU ${CONDITIONS.cpuThrottle} 倍の遅さ、遅い 4G、412 × 823）\n`;
   await writeFile(path.join(outDir, "summary.md"), summary);
   if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, summary);
   console.log(summary);

@@ -46,45 +46,6 @@ jobs:
       - run: cargo test --release --target ${{ matrix.target }}
       - run: cargo build --release --target ${{ matrix.target }}
 
-      - name: E2E
-        if: matrix.os == 'ubuntu-latest'
-        timeout-minutes: 5
-        run: npm run e2e
-        working-directory: web
-        env:
-          SQLITE_CMS_BIN: ${{ github.workspace }}/target/${{ matrix.target }}/release/sqlite-cms
-
-      - name: Lighthouse
-        if: matrix.os == 'ubuntu-latest'
-        timeout-minutes: 8
-        run: npm run lighthouse
-        working-directory: web
-        env:
-          SQLITE_CMS_BIN: ${{ github.workspace }}/target/${{ matrix.target }}/release/sqlite-cms
-          LIGHTHOUSE_CONCURRENCY: 3
-
-      - uses: actions/upload-artifact@v7
-        if: always() && matrix.os == 'ubuntu-latest'
-        with:
-          name: lighthouse-reports
-          path: web/lighthouse-reports
-          if-no-files-found: ignore
-
-      - name: Core Web Vitals
-        if: matrix.os == 'ubuntu-latest'
-        timeout-minutes: 5
-        run: npm run web-vitals
-        working-directory: web
-        env:
-          SQLITE_CMS_BIN: ${{ github.workspace }}/target/${{ matrix.target }}/release/sqlite-cms
-
-      - uses: actions/upload-artifact@v7
-        if: always() && matrix.os == 'ubuntu-latest'
-        with:
-          name: web-vitals-reports
-          path: web/web-vitals-reports
-          if-no-files-found: ignore
-
       - name: Package
         run: tar -czf sqlite-cms-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release sqlite-cms
 
@@ -93,13 +54,75 @@ jobs:
           name: sqlite-cms-${{ matrix.target }}
           path: sqlite-cms-${{ matrix.target }}.tar.gz
 
-  release:
+  # Linux のビルドで作ったバイナリで、E2E、Lighthouse、Core Web Vitals を別々の機械で並行して行う（ADR 0052）。
+  # どれかが失敗すると、Release は作られない。
+  browser:
     needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: E2E
+            script: e2e
+          - name: Lighthouse
+            script: lighthouse
+            reports: lighthouse-reports
+            artifact: lighthouse-reports
+          - name: Core Web Vitals 1/2
+            script: web-vitals
+            shard: 1/2
+            reports: web-vitals-reports
+            artifact: web-vitals-reports-1
+          - name: Core Web Vitals 2/2
+            script: web-vitals
+            shard: 2/2
+            reports: web-vitals-reports
+            artifact: web-vitals-reports-2
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+        working-directory: web
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: sqlite-cms-x86_64-unknown-linux-gnu
+      - run: mkdir bin && tar -xzf sqlite-cms-x86_64-unknown-linux-gnu.tar.gz -C bin
+
+      - name: ${{ matrix.name }}
+        timeout-minutes: 6
+        run: npm run ${{ matrix.script }}
+        working-directory: web
+        env:
+          SQLITE_CMS_BIN: ${{ github.workspace }}/bin/sqlite-cms
+          LIGHTHOUSE_CONCURRENCY: 3
+          WEB_VITALS_SHARD: ${{ matrix.shard }}
+
+      - uses: actions/upload-artifact@v7
+        if: always() && matrix.reports
+        with:
+          name: ${{ matrix.artifact }}
+          path: web/${{ matrix.reports }}
+          if-no-files-found: ignore
+
+  release:
+    needs: [build, browser]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      # 梱包したバイナリだけを取る（ブラウザの検査のレポートは添付しない）。
       - uses: actions/download-artifact@v8
         with:
+          pattern: sqlite-cms-*
           merge-multiple: true
 
       - run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes sqlite-cms-*.tar.gz

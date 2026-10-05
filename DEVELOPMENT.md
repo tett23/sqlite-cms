@@ -145,11 +145,12 @@ cargo run -- serve example
 
 1. SPA のビルド（型検査を含む）と vitest
 2. SPA を埋め込んだ `cargo clippy --all-targets -- -D warnings` と `cargo test`（結合テストを含む）
-3. E2E（上記）。`cargo test` が作った `target/debug/sqlite-cms` で配信する
+3. E2E（上記）
 4. Lighthouse の計測（下記）。3 つの Chrome で並行して計測する。レポートは成功しても失敗しても `lighthouse-reports` という Artifact に保存し、スコアの表は実行結果の概要に出す
-5. Core Web Vitals の計測（下記）。結果は `web-vitals-reports` という Artifact に保存し、表は実行結果の概要に出す
+5. Core Web Vitals の計測（下記）。ページを二つに分けて計測し、結果は `web-vitals-reports-1` と `web-vitals-reports-2` という Artifact に保存し、表は実行結果の概要に出す
 
-一つのジョブで、速く終わる検査から順に行う（ADR 0044）。
+1 と 2 は一つのジョブ（`test`）で、速く終わる検査から順に行う（ADR 0044）。
+3 から 5 は、`test` が作った `target/debug/sqlite-cms` を Artifact で受け取り、別々の機械（`browser` のジョブ）で並行して行う（ADR 0052）。どれかが失敗しても、ほかの検査は最後まで行う。
 `docs/`、`README.md`、`DEVELOPMENT.md` だけを変えたときは動かさない。
 同じ PR に続けて push したときは、古い実行を取り消す。`main` への push は取り消さない。
 
@@ -190,6 +191,7 @@ Lighthouse の通常の計測はページを開くだけで INP を測れない�
 どれかのページで「良好」の上限（LCP 2.5 秒、INP 200 ms、CLS 0.1）を超えると失敗し、超えた値を表示する。
 結果は `web/web-vitals-reports/` に JSON と表（Markdown）で出る。
 CPU を取り合うと INP が揺れるので、ページは一つずつ計測する（14 ページで 1 分半ほど）。
+`WEB_VITALS_SHARD` に `番号/数`（例 `1/2`）を渡すと、ページを分けたうちの一つだけを計測する（CI は別々の機械で `1/2` と `2/2`、ADR 0052）。
 手元の機械が遅くて LCP が揺れるときは、`WEB_VITALS_CPU_THROTTLE` で CPU を遅くする倍率（既定 4）を変えられる。CI では変えない。
 E2E と共通のブラウザの操作は `web/scripts/cdp.mjs` にある。
 
@@ -199,7 +201,7 @@ E2E と共通のブラウザの操作は `web/scripts/cdp.mjs` にある。
 
 1. SPA をビルドし、テストを実行する。テストはリリースと同じ出力先（`--target`）で行い、続くビルドでそのまま使う（ADR 0044）
 2. Linux x86_64 と macOS arm64 のバイナリをビルドする
-3. Linux のビルドで作ったバイナリで E2E を行い、Lighthouse と Core Web Vitals を計測して、結果を `lighthouse-reports` と `web-vitals-reports` の Artifact に保存する。E2E が失敗するか、アクセシビリティかベストプラクティスが 100 点を割るか、Core Web Vitals が「良好」の上限を超えると、ここで失敗して Release は作られない
+3. Linux のビルドで作ったバイナリで、E2E、Lighthouse、Core Web Vitals を別々の機械で並行して行い（ADR 0052）、結果を `lighthouse-reports` と `web-vitals-reports-*` の Artifact に保存する。E2E が失敗するか、アクセシビリティかベストプラクティスが 100 点を割るか、Core Web Vitals が「良好」の上限を超えると、ここで失敗して Release は作られない
 4. `sqlite-cms-<target>.tar.gz` を GitHub Release に添付する
 
 タグを付けずに試すときは、`gh workflow run release.yml` で手動実行する。ビルドと梱包までを行い、Release は作らない（成果物は実行結果の Artifacts から取れる）。
