@@ -198,8 +198,17 @@ scenario("検索のページは、URL の言葉で結果を出し、ヘッダか
 });
 
 scenario("記事のタグを出し、タグを押すとそのタグの付いた記事だけを探す（ADR 0048）", async ({ tab, origin }) => {
+  const tagsOf = "[...document.querySelectorAll('article ul[aria-label=タグ] a')].map((a) => a.textContent)";
+  // article にも、書いた順にタグを出す。page（自己紹介）には出さない。
+  await tab.goto(origin + "/articles/syntax");
+  await tab.waitFor("document.querySelector('article ul[aria-label=タグ]') !== null", { message: "article のタグが出ない" });
+  assertEqual(await tab.eval(tagsOf), ["#書き方", "#記法", "#HTML"], "article のタグ");
+  await tab.goto(origin + "/about");
+  await tab.waitFor("document.querySelector('main h1')?.textContent === '自己紹介'", { message: "自己紹介が描かれない" });
+  assertEqual(await count(tab, "ul[aria-label=タグ]"), 0, "page のタグの数");
+
   await tab.goto(origin + "/posts/ruby");
-  assertEqual(await tab.eval("[...document.querySelectorAll('article ul[aria-label=タグ] a')].map((a) => a.textContent)"), ["#書き方", "#HTML", "#組版"], "記事のタグ");
+  assertEqual(await tab.eval(tagsOf), ["#書き方", "#HTML", "#組版"], "記事のタグ");
   await tab.eval("window.__marker = true");
   await tab.eval("[...document.querySelectorAll('article ul[aria-label=タグ] a')].find((a) => a.textContent === '#組版').click()");
   await tab.waitFor("location.pathname === '/search' && decodeURIComponent(location.search) === '?q=#組版' && document.querySelector('main [role=status]')?.textContent.endsWith('件')");
@@ -207,6 +216,12 @@ scenario("記事のタグを出し、タグを押すとそのタグの付いた�
   assertEqual(await tab.eval("document.querySelector('#search-query').value"), "#組版", "検索欄の言葉");
   // 本文に「組版」とある記事はほかにもあるが、タグの付いた記事だけが出る。
   assertEqual(await tab.eval("[...document.querySelectorAll('main > div > ul > li > a')].map((a) => a.textContent)"), ["ルビを振る"], "タグで探した結果");
+  // 検索の結果にも、記事のタグを出す。
+  assertEqual(
+    await tab.eval("[...document.querySelectorAll('main > div > ul > li ul[aria-label=タグ] a')].map((a) => a.textContent)"),
+    ["#書き方", "#HTML", "#組版"],
+    "検索の結果のタグ",
+  );
   assert((await count(tab, "main > div > ul > li")) < (await tab.eval("(async () => { history.replaceState(null, '', '/search?q=組版'); dispatchEvent(new Event('sqlite-cms:navigate')); await new Promise((r) => setTimeout(r, 300)); return document.querySelectorAll('main > div > ul > li').length; })()")), "語で探すと、タグで探すより多く出るはず");
 
   // ヘッダの検索ボックスでも、# で始まる語でタグを探せる。

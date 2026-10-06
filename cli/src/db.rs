@@ -294,12 +294,15 @@ mod tests {
     fn tags_go_into_the_tags_table_in_order() {
         let post = "---\ntitle: p\ndate: 2026-09-17\ntags: [日記, SQLite]\n---\n本文\n";
         let article = "---\ntitle: a\ndate: 2026-09-17\ntags:\n  - 組版\n  - \"#SQLite\"\n---\n本文\n";
-        let site = site_fixture(&[("posts/p.md", post), ("posts/plain.md", POST), ("articles/a.md", article)]);
+        // page に書いたタグは入れない。
+        let page = "---\ntitle: 自己紹介\ntags: [自己紹介]\n---\n本文\n";
+        let site = site_fixture(&[("posts/p.md", post), ("posts/plain.md", POST), ("articles/a.md", article), ("pages/about.md", page)]);
         let (_dir, conn) = open(&build_db_bytes(site.path(), &[], &[]).unwrap());
         assert_eq!(
             column(&conn, "SELECT kind || '/' || slug || ' ' || position || ' ' || tag FROM tags ORDER BY kind, slug, position"),
             ["article/a 0 組版", "article/a 1 SQLite", "post/p 0 日記", "post/p 1 SQLite"]
         );
+        assert_eq!(column(&conn, "SELECT slug FROM pages"), ["about"]);
     }
 
     #[test]
