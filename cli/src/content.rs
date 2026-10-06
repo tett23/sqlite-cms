@@ -268,6 +268,16 @@ mod tests {
     }
 
     #[test]
+    fn pages_ignore_tags() {
+        // page にはタグを付けない（ADR 0048）。書いても読まないので、リストでない値でもエラーにしない。
+        for tags in ["[組版, SQLite]", "組版", "[\"a b\"]"] {
+            let page = parse_page("about", &format!("---\ntitle: 自己紹介\ntags: {tags}\n---\n本文\n")).unwrap();
+            assert_eq!(page.title, "自己紹介", "{tags}");
+            assert_eq!(page.body_md, "本文\n", "{tags}");
+        }
+    }
+
+    #[test]
     fn lists_are_only_allowed_for_tags() {
         let err = parse_post("p", "---\ntitle: [a, b]\ndate: 2026-01-01\n---\n").unwrap_err();
         assert!(err.to_string().contains("p: title にリストは書けません"), "{err}");

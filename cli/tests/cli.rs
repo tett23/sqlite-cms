@@ -124,6 +124,23 @@ fn build_data_only_writes_db_and_media() {
     assert!(out.join("db/manifest.json").is_file());
     assert!(out.join("media/sample.svg").is_file());
     assert!(!out.join("index.html").exists());
+
+    // 見本の post と article には、すべてタグを付けておく（ADR 0048。タグの表示と検索を見本で確かめられるようにする）。
+    let db = fs::read_dir(out.join("db")).unwrap().map(|e| e.unwrap().path()).find(|p| p.extension().is_some_and(|e| e == "sqlite")).unwrap();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let untagged: Vec<String> = conn
+        .prepare(
+            "SELECT kind || '/' || slug FROM (SELECT 'post' AS kind, slug FROM posts UNION ALL SELECT 'article', slug FROM articles) AS docs
+             WHERE NOT EXISTS (SELECT 1 FROM tags WHERE tags.kind = docs.kind AND tags.slug = docs.slug) ORDER BY 1",
+        )
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert!(untagged.is_empty(), "タグのない見本の記事: {untagged:?}");
+    let docs: i64 = conn.query_row("SELECT (SELECT count(*) FROM posts) + (SELECT count(*) FROM articles)", [], |row| row.get(0)).unwrap();
+    assert!(docs >= 10, "見本の記事が少なすぎる（{docs}）");
 }
 
 #[test]
