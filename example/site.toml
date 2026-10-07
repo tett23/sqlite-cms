@@ -4,6 +4,9 @@ description = "組版と日本語の文章、ソフトウェアの設計につ�
 # 公開したサイトの URL。書くと RSS のフィード（/rss.xml）を作る
 url = "https://gentle-tooth-fe80.tett23.workers.dev/"
 
+# サイトを置くパス。ドメインの直下でない場所（https://<user>.github.io/my-blog/ など）で公開するときに書く。省略すると "/"
+# base_path = "/my-blog/"
+
 # new が入れる日付のタイムゾーン。省略すると実行した環境のタイムゾーンになる
 # timezone = "Asia/Tokyo"
 
@@ -13,4 +16,15 @@ url = "https://creativecommons.org/publicdomain/zero/1.0/"
 
 # 公開先（sqlite-cms deploy で使う）。サンプルなので無効にしてある
 # [deploy]
-# worker = "my-blog"
+# target = "cloudflare"         # "cloudflare"（省略したとき）、"github-pages"、"rsync"
+# worker = "my-blog"            # Cloudflare の Worker 名（英小文字、数字、ハイフン）
+#
+# GitHub Pages に公開するとき
+# target = "github-pages"
+# branch = "gh-pages"           # 省略すると gh-pages
+# remote = "origin"             # 省略すると origin
+# cname = "blog.example.com"    # 独自ドメインを使うとき
+#
+# rsync で任意のサーバーに送るとき
+# target = "rsync"
+# destination = "user@example.com:/var/www/blog/"
