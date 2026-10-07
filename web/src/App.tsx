@@ -394,7 +394,7 @@ function HeaderSearch() {
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
         onKeyDown={onKeyDown}
-        className="w-36 border border-gray-500 px-1"
+        className="w-28 border border-gray-500 px-1"
       />
       <button type="submit" className="border border-gray-500 bg-gray-100 px-2">
         検索
@@ -547,8 +547,9 @@ export default function App() {
           <Link to="/" className="site-title text-xl font-bold">
             {site?.title ?? "\u00a0"}
           </Link>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-            <nav className="space-x-4">
+          {/* サイト名、案内（5 つ）、検索ボックスを、広い画面（640px）で一行に収めるよう、間隔と入力欄を詰める。 */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+            <nav className="space-x-3">
               <Link to="/">トップ</Link>
               <Link to="/archive">一覧</Link>
               <Link to="/categories">カテゴリ</Link>

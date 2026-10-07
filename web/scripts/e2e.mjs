@@ -294,12 +294,29 @@ scenario("知らないページは「見つかりません」を出す", async (
   assert((await tab.eval("document.querySelector('main').textContent")).includes("見つかりません"), "見つかりませんを出さない");
 });
 
+/**
+ * 広い画面で、検索ボックスが案内と同じ行の右端にあるか。案内を足して一行に収まらなくなると、検索ボックスだけが次の行の左に回る。
+ * サイト名、案内、検索ボックスの縦の中心が、ヘッダの一行の中にそろい、検索ボックスの右端がヘッダの右端にあること。
+ */
+async function assertSearchBoxOnTheRight(tab, what) {
+  await tab.size(1024, 800);
+  const layout = await tab.eval(`(() => {
+    const header = document.querySelector("header").getBoundingClientRect();
+    const nav = document.querySelector("header ul, header nav").getBoundingClientRect();
+    const form = document.querySelector("header form[role=search]").getBoundingClientRect();
+    return { navMiddle: (nav.top + nav.bottom) / 2, formMiddle: (form.top + form.bottom) / 2, formRight: form.right, headerRight: header.right };
+  })()`);
+  assert(Math.abs(layout.navMiddle - layout.formMiddle) < 8, `${what}: 検索ボックスが案内と同じ行にない（${JSON.stringify(layout)}）`);
+  assert(Math.abs(layout.formRight - layout.headerRight) < 2, `${what}: 検索ボックスが右端にない（${JSON.stringify(layout)}）`);
+}
+
 scenario("content/header.md のヘッダを描く（ADR 0043）", async ({ tab, origin }) => {
   await tab.goto(origin + "/");
   assertEqual(await tab.eval("document.querySelector('meta[name=\"sqlite-cms-header\"]')?.content"), "custom", "目印");
   assertEqual(await count(tab, "header .site-header-body"), 1, "カスタムのヘッダ");
   assertEqual(await count(tab, "header .site-header-body form[role=search]"), 1, "パーシャルの検索ボックス");
   assertEqual(await tab.eval("document.querySelector('header .site-header-body p a').textContent"), "tett23の記事置き場", "サイト名");
+  await assertSearchBoxOnTheRight(tab, "カスタムのヘッダ");
 });
 
 scenario("content/header.md がなければ、既定のヘッダを描く", async ({ tab, defaultOrigin }) => {
@@ -308,6 +325,7 @@ scenario("content/header.md がなければ、既定のヘッダを描く", asyn
   assertEqual(await count(tab, "header .site-header-body"), 0, "カスタムのヘッダ");
   assertEqual(await count(tab, "header nav a"), 5, "既定の案内（トップ、一覧、カテゴリ、自己紹介、検索）");
   assertEqual(await count(tab, "header form[role=search]"), 1, "検索ボックス");
+  await assertSearchBoxOnTheRight(tab, "既定のヘッダ");
   noProblems(tab, "既定のヘッダ");
 });
 
