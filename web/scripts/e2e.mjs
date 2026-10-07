@@ -164,6 +164,21 @@ scenario("入れ子のリストのある項目と次の項目のあいだを、�
   noProblems(tab, "入れ子のリスト");
 });
 
+scenario("サイトの外へのリンクだけを新しいタブで開く（ADR 0057）", async ({ tab, origin }) => {
+  await tab.goto(origin + "/");
+  const targets = await tab.eval(`(() => {
+    const of = (selector) => [...document.querySelectorAll(selector)].map((a) => [a.getAttribute("href"), a.target, a.rel]);
+    return { external: of('main a[href^="https://github.com/"]'), internal: of('header a[href^="/"], main a[href^="/"]'), footer: of("footer a") };
+  })()`);
+  assert(targets.external.length > 0, "トップに外へのリンクがない");
+  for (const [href, target, rel] of targets.external) assertEqual([target, rel], ["_blank", "noopener"], `${href} の target と rel`);
+  assert(targets.internal.length > 0, "トップにサイト内のリンクがない");
+  for (const [href, target] of targets.internal) assertEqual(target, "", `${href} の target`);
+  // フッタのライセンスは外、RSS はサイト内。
+  for (const [href, target] of targets.footer) assertEqual(target, href.startsWith("https://") ? "_blank" : "", `フッタの ${href} の target`);
+  noProblems(tab, "外へのリンク");
+});
+
 scenario("リンクで、ページを読み直さずに移り、戻れる", async ({ tab, origin }) => {
   await tab.goto(origin + "/articles/syntax");
   await tab.eval("window.__marker = true");

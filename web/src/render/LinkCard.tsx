@@ -1,4 +1,5 @@
 // リンクカード（ADR 0028、0049）。本体とは別のチャンクにして、URL だけの行が画面の近くに来てから読み込む。
+import { EXTERNAL_LINK_PROPS, isExternal } from "../externalLink";
 import { LINK_CARD_CLASS, LINK_CARD_HOST_CLASS, LINK_CARD_IMAGE_CLASS, LINK_CARD_TEXT_CLASS, LINK_CARD_URL_CLASS } from "../markdown/transforms";
 
 /**
@@ -8,7 +9,7 @@ import { LINK_CARD_CLASS, LINK_CARD_HOST_CLASS, LINK_CARD_IMAGE_CLASS, LINK_CARD
  */
 export function LinkCard({ url, image }: { url: string; image?: string }) {
   return (
-    <a href={url} className={LINK_CARD_CLASS}>
+    <a href={url} className={LINK_CARD_CLASS} {...(isExternal(url) ? EXTERNAL_LINK_PROPS : {})}>
       <span className={LINK_CARD_TEXT_CLASS}>
         <span className={LINK_CARD_HOST_CLASS}>{new URL(url).host}</span>
         <span className={LINK_CARD_URL_CLASS}>{url}</span>

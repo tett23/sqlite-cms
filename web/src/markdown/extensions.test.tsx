@@ -172,7 +172,7 @@ describe("インラインの脚注", () => {
 
   it("中の [ と ] の対応を数え、リンクを含められる", () => {
     const html = render("本文^[[括弧] と [リンク](https://example.com)]。");
-    expect(html).toContain('<p>[括弧] と <a href="https://example.com">リンク</a> <a href="#user-content-fnref-inline-1"');
+    expect(html).toContain('<p>[括弧] と <a href="https://example.com" target="_blank" rel="noopener">リンク</a> <a href="#user-content-fnref-inline-1"');
     expect(html).toContain("本文<sup>");
     expect(html).toContain("</sup>。</p>");
   });
@@ -197,7 +197,7 @@ describe("画像の幅", () => {
 
   it("リンクの中の画像にも使える", () => {
     expect(render("[![](/a.png =100x)](https://example.com)")).toContain(
-      '<a href="https://example.com"><img src="/a.png" alt width="100"/></a>',
+      '<a href="https://example.com" target="_blank" rel="noopener"><img src="/a.png" alt width="100"/></a>',
     );
   });
 
@@ -218,7 +218,7 @@ describe("リンクカード", () => {
 
   it("URL だけの段落をカードにする", () => {
     expect(render("https://example.com/path")).toBe(
-      '<a href="https://example.com/path" class="link-card"><span class="link-card-text"><span class="link-card-host">example.com</span><span class="link-card-url">https://example.com/path</span></span></a>',
+      '<a href="https://example.com/path" target="_blank" rel="noopener" class="link-card"><span class="link-card-text"><span class="link-card-host">example.com</span><span class="link-card-url">https://example.com/path</span></span></a>',
     );
     expect(render("<https://example.com>")).toContain('class="link-card"');
   });
