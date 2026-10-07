@@ -98,6 +98,12 @@ a.site-title:visited {
   line-height: 1.9;
 }
 
+/* 入れ子のリストには下の余白を付けない。付けると、入れ子のリストのある項目の後にだけ、次の項目とのあいだが空く。 */
+.article-body li > ul,
+.article-body li > ol {
+  margin-bottom: 0;
+}
+
 .article-body ul {
   list-style: disc;
 }

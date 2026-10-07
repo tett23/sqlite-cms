@@ -151,6 +151,19 @@ scenario("図は sandbox の iframe の中で描き、elk は、図で指定し�
   await tab.size(1024, 800);
 });
 
+scenario("入れ子のリストのある項目と次の項目のあいだを、ほかの項目のあいだと同じにする", async ({ tab, origin }) => {
+  await tab.goto(origin + "/articles/syntax");
+  // 記法の一覧の最初のリスト：「箇条書き」（入れ子あり）、「二つ目」。
+  const gaps = await tab.eval(`(() => {
+    const list = document.querySelector(".article-body > ul");
+    const [first, second] = [...list.children];
+    const nested = first.querySelector(":scope > ul > li");
+    return { afterNested: Math.round(second.getBoundingClientRect().top - nested.getBoundingClientRect().bottom) };
+  })()`);
+  assertEqual(gaps.afterNested, 0, "入れ子のリストの最後の項目と、次の項目のあいだ");
+  noProblems(tab, "入れ子のリスト");
+});
+
 scenario("リンクで、ページを読み直さずに移り、戻れる", async ({ tab, origin }) => {
   await tab.goto(origin + "/articles/syntax");
   await tab.eval("window.__marker = true");
