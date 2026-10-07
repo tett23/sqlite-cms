@@ -189,7 +189,7 @@ mod tests {
         let put = body_of(&http, 3);
         assert!(put.contains(r#""jwt":"completion-jwt""#));
         assert!(put.contains(r#""not_found_handling":"single-page-application""#));
-        assert!(put.contains(r#""_headers":"/db/*.sqlite"#));
+        assert!(put.contains(r#""_headers":"/assets/*\n  Access-Control-Allow-Origin: *\n\n/db/*.sqlite\n"#), "{put}");
         assert!(put.contains(&format!(r#""compatibility_date":"{COMPATIBILITY_DATE}""#)));
 
         assert_eq!(report.total, 2);

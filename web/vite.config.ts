@@ -100,6 +100,11 @@ export default defineConfig({
     // 次が Shiki（約 1,070 kB、ADR 0017）。意図しない増加に気付けるよう、上限は今の最大の少し上に置く。
     chunkSizeWarningLimit: 1500,
     rolldownOptions: {
+      // 図を描くための作業用のページ（ADR 0055）。本体の index.html と別に出力する。
+      input: {
+        index: fileURLToPath(new URL("./index.html", import.meta.url)),
+        "mermaid-frame": fileURLToPath(new URL("./mermaid-frame.html", import.meta.url)),
+      },
       output: {
         advancedChunks: {
           groups: [

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>図を描くための作業用のページ</title>
+    <style>
+      /* 図の文字の大きさを測る基準を、本体のページ（Tailwind の preflight）とそろえる。 */
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+        line-height: 1.5;
+        -webkit-text-size-adjust: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module" src="/src/render/mermaidFrame.ts"></script>
+  </body>
+</html>

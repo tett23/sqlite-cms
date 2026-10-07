@@ -20,6 +20,8 @@ export class Tab {
     await tab.send("Runtime.enable");
     await tab.send("Network.enable");
     await tab.send("Log.enable");
+    // 別のプロセスで動く iframe（図を描く作業用のページ、ADR 0055）にもつなぎ、その中のエラーと読み込みも集める。
+    await tab.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
     // E2E_CPU_THROTTLE（倍率）で CPU を遅くし、遅い CI のマシンでも待ち時間が足りるかを手元で確かめられる。
     const throttle = Number(process.env.E2E_CPU_THROTTLE ?? 1);
     if (throttle > 1) await tab.send("Emulation.setCPUThrottlingRate", { rate: throttle });
@@ -50,6 +52,13 @@ export class Tab {
         return;
       }
       const { method, params } = message;
+      if (method === "Target.attachedToTarget") {
+        const { sessionId } = params;
+        void Promise.all(["Runtime.enable", "Network.enable", "Log.enable"].map((m) => this.send(m, {}, sessionId)))
+          .then(() => this.send("Runtime.runIfWaitingForDebugger", {}, sessionId))
+          .catch(() => {});
+        return;
+      }
       if (method === "Runtime.exceptionThrown") this.problems.push(`例外: ${params.exceptionDetails.exception?.description ?? params.exceptionDetails.text}`);
       if (method === "Runtime.consoleAPICalled" && params.type === "error") {
         this.problems.push(`console.error: ${params.args.map((a) => a.value ?? a.description).join(" ")}`);
@@ -62,8 +71,8 @@ export class Tab {
     });
   }
 
-  /** 命令を送り、結果を待つ。Chrome が応えなくなったときに止まり続けないよう、時間を区切る。 */
-  send(method, params = {}) {
+  /** 命令を送り、結果を待つ。Chrome が応えなくなったときに止まり続けないよう、時間を区切る。sessionId は、つないだ iframe に送るとき。 */
+  send(method, params = {}, sessionId = undefined) {
     const id = ++this.nextId;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -74,7 +83,7 @@ export class Tab {
         resolve: (value) => (clearTimeout(timer), resolve(value)),
         reject: (error) => (clearTimeout(timer), reject(error)),
       });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws.send(JSON.stringify({ id, method, params, sessionId }));
     });
   }
 

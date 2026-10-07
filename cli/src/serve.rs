@@ -298,10 +298,12 @@ fn handle(state: &ServeState, cache: &GzipCache, stream: TcpStream) -> std::io::
     let length = if response.body.is_empty() { head_length } else { response.body.len() };
     write!(
         stream,
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\n{}{}{}Content-Length: {}\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\n{}{}{}{}Content-Length: {}\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
         response.status,
         reason(response.status),
         response.content_type,
+        // 公開先の _headers（output.rs の HEADERS）と同じく、/assets/ はオリジンを問わず読めるようにする（ADR 0055）。
+        if is_asset(&state.base_path, target) { "Access-Control-Allow-Origin: *\r\n" } else { "" },
         response.location.as_ref().map_or_else(String::new, |location| format!("Location: {location}\r\n")),
         if response.gzip { "Content-Encoding: gzip\r\n" } else { "" },
         if response.vary { "Vary: Accept-Encoding\r\n" } else { "" },
@@ -309,6 +311,11 @@ fn handle(state: &ServeState, cache: &GzipCache, stream: TcpStream) -> std::io::
     )?;
     stream.write_all(&response.body)?;
     stream.flush()
+}
+
+/// サイトの /assets/ の下へのリクエストか。
+fn is_asset(base_path: &str, target: Option<&str>) -> bool {
+    target.is_some_and(|target| target.starts_with(&format!("{base_path}assets/")))
 }
 
 pub fn serve(state: Arc<ServeState>, listener: TcpListener) {
@@ -464,6 +471,18 @@ mod tests {
         encode(large_js(), "gzip", &cache);
         encode(large_js(), "gzip", &cache);
         assert_eq!(cache.entries.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn assets_allow_any_origin() {
+        // 公開先の _headers と同じく、/assets/ の下だけに Access-Control-Allow-Origin を付ける（ADR 0055）。
+        assert!(is_asset("/", Some("/assets/index-abc.js")));
+        assert!(is_asset("/my-blog/", Some("/my-blog/assets/index-abc.js")));
+        assert!(!is_asset("/", Some("/")));
+        assert!(!is_asset("/", Some("/mermaid-frame.html")));
+        assert!(!is_asset("/", Some("/db/articles-abc.sqlite")));
+        assert!(!is_asset("/my-blog/", Some("/assets/index-abc.js")));
+        assert!(!is_asset("/", None));
     }
 
     #[test]
