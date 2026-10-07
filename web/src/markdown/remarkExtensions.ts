@@ -5,7 +5,7 @@ import type { Extension as MicromarkExtension } from "micromark-util-types";
 import type { Processor } from "unified";
 import { containerFromMarkdown, containerSyntax, expandContainers } from "./container";
 import { mathFromMarkdown, mathSyntax } from "./math";
-import { markLinkCards, transformCodeBlocks, transformImageSize, transformInlineFootnotes } from "./transforms";
+import { markLinkCards, transformCodeBlocks, transformImageSize, transformInlineFootnotes, transformLineBreaks } from "./transforms";
 import "./types";
 
 interface ParserData {
@@ -26,5 +26,7 @@ export function remarkExtensions(this: Processor) {
     transformInlineFootnotes(tree);
     transformImageSize(tree);
     markLinkCards(tree);
+    // 改行は最後に分ける。インラインの脚注の ^[…] は、改行をまたいで書ける。
+    transformLineBreaks(tree);
   };
 }

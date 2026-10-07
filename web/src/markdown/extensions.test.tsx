@@ -61,9 +61,9 @@ describe(":::message と :::details", () => {
   });
 
   it("知らない名前やコロンが足りないものは段落のまま", () => {
-    expect(render(":::foo\n中\n:::")).toBe("<p>:::foo\n中\n:::</p>");
-    expect(render("::message\n中\n::")).toBe("<p>::message\n中\n::</p>");
-    expect(render(":::message info\n中\n:::")).toBe("<p>:::message info\n中\n:::</p>");
+    expect(render(":::foo\n中\n:::")).toBe("<p>:::foo<br/>\n中<br/>\n:::</p>");
+    expect(render("::message\n中\n::")).toBe("<p>::message<br/>\n中<br/>\n::</p>");
+    expect(render(":::message info\n中\n:::")).toBe("<p>:::message info<br/>\n中<br/>\n:::</p>");
   });
 
   it("開きの行を読む", () => {
@@ -243,5 +243,48 @@ describe("リンクカード", () => {
     expect(render("文中の https://example.com です")).not.toContain("link-card");
     expect(render("[例](https://example.com)")).not.toContain("link-card");
     expect(render("www.example.com")).not.toContain("link-card");
+  });
+});
+
+describe("改行（ADR 0054）", () => {
+  it("段落の中の改行一つを <br> にし、空行で段落を分ける", () => {
+    expect(render("一文め。\n二文め。\n\n次の段落。")).toBe("<p>一文め。<br/>\n二文め。</p>\n<p>次の段落。</p>");
+  });
+
+  it("改行の前後の空白は取り除き、行末の二つの空白や \\ の改行は一つの <br> のまま", () => {
+    expect(render("一文め。 \n  二文め。")).toBe("<p>一文め。<br/>\n二文め。</p>");
+    expect(render("一文め。  \n二文め。")).toBe("<p>一文め。<br/>\n二文め。</p>");
+    expect(render("一文め。\\\n二文め。")).toBe("<p>一文め。<br/>\n二文め。</p>");
+  });
+
+  it("強調、リンク、リスト、引用、:::message の中でも改行する", () => {
+    expect(render("**一\n二**")).toBe("<p><strong>一<br/>\n二</strong></p>");
+    expect(render("[一\n二](/a)")).toBe('<p><a href="/a">一<br/>\n二</a></p>');
+    expect(render("- 一\n  二")).toBe("<ul>\n<li>一<br/>\n二</li>\n</ul>");
+    expect(render("> 一\n> 二")).toBe("<blockquote>\n<p>一<br/>\n二</p>\n</blockquote>");
+    expect(render(":::message\n一\n二\n:::")).toContain("<p>一<br/>\n二</p>");
+  });
+
+  it("コード、コードブロック、数式の中の改行はそのまま", () => {
+    expect(render("`一\n二`")).toBe("<p><code>一 二</code></p>");
+    expect(render("```\n一\n二\n```")).toBe("<pre><code>一\n二\n</code></pre>");
+    // 数式（この時点では KaTeX を読み込み済みなので組まれる）の中に <br> を入れない。
+    const math = render("$$\na \\\\\nb\n$$");
+    expect(math).toContain('class="katex-display"');
+    expect(math).not.toContain("<br/>");
+  });
+
+  it("改行をまたぐインラインの脚注を読む", () => {
+    const html = render("本文^[注の\n続き]。");
+    expect(html).toContain("data-footnote-ref");
+    expect(html).toContain("注の<br/>\n続き");
+  });
+
+  it("画像の直後の行の強調（説明）とのあいだには改行を入れない", () => {
+    expect(render("![図](/a.png)\n*説明*")).toContain('<img src="/a.png" alt="図"/>\n<em>説明</em>');
+    expect(render("[![図](/a.png)](/b)\n*説明*")).toContain('</a>\n<em>説明</em>');
+    // 画像の後の強調でない行や、文の後の強調は、改行する。
+    expect(render("![図](/a.png)\n説明")).toContain('<img src="/a.png" alt="図"/><br/>\n説明');
+    expect(render("文\n*強調*")).toBe("<p>文<br/>\n<em>強調</em></p>");
   });
 });

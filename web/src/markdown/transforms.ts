@@ -228,3 +228,36 @@ export function markLinkCards(tree: Root) {
     }
   });
 }
+
+/** 画像か、画像だけを囲むリンク。 */
+function isImage(node: PhrasingContent | undefined): boolean {
+  if (node?.type === "image") return true;
+  return node?.type === "link" && node.children.length === 1 && node.children[0].type === "image";
+}
+
+/** 段落の中の改行（前後の空白を含む）。 */
+const SOFT_BREAK = /[ \t]*\n[ \t]*/;
+
+/**
+ * 段落の中の改行一つを、改行（`<br>`）にする（ADR 0054）。Zenn と同じ扱いで、書いたとおりに行を分ける。
+ * CommonMark では、段落の中の改行は空白と同じで、日本語の文の間に空きができる。段落を分けるのは、今までどおり空行。
+ * 文字列の中の改行だけを分ける。コード（`code`、`inlineCode`）と数式の中の改行は、そのまま残す。
+ */
+export function transformLineBreaks(tree: Root) {
+  eachParent(tree, (parent) => {
+    const children = parent.children as PhrasingContent[];
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+      if (child.type !== "text" || !child.value.includes("\n")) continue;
+      // 画像の直後の行の強調は、画像の説明（ADR 0025）。CSS（img + em）で説明として表示するので、間に改行を入れない。
+      if (child.value.trim() === "" && isImage(children[i - 1]) && children[i + 1]?.type === "emphasis") continue;
+      const lines = child.value.split(SOFT_BREAK);
+      const replacement: PhrasingContent[] = lines.flatMap((line, index) => {
+        const text: PhrasingContent[] = line === "" ? [] : [{ type: "text", value: line }];
+        return index === 0 ? text : [{ type: "break" }, ...text];
+      });
+      children.splice(i, 1, ...replacement);
+      i += replacement.length - 1;
+    }
+  });
+}
