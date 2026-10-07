@@ -19,6 +19,8 @@ pub struct Article {
     pub slug: String,
     /// 同じ日付の記事を並べる順の鍵。ファイル名から取ったもの（UUIDv7 か、ファイル名）。
     pub order_key: String,
+    /// 属するカテゴリの slug（ADR 0060）。一つだけ。
+    pub category: Option<String>,
     pub title: String,
     pub published_at: String,
     pub updated_at: Option<String>,
@@ -26,6 +28,19 @@ pub struct Article {
     pub body_md: String,
     /// タグ（ADR 0048）。先頭の # は付けない。
     pub tags: Vec<String>,
+}
+
+/// 記事のカテゴリ（ADR 0060）。content/categories/<slug>.md から読む。URL は /<slug>。
+#[derive(Debug, PartialEq)]
+pub struct Category {
+    pub slug: String,
+    pub title: String,
+    /// 一覧と meta description に使う要約。
+    pub description: Option<String>,
+    /// 並び順（小さいものが先）。なければ title の順で、order のあるものの後ろに並べる。
+    pub order: Option<i64>,
+    /// トップページの本文。
+    pub body_md: String,
 }
 
 #[derive(Debug, PartialEq)]
@@ -148,9 +163,16 @@ pub fn parse_article(slug: &str, raw: &str) -> Result<Article> {
         Some(custom) => bail!("{slug}: slug {custom:?} には文字、数字、-、_ だけを使ってください（URL になります）"),
     };
 
+    let category = match value(&doc.frontmatter, "category") {
+        None => None,
+        Some(category) if is_valid_slug(category) => Some(category.to_string()),
+        Some(category) => bail!("{slug}: category {category:?} には文字、数字、-、_ だけを使ってください（カテゴリの slug を書きます）"),
+    };
+
     Ok(Article {
         slug: url_slug,
         order_key: slug.to_string(),
+        category,
         published_at: require_date(slug, &doc.frontmatter)?,
         updated_at,
         description,
@@ -163,6 +185,21 @@ pub fn parse_article(slug: &str, raw: &str) -> Result<Article> {
 /// slug に使える文字（文字、数字、-、_）だけでできているか。
 pub fn is_valid_slug(slug: &str) -> bool {
     !slug.is_empty() && slug.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+}
+
+pub fn parse_category(slug: &str, raw: &str) -> Result<Category> {
+    let doc = parse_doc(slug, raw)?;
+    let order = match value(&doc.frontmatter, "order") {
+        None => None,
+        Some(order) => Some(order.parse::<i64>().map_err(|_| anyhow!("{slug}: order は整数で書いてください: {order:?}"))?),
+    };
+    Ok(Category {
+        slug: slug.to_string(),
+        title: doc.title,
+        description: value(&doc.frontmatter, "description").filter(|d| !d.trim().is_empty()).map(str::to_string),
+        order,
+        body_md: doc.body_md,
+    })
 }
 
 pub fn parse_page(slug: &str, raw: &str) -> Result<Page> {
@@ -297,6 +334,34 @@ mod tests {
             let err = parse_article("a", &raw).unwrap_err().to_string();
             assert!(err.contains("文字、数字、-、_ だけ"), "{bad}: {err}");
         }
+    }
+
+    #[test]
+    fn category_reads_title_description_order_and_body() {
+        let raw = "---\ntitle: 組版\ndescription: 日本語の組版\norder: -3\n---\n\n紹介。\n";
+        let category = parse_category("typesetting", raw).unwrap();
+        assert_eq!(
+            category,
+            Category {
+                slug: "typesetting".into(),
+                title: "組版".into(),
+                description: Some("日本語の組版".into()),
+                order: Some(-3),
+                body_md: "\n紹介。\n".into(),
+            }
+        );
+        let plain = parse_category("x", "---\ntitle: x\ndescription:\n---\n").unwrap();
+        assert_eq!((plain.description, plain.order), (None, None));
+        assert!(parse_category("x", "---\ndescription: d\n---\n").unwrap_err().to_string().contains("title がありません"));
+        assert!(parse_category("x", "---\ntitle: x\norder: 一\n---\n").unwrap_err().to_string().contains("order は整数"));
+    }
+
+    #[test]
+    fn article_category_is_a_slug() {
+        let raw = |category: &str| format!("---\ntitle: t\ndate: 2026-01-01\ncategory: {category}\n---\n");
+        assert_eq!(parse_article("a", &raw("typesetting")).unwrap().category.as_deref(), Some("typesetting"));
+        assert_eq!(parse_article("a", ARTICLE).unwrap().category, None);
+        assert!(parse_article("a", &raw("\"組 版\"")).unwrap_err().to_string().contains("category"));
     }
 
     #[test]

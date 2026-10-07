@@ -528,6 +528,32 @@ fn new_creates_a_document_that_builds() {
 }
 
 #[test]
+fn new_category_and_article_in_it_build_together() {
+    let tmp = testutil::tempdir();
+    let site = empty_site(tmp.path());
+
+    let output = run(&["new", "article", "--title", "禁則", "--category", "typesetting"], &site);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("カテゴリ \"typesetting\" がありません"), "{}", stderr(&output));
+
+    let output = run(&["new", "category", "typesetting", "--title", "組版"], &site);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(site.join("content/categories/typesetting.md").is_file());
+    let output = run(&["new", "category", "search"], &site);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("URL（/search）が重なる"), "{}", stderr(&output));
+
+    let output = run(&["new", "article", "--title", "禁則", "--category", "typesetting"], &site);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let written = fs::read_to_string(only_uuid_file(&site.join("content/articles"), "-禁則")).unwrap();
+    assert!(written.contains("\ncategory: typesetting\n"), "{written}");
+
+    let out = tmp.path().join("public");
+    let output = run(&["build", "--data-only", "--out", out.to_str().unwrap()], &site);
+    assert!(output.status.success(), "{}", stderr(&output));
+}
+
+#[test]
 fn new_refuses_to_overwrite_a_page() {
     let tmp = testutil::tempdir();
     let site = empty_site(tmp.path());

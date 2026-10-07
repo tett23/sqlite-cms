@@ -4,7 +4,7 @@
 //! フィードの中のリンクは絶対 URL である必要があるので、`site.toml` の `url` を書いたときだけ作る。
 //! CLI は Markdown を HTML にしないので、本文は載せず、article の要約か、本文の書き出しを説明として載せる。
 
-use crate::content::{Article, Post};
+use crate::content::{Article, Category, Post};
 use crate::date::TimeZone;
 use crate::site::SiteConfig;
 
@@ -25,7 +25,11 @@ pub struct FeedItem {
 }
 
 /// post と article を、日付の新しい順（同じ日付なら、種別と並べる順の鍵の逆順、ADR 0059）に並べ、先頭の MAX_ITEMS 件を返す。
-pub fn items(posts: &[Post], articles: &[Article]) -> Vec<FeedItem> {
+/// article のカテゴリの名前（ADR 0060）は、タグの前に category として載せる。
+pub fn items(posts: &[Post], articles: &[Article], categories: &[Category]) -> Vec<FeedItem> {
+    let category_title = |slug: &Option<String>| {
+        slug.as_ref().and_then(|slug| categories.iter().find(|c| &c.slug == slug)).map(|c| c.title.clone())
+    };
     let mut items: Vec<(String, FeedItem)> = posts
         .iter()
         .map(|p| (format!("posts/{}", p.slug), FeedItem {
@@ -40,7 +44,12 @@ pub fn items(posts: &[Post], articles: &[Article]) -> Vec<FeedItem> {
             title: a.title.clone(),
             date: a.published_at.clone(),
             summary: a.description.clone().filter(|d| !d.trim().is_empty()).unwrap_or_else(|| excerpt(&a.body_md)),
-            tags: a.tags.clone(),
+            tags: category_title(&a.category).into_iter().chain(a.tags.iter().cloned()).fold(Vec::new(), |mut tags, tag| {
+                if !tags.contains(&tag) {
+                    tags.push(tag);
+                }
+                tags
+            }),
         })))
         .collect();
     items.sort_by(|(a_key, a), (b_key, b)| b.date.cmp(&a.date).then_with(|| b_key.cmp(a_key)));
@@ -195,6 +204,7 @@ mod tests {
         Article {
             slug: slug.into(),
             order_key: slug.into(),
+            category: None,
             title: format!("{slug} & <題>"),
             published_at: date.into(),
             updated_at: None,
@@ -205,11 +215,19 @@ mod tests {
     }
 
     #[test]
+    fn article_category_title_comes_before_tags() {
+        let category = Category { slug: "typesetting".into(), title: "組版".into(), description: None, order: None, body_md: String::new() };
+        let a = Article { category: Some("typesetting".into()), tags: vec!["組版".into(), "禁則".into()], ..article("a", "2026-09-26", None) };
+        // カテゴリの名前を先に載せ、同じ名前のタグは一つにまとめる（ADR 0060）。
+        assert_eq!(items(&[], &[a], &[category]).remove(0).tags, ["組版", "禁則"]);
+    }
+
+    #[test]
     fn same_date_articles_follow_their_order_key_not_their_slug() {
         // frontmatter の slug を URL にしても、同じ日付の中は並べる順の鍵（作った順の UUIDv7）で並べる（ADR 0059）。
         let older = Article { order_key: "0001".into(), ..article("zzz", "2026-09-26", None) };
         let newer = Article { order_key: "0002".into(), ..article("aaa", "2026-09-26", None) };
-        let paths: Vec<String> = items(&[], &[older, newer]).into_iter().map(|item| item.path).collect();
+        let paths: Vec<String> = items(&[], &[older, newer], &[]).into_iter().map(|item| item.path).collect();
         assert_eq!(paths, ["articles/aaa", "articles/zzz"]);
     }
 
@@ -217,7 +235,7 @@ mod tests {
     fn items_are_merged_newest_first_and_limited() {
         let posts: Vec<Post> = (1..=25).map(|n| post(&format!("p{n:02}"), &format!("2026-08-{n:02}"), "本文")).collect();
         let articles = [article("a", "2026-09-01", Some("要約")), article("b", "2026-08-25", None)];
-        let items = items(&posts, &articles);
+        let items = items(&posts, &articles, &[]);
         assert_eq!(items.len(), MAX_ITEMS);
         assert_eq!(items[0].path, "articles/a");
         assert_eq!(items[0].summary, "要約");
@@ -248,7 +266,7 @@ mod tests {
     #[test]
     fn rss_escapes_text_and_uses_absolute_links() {
         let site = parse_site_config("title = \"A & B\"\ntimezone = \"+09:00\"\n").unwrap();
-        let items = items(&[post("hello", "2026-09-26", "こんにちは")], &[article("x", "2026-09-20", None)]);
+        let items = items(&[post("hello", "2026-09-26", "こんにちは")], &[article("x", "2026-09-20", None)], &[]);
         let xml = rss(&site, "https://example.com/blog/", &items);
         assert!(xml.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\""));
         assert!(xml.contains("<title>A &amp; B</title>"));

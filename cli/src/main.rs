@@ -55,7 +55,7 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
 
 コマンド:
   init [SITE_DIR]               記事リポジトリに必要な site.toml と content/ を作る
-  new <種別> [SLUG] [SITE_DIR]  記事の雛形を作る（種別は post、article、page）
+  new <種別> [SLUG] [SITE_DIR]  記事の雛形を作る（種別は post、article、page、category）
   serve [SITE_DIR]              サイトを組み立てて手元でプレビューする（記事の変更を自動で反映する）
   build [SITE_DIR]              サイトを組み立てて配信用のディレクトリに書き出す
   deploy [SITE_DIR]             サイトを組み立てて公開する（Cloudflare Workers、GitHub Pages、rsync）
@@ -67,7 +67,10 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
             post の URL は常に UUIDv7。article は SLUG を frontmatter の slug に書き、URL にする。
             SLUG を省くと、post は <UUIDv7>.md、article は <UUIDv7>-<タイトル>.md（ファイル名に向かない
             文字は - にする）になり、URL は UUIDv7 になる。
-            page では SLUG がファイル名と URL になり、省けない
+            page では SLUG がファイル名と URL になり、省けない。
+            category（記事のカテゴリ）では SLUG がファイル名と URL（/<SLUG>）になり、省けない。
+            サイトのほかのページと重なる名前（about、archive、search、posts、articles、categories、
+            assets、db、media、link-cards）は使えない
             new の引数が一つで、/ を含むか . で始まるときは、SLUG ではなく SITE_DIR とみなす
 
 オプション:
@@ -75,7 +78,8 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
   init --force             site.toml や content/ があっても作り直す。init が作るファイル
                            （site.toml、index.md、pages/about.md）は上書きし、記事や画像は消さない
   new --title <TITLE>      タイトル。article では必須。post で省くと日付、page で省くと SLUG
-  new --date <YYYY-MM-DD>  日付（既定: site.toml の timezone での今日。page では使えない）
+  new --date <YYYY-MM-DD>  日付（既定: site.toml の timezone での今日。page と category では使えない）
+  new --category <SLUG>    article の属するカテゴリ（content/categories/<SLUG>.md があるもの）
   serve --port <PORT>      待ち受けるポート（既定: 8080。0 なら空いているポート）
   serve --no-reload        記事の変更を自動で反映しない（既定では、変更を見つけて組み立て直し、
                            ブラウザを再読み込みする）
@@ -95,6 +99,8 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
     posts/        post の Markdown
     articles/     article の Markdown
     pages/        固定ページの Markdown
+    categories/   記事のカテゴリ。<slug>.md がカテゴリのページ（/<slug>）になる。
+                  article は frontmatter の category: <slug> で属するカテゴリを決める
     media/        画像など（任意。/media/ で配信する）
   .env            deploy の認証情報（任意。Git に入れない。init が .gitignore に書く）
   .env.example    .env の見本（init が作る）
@@ -126,6 +132,8 @@ deploy の公開先（site.toml の [deploy]）:
   sqlite-cms new post                            content/posts/<UUIDv7>.md を作る（タイトルは今日の日付）
   sqlite-cms new post hello --title はじめまして  content/posts/<UUIDv7>-hello.md を作る
   sqlite-cms new article --title 長い読み物       content/articles/<UUIDv7>-長い読み物.md を作る
+  sqlite-cms new category typesetting --title 組版  content/categories/typesetting.md を作る（/typesetting）
+  sqlite-cms new article --title 禁則 --category typesetting  カテゴリ「組版」の article を作る
   sqlite-cms serve                               カレントディレクトリの記事リポジトリをプレビューする
   sqlite-cms build --out public                  public/ に書き出す
   sqlite-cms deploy ../blog                      ../blog の記事リポジトリを公開する";
@@ -134,7 +142,7 @@ deploy の公開先（site.toml の [deploy]）:
 enum Command {
     Help,
     Init { site_dir: PathBuf, title: Option<String>, force: bool },
-    New { kind: Kind, slug: Option<String>, site_dir: PathBuf, title: Option<String>, date: Option<String> },
+    New { kind: Kind, slug: Option<String>, site_dir: PathBuf, title: Option<String>, date: Option<String>, category: Option<String> },
     Build { site_dir: PathBuf, out_dir: PathBuf, data_only: bool },
     Serve { site_dir: PathBuf, port: u16, reload: bool },
     Deploy { site_dir: PathBuf },
@@ -177,6 +185,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command> {
     let mut title = None;
     let mut date = None;
     let mut force = false;
+    let mut category = None;
 
     while let Some(arg) = args.next() {
         let flag = arg.to_string_lossy().into_owned();
@@ -190,6 +199,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command> {
             }
             ("new" | "init", "--title") => title = Some(option_value(&mut args, "--title", "タイトル")?),
             ("init", "--force") => force = true,
+            ("new", "--category") => category = Some(option_value(&mut args, "--category", "カテゴリ")?),
             ("new", "--date") => {
                 let value = option_value(&mut args, "--date", "日付")?;
                 if !date::is_valid_date(&value) {
@@ -213,11 +223,11 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command> {
     if command == "new" {
         let kind = positionals
             .next()
-            .ok_or_else(|| usage_error("記事の種別（post、article、page）を指定してください"))?
+            .ok_or_else(|| usage_error("記事の種別（post、article、page、category）を指定してください"))?
             .to_string_lossy()
             .into_owned();
         let kind = Kind::parse(&kind)
-            .ok_or_else(|| usage_error(format_args!("不明な種別です: {kind}（post、article、page のどれか）")))?;
+            .ok_or_else(|| usage_error(format_args!("不明な種別です: {kind}（post、article、page、category のどれか）")))?;
         let rest: Vec<OsString> = positionals.collect();
         let (slug, site_dir) = match rest.as_slice() {
             [] => (None, PathBuf::from(".")),
@@ -225,13 +235,16 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command> {
             [only] => (Some(only.to_string_lossy().into_owned()), PathBuf::from(".")),
             [slug, site_dir, ..] => (Some(slug.to_string_lossy().into_owned()), PathBuf::from(site_dir)),
         };
-        if kind == Kind::Page && date.is_some() {
-            return Err(usage_error("page は日付を持たないので --date は使えません"));
+        if kind.is_dateless() && date.is_some() {
+            return Err(usage_error("page とカテゴリは日付を持たないので --date は使えません"));
         }
-        if kind == Kind::Page && slug.is_none() {
-            return Err(usage_error("page は日付を持たないので、slug を省略できません"));
+        if kind.is_dateless() && slug.is_none() {
+            return Err(usage_error("page とカテゴリは日付を持たないので、slug を省略できません"));
         }
-        return Ok(Command::New { kind, slug, site_dir, title, date });
+        if category.is_some() && kind != Kind::Article {
+            return Err(usage_error("--category を使えるのは article だけです"));
+        }
+        return Ok(Command::New { kind, slug, site_dir, title, date, category });
     }
 
     let site_dir = positionals.next().map_or_else(|| PathBuf::from("."), PathBuf::from);
@@ -266,6 +279,7 @@ fn new_document(
     site_dir: PathBuf,
     title: Option<String>,
     date: Option<String>,
+    category: Option<String>,
 ) -> Result<()> {
     let date = match date {
         Some(date) => date,
@@ -278,7 +292,7 @@ fn new_document(
             date::today_in(timezone.as_ref())?
         }
     };
-    let path = scaffold::create(&site_dir, kind, slug.as_deref(), title.as_deref(), &date)?;
+    let path = scaffold::create_in_category(&site_dir, kind, slug.as_deref(), title.as_deref(), &date, category.as_deref())?;
     println!("{} を作りました", path.display());
     Ok(())
 }
@@ -426,7 +440,7 @@ fn run() -> Result<()> {
             Ok(())
         }
         Command::Init { site_dir, title, force } => init(site_dir, title, force),
-        Command::New { kind, slug, site_dir, title, date } => new_document(kind, slug, site_dir, title, date),
+        Command::New { kind, slug, site_dir, title, date, category } => new_document(kind, slug, site_dir, title, date, category),
         Command::Build { site_dir, out_dir, data_only } => build(site_dir, out_dir, data_only),
         Command::Serve { site_dir, port, reload } => serve(site_dir, port, reload),
         Command::Deploy { site_dir } => deploy(site_dir),
@@ -529,20 +543,22 @@ mod tests {
     fn new_with_kind_slug_and_defaults() {
         assert_eq!(
             parse(&["new", "post", "hello"]).unwrap(),
-            Command::New { kind: Kind::Post, slug: Some("hello".into()), site_dir: ".".into(), title: None, date: None }
+            Command::New { kind: Kind::Post, slug: Some("hello".into()), site_dir: ".".into(), title: None, date: None, category: None }
         );
     }
 
     #[test]
     fn new_with_all_options() {
         assert_eq!(
-            parse(&["new", "article", "long", "../blog", "--title", "長い読み物", "--date", "2026-09-26"]).unwrap(),
+            parse(&["new", "article", "long", "../blog", "--title", "長い読み物", "--date", "2026-09-26", "--category", "typesetting"])
+                .unwrap(),
             Command::New {
                 kind: Kind::Article,
                 slug: Some("long".into()),
                 site_dir: "../blog".into(),
                 title: Some("長い読み物".into()),
                 date: Some("2026-09-26".into()),
+                category: Some("typesetting".into()),
             }
         );
     }
@@ -564,9 +580,10 @@ mod tests {
     }
 
     #[test]
-    fn page_requires_a_slug() {
+    fn page_and_category_require_a_slug() {
         assert!(err(&["new", "page"]).contains("slug を省略できません"));
         assert!(err(&["new", "page", "../blog"]).contains("slug を省略できません"));
+        assert!(err(&["new", "category"]).contains("slug を省略できません"));
     }
 
     #[test]
@@ -575,7 +592,10 @@ mod tests {
         assert!(err(&["new", "blog", "x"]).contains("不明な種別です: blog"));
         assert!(err(&["new", "post", "x", "site", "extra"]).contains("余分な引数があります: extra"));
         assert!(err(&["new", "post", "x", "--date", "2026-02-30"]).contains("実在する YYYY-MM-DD"));
-        assert!(err(&["new", "page", "about", "--date", "2026-09-26"]).contains("page は日付を持たない"));
+        assert!(err(&["new", "page", "about", "--date", "2026-09-26"]).contains("page とカテゴリは日付を持たない"));
+        assert!(err(&["new", "category", "typesetting", "--date", "2026-09-26"]).contains("page とカテゴリは日付を持たない"));
+        assert!(err(&["new", "post", "--category", "typesetting"]).contains("--category を使えるのは article だけ"));
+        assert!(err(&["new", "article", "--category"]).contains("--category にカテゴリ"));
         assert!(err(&["new", "post", "x", "--title"]).contains("--title にタイトル"));
         assert!(err(&["build", "--title", "x"]).contains("build では使えないオプションです: --title"));
     }

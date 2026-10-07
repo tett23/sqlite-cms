@@ -74,7 +74,7 @@ mod tests {
     fn embeds_versions_and_names_in_file_name_order() {
         let migrations = repo_migrations();
         let versions: Vec<&str> = migrations.iter().map(|m| m.version.as_str()).collect();
-        assert_eq!(versions, ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010"]);
+        assert_eq!(versions, ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011"]);
         assert_eq!(migrations[0].name, "initial");
         assert_eq!(migrations[1].name, "content_types");
     }
@@ -90,7 +90,7 @@ mod tests {
     fn applies_all_to_empty_db_and_records_them() {
         let conn = Connection::open_in_memory().unwrap();
         let applied = apply_migrations(&conn, &repo_migrations()).unwrap();
-        assert_eq!(applied, ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010"]);
+        assert_eq!(applied, ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011"]);
 
         let recorded: Vec<(String, String)> = conn
             .prepare("SELECT version, name FROM schema_migrations ORDER BY version")
@@ -112,6 +112,7 @@ mod tests {
                 ("0008".into(), "tags".into()),
                 ("0009".into(), "media_sizes".into()),
                 ("0010".into(), "sort_key".into()),
+                ("0011".into(), "categories".into()),
             ]
         );
 
@@ -133,6 +134,6 @@ mod tests {
         let migrations = repo_migrations();
         apply_migrations(&conn, &migrations[..1]).unwrap();
         let applied = apply_migrations(&conn, &migrations).unwrap();
-        assert_eq!(applied, ["0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010"]);
+        assert_eq!(applied, ["0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011"]);
     }
 }

@@ -156,11 +156,12 @@ impl SiteOutput {
         // サイトマップも作り、robots.txt にその場所を足す（ADR 0037）。
         if let Some(url) = config.url() {
             let (posts, articles) = db::posts_and_articles(site_dir)?;
-            let rss = feed::rss(&config, &url, &feed::items(&posts, &articles));
+            let categories = db::categories(site_dir)?;
+            let rss = feed::rss(&config, &url, &feed::items(&posts, &articles, &categories));
             output.files.insert("/rss.xml".to_string(), rss.into_bytes());
             index = add_feed_link(&index, &base_path, &config.title);
 
-            let map = sitemap::sitemap(&url, &posts, &articles, &db::pages(site_dir)?);
+            let map = sitemap::sitemap(&url, &posts, &articles, &db::pages(site_dir)?, &categories);
             output.files.insert("/sitemap.xml".to_string(), map.into_bytes());
             let robots = String::from_utf8_lossy(&output.files["/robots.txt"]).into_owned();
             output.files.insert("/robots.txt".to_string(), sitemap::add_to_robots(&robots, &url).into_bytes());

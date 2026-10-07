@@ -103,6 +103,7 @@ content/
   posts/       -- post の Markdown
   articles/    -- article の Markdown
   pages/       -- 固定ページの Markdown
+  categories/  -- 記事のカテゴリ（ADR 0060）。<slug>.md がカテゴリのページ（/<slug>）
   media/       -- 画像など（任意。/media/ で配信する）
 .env           -- deploy の認証情報（任意。Git に入れず、配信もしない。ADR 0027）
 .env.example   -- .env の見本（init が作る）
@@ -150,7 +151,8 @@ frontmatter（YAML）にメタデータを置き、本文は Markdown で書く�
 frontmatter は YAML のうち、1 行に 1 つの「キー: 値」と、文字列のリスト（`[a, b]` か、`- a` の行の並び）だけを受け付ける（ADR 0014、0048）。
 値はクォートなし、ダブルクォート、シングルクォートのいずれかで書き、複数行の値、入れ子、アンカーはエラーにする。リストを書けるのは `tags` だけである。
 slug はファイル名（拡張子を除く）から取る。ファイル名が UUIDv7 で始まる（`<UUIDv7>-<名前>.md`、`sqlite-cms new` が post と article に付ける）ときは、UUIDv7 だけを slug にする（ADR 0058）。同じ slug になるファイルが二つあれば、ビルドをエラーにする。
-article は、frontmatter に `slug` を書けば、それを slug（URL）にする（ADR 0059）。同じ日付の記事は、ファイル名から取った鍵（`sort_key`。UUIDv7 か、ファイル名）の順に並べる。
+article は、frontmatter に `slug` を書けば、それを slug（URL）にする（ADR 0059）。`category` に、属するカテゴリ（`content/categories/<slug>.md`）の slug を書く（一つだけ。ADR 0060）。
+カテゴリのファイルは、frontmatter に `title`（必須）、`description`、`order`（並び順の整数）を持ち、本文はカテゴリのページに出す。同じ日付の記事は、ファイル名から取った鍵（`sort_key`。UUIDv7 か、ファイル名）の順に並べる。
 
 | キー | post | article | page |
 |---|---|---|---|
@@ -160,6 +162,7 @@ article は、frontmatter に `slug` を書けば、それを slug（URL）に�
 | `updated` | なし | 任意 | なし |
 | `tags` | 任意 | 任意 | なし |
 | `slug` | なし | 任意 | なし |
+| `category` | なし | 任意 | なし |
 
 `tags` はタグのリストで、記事のページに `#タグ` として表示し、押すとそのタグで検索する（ADR 0048）。タグは DB の `tags` の表に、書いた順に入れる。
 
@@ -185,6 +188,8 @@ Zenn を参考にした拡張（`:::message`、`:::details`、コードのファ
 - `/posts/:slug`、`/articles/:slug`：本文。
 - `/about`：自己紹介（`pages` の slug `about`）。
 - `/search`：全文検索。`?q=` に探す言葉を入れる（ADR 0031）。`#` で始まる言葉は、そのタグの付いた記事だけを探す（ADR 0048）。ヘッダに検索ボックスを置き、送ると `/search?q=` に移る。入力中は候補を 5 件まで出し、なければその旨を出す（ADR 0041、0042）。
+- `/categories`：カテゴリの一覧（ADR 0060）。
+- `/:slug`：カテゴリのページ（`content/categories/<slug>.md`）。本文と、そのカテゴリの article の一覧（ADR 0060）。ほかのページと重なる slug は、CLI がカテゴリに使わせない。
 - `/archive`：post と article をまとめた一覧。年ごとに新しい順に並べる（ADR 0033）。同じ日付の記事は、ファイル名から取った鍵（UUIDv7 か、ファイル名）の降順に並べる。UUIDv7 なら、後から作ったものが先になる（ADR 0058、0059）。
 
 ## CLI

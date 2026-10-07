@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, bail, Context, Result};
 use rusqlite::{Connection, MAIN_DB};
 
-use crate::content::{parse_article, parse_page, parse_post, Article, Page, Post};
+use crate::content::{parse_article, parse_category, parse_page, parse_post, Article, Category, Page, Post};
 use crate::header;
 use crate::linkcard::LinkCard;
 use crate::media::MediaSize;
@@ -65,7 +65,7 @@ pub fn markdown_sources(site_dir: &Path) -> Result<Vec<String>> {
     let content_dir = site_dir.join("content");
     let mut sources: Vec<String> = read_optional(&content_dir.join("index.md"))?.into_iter().collect();
     sources.extend(read_header(&content_dir, &read_site_config(site_dir)?)?);
-    for kind in ["posts", "articles", "pages"] {
+    for kind in ["posts", "articles", "pages", "categories"] {
         sources.extend(read_docs(&content_dir.join(kind), |_, raw| Ok(raw.to_string()))?);
     }
     Ok(sources)
@@ -75,6 +75,28 @@ pub fn markdown_sources(site_dir: &Path) -> Result<Vec<String>> {
 pub fn posts_and_articles(site_dir: &Path) -> Result<(Vec<Post>, Vec<Article>)> {
     let content_dir = site_dir.join("content");
     Ok((read_docs(&content_dir.join("posts"), parse_post)?, read_docs(&content_dir.join("articles"), parse_article)?))
+}
+
+/// カテゴリの slug に使えない名前（ADR 0060）。カテゴリの URL はサイトの直下（`/<slug>`）なので、
+/// SPA のページ（`/about`、`/archive` など、カテゴリの一覧の `/categories`）と、配信するディレクトリ、`serve` の自動反映のパスと重ならないようにする。
+/// ファイル（`rss.xml` など）は `.` を含み、slug には `.` を使えないので、重ならない。
+pub const RESERVED_CATEGORY_SLUGS: &[&str] =
+    &["about", "archive", "search", "posts", "articles", "categories", "assets", "db", "media", "link-cards", "__sqlite-cms"];
+
+/// カテゴリを読み、並び順（order の小さい順、order のないものは後ろに title の順）にそろえる（ADR 0060）。
+pub fn categories(site_dir: &Path) -> Result<Vec<Category>> {
+    let mut categories = read_docs(&site_dir.join("content").join("categories"), parse_category)?;
+    if let Some(category) = categories.iter().find(|c| RESERVED_CATEGORY_SLUGS.contains(&c.slug.as_str())) {
+        bail!(
+            "カテゴリの slug {:?} は、サイトのほかのページと URL（/{}）が重なるので使えません。content/categories/ のファイル名を変えてください",
+            category.slug,
+            category.slug
+        );
+    }
+    categories.sort_by(|a, b| {
+        (a.order.is_none(), a.order, &a.title, &a.slug).cmp(&(b.order.is_none(), b.order, &b.title, &b.slug))
+    });
+    Ok(categories)
 }
 
 /// page を読む（サイトマップに自己紹介を載せるかに使う、ADR 0037）。
@@ -124,7 +146,20 @@ pub fn build_db_bytes(site_dir: &Path, link_cards: &[LinkCard], media_sizes: &[M
         insert_tags(&conn, "post", &p.slug, &p.tags)?;
     }
 
+    let categories = categories(site_dir)?;
+    for (position, c) in categories.iter().enumerate() {
+        conn.execute(
+            "INSERT INTO categories (slug, title, description, body_md, position) VALUES (?1, ?2, ?3, ?4, ?5)",
+            (&c.slug, &c.title, &c.description, &c.body_md, position as i64),
+        )?;
+    }
+
     let articles = read_docs(&content_dir.join("articles"), parse_article)?;
+    // article の category に合うカテゴリがあること（ADR 0060）。書き誤りをビルドで知らせる。
+    if let Some(a) = articles.iter().find(|a| a.category.as_ref().is_some_and(|c| !categories.iter().any(|k| &k.slug == c))) {
+        let category = a.category.as_deref().unwrap_or_default();
+        bail!("{}: category {category:?} のカテゴリがありません（content/categories/{category}.md を作るか、書き誤りを直してください）", a.order_key);
+    }
     // frontmatter の slug（ADR 0059）が、ほかの article の slug と重ならないこと。
     let mut slugs: HashMap<&str, &str> = HashMap::new();
     for a in &articles {
@@ -134,9 +169,9 @@ pub fn build_db_bytes(site_dir: &Path, link_cards: &[LinkCard], media_sizes: &[M
     }
     for a in articles {
         conn.execute(
-            "INSERT INTO articles (slug, title, published_at, updated_at, description, body_md, sort_key)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            (&a.slug, &a.title, &a.published_at, &a.updated_at, &a.description, &a.body_md, &a.order_key),
+            "INSERT INTO articles (slug, title, published_at, updated_at, description, body_md, sort_key, category)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            (&a.slug, &a.title, &a.published_at, &a.updated_at, &a.description, &a.body_md, &a.order_key, &a.category),
         )?;
         insert_tags(&conn, "article", &a.slug, &a.tags)?;
     }
@@ -232,7 +267,7 @@ mod tests {
         );
         assert_eq!(
             column(&conn, "SELECT version FROM schema_migrations ORDER BY version"),
-            ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010"]
+            ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011"]
         );
     }
 
@@ -344,6 +379,41 @@ mod tests {
         let site = site_fixture(&[("articles/a.md", raw), ("articles/b.md", raw)]);
         let err = build_db_bytes(site.path(), &[], &[]).unwrap_err().to_string();
         assert!(err.contains("article の a と b が同じ slug（same）になります"), "{err}");
+    }
+
+    #[test]
+    fn categories_go_into_their_table_in_order_and_articles_point_to_them() {
+        let category = |title: &str, order: &str| format!("---\ntitle: {title}\n{order}---\n本文\n");
+        let article = "---\ntitle: t\ndate: 2026-09-17\ncategory: howto\n---\n本文\n";
+        let site = site_fixture(&[
+            ("categories/samples.md", &category("見本", "")),
+            ("categories/howto.md", &category("使い方", "order: 2\n")),
+            ("categories/typesetting.md", &category("組版", "order: 1\n")),
+            ("categories/another.md", &category("あ", "")),
+            ("articles/a.md", article),
+            ("articles/plain.md", POST),
+        ]);
+        let (_dir, conn) = open(&build_db_bytes(site.path(), &[], &[]).unwrap());
+        // order の小さい順、order のないものは後ろに title の順。
+        assert_eq!(
+            column(&conn, "SELECT position || ' ' || slug || ' ' || title FROM categories ORDER BY position"),
+            ["0 typesetting 組版", "1 howto 使い方", "2 another あ", "3 samples 見本"]
+        );
+        assert_eq!(column(&conn, "SELECT slug || ' ' || ifnull(category, '-') FROM articles ORDER BY slug"), ["a howto", "plain -"]);
+    }
+
+    #[test]
+    fn unknown_category_and_reserved_slugs_are_errors() {
+        let article = "---\ntitle: t\ndate: 2026-09-17\ncategory: missing\n---\n本文\n";
+        let site = site_fixture(&[("articles/a.md", article)]);
+        let err = build_db_bytes(site.path(), &[], &[]).unwrap_err().to_string();
+        assert!(err.contains("a: category \"missing\" のカテゴリがありません"), "{err}");
+
+        for reserved in RESERVED_CATEGORY_SLUGS {
+            let site = site_fixture(&[(&format!("categories/{reserved}.md"), "---\ntitle: t\n---\n")]);
+            let err = build_db_bytes(site.path(), &[], &[]).unwrap_err().to_string();
+            assert!(err.contains(&format!("URL（/{reserved}）が重なる")), "{err}");
+        }
     }
 
     #[test]
