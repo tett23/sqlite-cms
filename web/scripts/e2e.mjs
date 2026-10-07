@@ -297,6 +297,7 @@ scenario("知らないページは「見つかりません」を出す", async (
 /**
  * 広い画面で、検索ボックスが案内と同じ行の右端にあるか。案内を足して一行に収まらなくなると、検索ボックスだけが次の行の左に回る。
  * サイト名、案内、検索ボックスの縦の中心が、ヘッダの一行の中にそろい、検索ボックスの右端がヘッダの右端にあること。
+ * サイト名が長くて次の行に回るときも、検索ボックスが右端にあること。
  */
 async function assertSearchBoxOnTheRight(tab, what) {
   await tab.size(1024, 800);
@@ -308,6 +309,20 @@ async function assertSearchBoxOnTheRight(tab, what) {
   })()`);
   assert(Math.abs(layout.navMiddle - layout.formMiddle) < 8, `${what}: 検索ボックスが案内と同じ行にない（${JSON.stringify(layout)}）`);
   assert(Math.abs(layout.formRight - layout.headerRight) < 2, `${what}: 検索ボックスが右端にない（${JSON.stringify(layout)}）`);
+
+  // サイト名が長くて一行に収まらないときも、次の行に回った検索ボックスを右端に置く。
+  const wrapped = await tab.eval(`(() => {
+    const title = document.querySelector("header .site-header-body > p:first-child a, header .site-title");
+    const original = title.textContent;
+    title.textContent = "とても長いサイトの名前".repeat(3);
+    const header = document.querySelector("header").getBoundingClientRect();
+    const form = document.querySelector("header form[role=search]").getBoundingClientRect();
+    const titleRect = title.getBoundingClientRect();
+    title.textContent = original;
+    return { formTop: form.top, titleTop: titleRect.top, formRight: form.right, headerRight: header.right };
+  })()`);
+  assert(wrapped.formTop > wrapped.titleTop + 16, `${what}: 長いサイト名で、検索ボックスが二行目に回っていない（${JSON.stringify(wrapped)}）`);
+  assert(Math.abs(wrapped.formRight - wrapped.headerRight) < 2, `${what}: 長いサイト名で、検索ボックスが右端にない（${JSON.stringify(wrapped)}）`);
 }
 
 scenario("content/header.md のヘッダを描く（ADR 0043）", async ({ tab, origin }) => {
@@ -323,7 +338,7 @@ scenario("content/header.md がなければ、既定のヘッダを描く", asyn
   await tab.goto(defaultOrigin + "/");
   assertEqual(await tab.eval("document.querySelector('meta[name=\"sqlite-cms-header\"]')"), null, "目印");
   assertEqual(await count(tab, "header .site-header-body"), 0, "カスタムのヘッダ");
-  assertEqual(await count(tab, "header nav a"), 5, "既定の案内（トップ、一覧、カテゴリ、自己紹介、検索）");
+  assertEqual(await count(tab, "header nav a"), 4, "既定の案内（トップ、一覧、カテゴリ、自己紹介）");
   assertEqual(await count(tab, "header form[role=search]"), 1, "検索ボックス");
   await assertSearchBoxOnTheRight(tab, "既定のヘッダ");
   noProblems(tab, "既定のヘッダ");

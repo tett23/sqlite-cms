@@ -547,14 +547,14 @@ export default function App() {
           <Link to="/" className="site-title text-xl font-bold">
             {site?.title ?? "\u00a0"}
           </Link>
-          {/* サイト名、案内（5 つ）、検索ボックスを、広い画面（640px）で一行に収めるよう、間隔と入力欄を詰める。 */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+          {/* サイト名、案内、検索ボックスを、広い画面（640px）で一行に収めるよう、間隔と入力欄を詰める。 */}
+          {/* 広い画面では右に寄せ、検索ボックスが次の行に回っても右に置く。 */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm sm:justify-end">
             <nav className="space-x-3">
               <Link to="/">トップ</Link>
               <Link to="/archive">一覧</Link>
               <Link to="/categories">カテゴリ</Link>
               <Link to="/about">自己紹介</Link>
-              <Link to="/search">検索</Link>
             </nav>
             <HeaderSearch />
           </div>

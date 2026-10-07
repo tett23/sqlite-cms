@@ -28,7 +28,7 @@ a.site-title:visited {
  * 記事リポジトリの content/header.md で作ったヘッダ（ADR 0043）。
  * 最初の段落をサイト名として既定のヘッダと同じ大きさで左に置き、ほかの段落、リスト、検索ボックスを右に横に並べる。
  * 狭い画面では折り返す。
- * 広い画面（640px）では、サイト名、案内（init が作るヘッダで 5 つ）、検索ボックスが一行に収まるよう、間隔を詰める。
+ * 広い画面（640px）では、サイト名、案内（init が作るヘッダで 4 つ）、検索ボックスが一行に収まるよう、間隔を詰める。
  */
 .site-header-body {
   display: flex;
@@ -41,6 +41,16 @@ a.site-title:visited {
 
 .site-header-body > * {
   margin: 0;
+}
+
+/*
+ * 広い画面では、サイト名のほかを右に寄せる。サイト名が長くて一行に収まらず、案内や検索ボックスが次の行に回っても、右に寄せて置く。
+ * 狭い画面では、左に寄せたまま行を分ける。
+ */
+@media (min-width: 640px) {
+  .site-header-body {
+    justify-content: flex-end;
+  }
 }
 
 .site-header-body > p:first-child {
