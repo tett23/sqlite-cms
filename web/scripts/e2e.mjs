@@ -237,7 +237,7 @@ scenario("記事のタグを出し、タグを押すとそのタグの付いた�
   await tab.waitFor("document.querySelector('main h1')?.textContent === '自己紹介'", { message: "自己紹介が描かれない" });
   assertEqual(await count(tab, "ul[aria-label=タグ]"), 0, "page のタグの数");
 
-  await tab.goto(origin + "/posts/ruby");
+  await tab.goto(origin + "/posts/01a0cb8f-e400-7083-945c-cc81919f7840");
   assertEqual(await tab.eval(tagsOf), ["#書き方", "#HTML", "#組版"], "記事のタグ");
   await tab.eval("window.__marker = true");
   await tab.eval("[...document.querySelectorAll('article ul[aria-label=タグ] a')].find((a) => a.textContent === '#組版').click()");

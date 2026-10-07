@@ -138,7 +138,10 @@ DB（`/db/`）は `Disallow` で断らない。Google などは JavaScript を�
 
 ### 記事
 
-Markdown のファイル名が URL の一部（slug）になる。
+post と article のファイル名は `<UUIDv7>-<名前>.md`（`sqlite-cms new` が作る）で、先頭の UUIDv7 が URL の一部（slug）になる（`/posts/017f22e2-79b0-7cc3-98c4-dc0c0c07398f`）。
+UUIDv7 は作った時刻を含むので、同じ日付の記事も作った順に並ぶ。後ろの名前は、ファイルを見分けるためのもので、URL には入らない。
+article は、frontmatter に `slug: long-read` と書くと、それが URL になる（`/articles/long-read`）。並びは、slug を書いても作った順のまま。
+UUIDv7 で始まらないファイル（`hello.md` など）は、今までどおりファイル名が slug になる。固定ページ（`pages/`）も、ファイル名が slug になる。
 
 ```markdown
 ---
@@ -229,7 +232,7 @@ Markdown では書けない表現のために、次の HTML のタグだけを�
 ### 拡張の記法
 
 [Zenn の記法](https://zenn.dev/zenn/articles/markdown-guide)を参考にした拡張も使える。
-見本は `example/content/articles/extensions.md`。
+見本は `example/content/articles/01a0db02-ffd0-7391-840e-0045ddafc5c7-extensions.md`。
 
 ````markdown
 :::message
@@ -326,8 +329,9 @@ https://example.com/
 記事リポジトリの中で実行する（別の場所から使うときは、記事リポジトリのパスを引数に渡す）。
 
 ```sh
-sqlite-cms new post hello --title はじめまして   # content/posts/hello.md の雛形を作る
-sqlite-cms new post                             # content/posts/<今日の日付>.md の雛形を作る
+sqlite-cms new post hello --title はじめまして   # content/posts/<UUIDv7>-hello.md の雛形を作る
+sqlite-cms new post                             # content/posts/<UUIDv7>.md の雛形を作る（タイトルは今日の日付）
+sqlite-cms new article --title 長い読み物        # content/articles/<UUIDv7>-長い読み物.md の雛形を作る
 sqlite-cms serve    # http://127.0.0.1:8080/ でプレビュー（記事を変えると自動で反映する）
 sqlite-cms build    # dist/ に配信用の一式を書き出す
 sqlite-cms deploy   # site.toml の [deploy] の公開先に公開する
@@ -336,10 +340,10 @@ sqlite-cms deploy   # site.toml の [deploy] の公開先に公開する
 `new` の種別は `post`、`article`、`page` のどれか。
 日付は今日が入り、`--date 2026-09-26` で変えられる。
 今日の日付は `site.toml` の `timezone` のタイムゾーンで決まる。省略すると、実行した環境のタイムゾーンになる（CI など、手元と違うタイムゾーンで動かすときは指定しておくとよい）。
-slug（ファイル名と URL になる名前）を省くと、記事の日付（`2026-09-26` など）が slug になる。
-同じ日付の記事がすでにあれば、`2026-09-26-2`、`2026-09-26-3` と枝番が付く。
-page は日付を持たないので、slug を省けない。
-slug を指定して、同じ名前のファイルがすでにあるときは、上書きせずにエラーになる。
+post と article のファイル名の先頭には、作った時刻の UUIDv7 を付け、URL はその UUIDv7 になる。
+名前（slug）を指定すると `<UUIDv7>-<名前>.md` になる。article では、指定した名前を frontmatter の `slug` に書き、URL にする（post の URL は常に UUIDv7）。省くと、post は `<UUIDv7>.md`、article はタイトルを入れた `<UUIDv7>-<タイトル>.md` になる（文字、数字、`_` 以外は `-` にする）。
+article はタイトル（`--title`）を省けない。post はタイトルを省くと、日付がタイトルになる。
+page は日付を持たないので、slug を省けない。page の slug はファイル名と URL になり、同じ名前のファイルがすでにあるときは、上書きせずにエラーになる。
 
 slug を省いて別の場所の記事リポジトリを指すときは、`./blog` や `../blog` のようにパスとわかる形で書く（`/` を含むか `.` で始まる引数は、slug ではなく記事リポジトリとみなす）。
 

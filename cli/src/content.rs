@@ -15,7 +15,10 @@ pub struct Post {
 
 #[derive(Debug, PartialEq)]
 pub struct Article {
+    /// URL の名前。frontmatter の slug があればそれ、なければファイル名から取ったもの（ADR 0058、0059）。
     pub slug: String,
+    /// 同じ日付の記事を並べる順の鍵。ファイル名から取ったもの（UUIDv7 か、ファイル名）。
+    pub order_key: String,
     pub title: String,
     pub published_at: String,
     pub updated_at: Option<String>,
@@ -138,8 +141,16 @@ pub fn parse_article(slug: &str, raw: &str) -> Result<Article> {
         ),
     };
 
+    // frontmatter に slug を書けば、それを URL にする（ADR 0059）。
+    let url_slug = match value(&doc.frontmatter, "slug") {
+        None => slug.to_string(),
+        Some(custom) if is_valid_slug(custom) => custom.to_string(),
+        Some(custom) => bail!("{slug}: slug {custom:?} には文字、数字、-、_ だけを使ってください（URL になります）"),
+    };
+
     Ok(Article {
-        slug: slug.to_string(),
+        slug: url_slug,
+        order_key: slug.to_string(),
         published_at: require_date(slug, &doc.frontmatter)?,
         updated_at,
         description,
@@ -147,6 +158,11 @@ pub fn parse_article(slug: &str, raw: &str) -> Result<Article> {
         title: doc.title,
         body_md: doc.body_md,
     })
+}
+
+/// slug に使える文字（文字、数字、-、_）だけでできているか。
+pub fn is_valid_slug(slug: &str) -> bool {
+    !slug.is_empty() && slug.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
 }
 
 pub fn parse_page(slug: &str, raw: &str) -> Result<Page> {
@@ -265,6 +281,22 @@ mod tests {
         assert!(post("[\"a#b\"]").contains("空白か # が含まれています"));
         assert!(post("[\"#\"]").contains("空のタグ"));
         assert!(post("[\"\"]").contains("空のタグ"));
+    }
+
+    #[test]
+    fn article_slug_in_frontmatter_becomes_the_url() {
+        // frontmatter の slug を URL にし、並べる順の鍵はファイル名から取ったものにする（ADR 0059）。
+        let raw = "---\ntitle: t\nslug: long-read\ndate: 2026-01-01\n---\n本文";
+        let article = parse_article("017f22e2-79b0-7cc3-98c4-dc0c0c07398f", raw).unwrap();
+        assert_eq!(article.slug, "long-read");
+        assert_eq!(article.order_key, "017f22e2-79b0-7cc3-98c4-dc0c0c07398f");
+        let article = parse_article("plain", ARTICLE).unwrap();
+        assert_eq!((article.slug.as_str(), article.order_key.as_str()), ("plain", "plain"));
+        for bad in ["\"a b\"", "../x", "\"\""] {
+            let raw = format!("---\ntitle: t\nslug: {bad}\ndate: 2026-01-01\n---\n");
+            let err = parse_article("a", &raw).unwrap_err().to_string();
+            assert!(err.contains("文字、数字、-、_ だけ"), "{bad}: {err}");
+        }
     }
 
     #[test]

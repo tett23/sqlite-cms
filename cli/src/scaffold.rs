@@ -31,7 +31,7 @@ impl Kind {
 }
 
 pub fn validate_slug(slug: &str) -> Result<()> {
-    if slug.is_empty() || !slug.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+    if !crate::content::is_valid_slug(slug) {
         bail!("slug {slug:?} には文字、数字、-、_ だけを使ってください（URL とファイル名になります）");
     }
     Ok(())
@@ -63,9 +63,6 @@ pub fn template(kind: Kind, title: &str, date: &str) -> String {
     }
 }
 
-/// slug を省略したときに付ける枝番の上限。
-const MAX_SUFFIX: u32 = 1000;
-
 /// 雛形のファイルを作る。作れたら true、同じ名前のファイルがすでにあれば false。
 fn write_new(path: &Path, body: &str) -> Result<bool> {
     match OpenOptions::new().write(true).create_new(true).open(path) {
@@ -78,9 +75,24 @@ fn write_new(path: &Path, body: &str) -> Result<bool> {
     }
 }
 
-/// 記事の雛形を作る。
-/// `slug` を省くと記事の日付を slug にし、同じ名前があれば `-2`、`-3` と枝番を付ける。
-/// `title` を省くと slug をタイトルにする。
+/// ファイル名に入れるタイトルの長さの上限（文字数）。長いタイトルでも、ファイル名が長くなりすぎないようにする。
+const FILE_NAME_TITLE_CHARS: usize = 50;
+
+/// タイトルを、ファイル名に入れる形にする（ADR 0058）。文字、数字、`_` 以外を `-` にし、続く `-` は一つにまとめる。
+pub fn file_name_part(title: &str) -> String {
+    let joined = title
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    joined.chars().take(FILE_NAME_TITLE_CHARS).collect::<String>().trim_end_matches('-').to_string()
+}
+
+/// 記事の雛形を作る（ADR 0058）。
+/// post と article のファイル名は `<UUIDv7>.md` か `<UUIDv7>-<名前>.md` にする。URL の slug は UUIDv7 になる。
+/// 名前は、slug を指定すればそれ、なければ article ならタイトル（`file_name_part`）、post なら付けない。
+/// post のタイトルを省くと日付をタイトルにする。article はタイトルを省けない。
+/// page は今までどおり `<slug>.md` で、slug を省けない（タイトルを省くと slug をタイトルにする）。
 pub fn create(site_dir: &Path, kind: Kind, slug: Option<&str>, title: Option<&str>, date: &str) -> Result<PathBuf> {
     if let Some(slug) = slug {
         validate_slug(slug)?;
@@ -90,6 +102,9 @@ pub fn create(site_dir: &Path, kind: Kind, slug: Option<&str>, title: Option<&st
     }
     if slug.is_none() && kind == Kind::Page {
         bail!("page は日付を持たないので、slug を省略できません");
+    }
+    if title.is_none() && kind == Kind::Article {
+        bail!("article にはタイトルが要ります（--title で指定してください）");
     }
     if !site_dir.join("site.toml").is_file() {
         bail!(
@@ -101,22 +116,32 @@ pub fn create(site_dir: &Path, kind: Kind, slug: Option<&str>, title: Option<&st
     let dir = site_dir.join("content").join(kind.dir());
     fs::create_dir_all(&dir).with_context(|| format!("{} を作れません", dir.display()))?;
 
-    if let Some(slug) = slug {
-        let path = dir.join(format!("{slug}.md"));
-        if !write_new(&path, &template(kind, title.unwrap_or(slug), date))? {
-            bail!("{} はすでにあります。別の slug を指定してください", path.display());
+    let (file_name, title) = match kind {
+        Kind::Page => {
+            let slug = slug.expect("確かめ済み");
+            (slug.to_string(), title.unwrap_or(slug).to_string())
         }
-        return Ok(path);
-    }
-
-    for n in 1..=MAX_SUFFIX {
-        let slug = if n == 1 { date.to_string() } else { format!("{date}-{n}") };
-        let path = dir.join(format!("{slug}.md"));
-        if write_new(&path, &template(kind, title.unwrap_or(&slug), date))? {
-            return Ok(path);
+        Kind::Post | Kind::Article => {
+            let id = crate::uuid::new_v7();
+            let name = match (slug, kind) {
+                (Some(slug), _) => slug.to_string(),
+                (None, Kind::Article) => file_name_part(title.expect("確かめ済み")),
+                (None, _) => String::new(),
+            };
+            let file_name = if name.is_empty() { id } else { format!("{id}-{name}") };
+            (file_name, title.unwrap_or(date).to_string())
         }
+    };
+    let mut body = template(kind, &title, date);
+    // article で slug を指定したら、frontmatter に書き、URL にする（ADR 0059）。ファイル名の後ろの名前だけでは、タイトルから作ったものと区別できない。
+    if let (Kind::Article, Some(slug)) = (kind, slug) {
+        body = body.replacen("\ndate: ", &format!("\nslug: {slug}\ndate: "), 1);
     }
-    bail!("{date} の記事が多すぎて、枝番を付けられません（-{MAX_SUFFIX} まで使われています）。slug を指定してください")
+    let path = dir.join(format!("{file_name}.md"));
+    if !write_new(&path, &body)? {
+        bail!("{} はすでにあります。別の slug を指定してください", path.display());
+    }
+    Ok(path)
 }
 
 const SITE_TOML_REST: &str = r#"
@@ -485,52 +510,92 @@ mod tests {
         dir
     }
 
-    #[test]
-    fn creates_file_in_kind_directory() {
-        let site = site();
-        let path = create(site.path(), Kind::Article, Some("long-read"), Some("長い読み物"), "2026-09-26").unwrap();
-        assert_eq!(path, site.path().join("content/articles/long-read.md"));
-        let written = fs::read_to_string(&path).unwrap();
-        assert_eq!(parse_article("long-read", &written).unwrap().title, "長い読み物");
+    /// 作ったファイルの名前（拡張子を除く）と、その UUIDv7。
+    fn stem_and_id(path: &Path) -> (String, String) {
+        let stem = path.file_stem().unwrap().to_str().unwrap().to_string();
+        let id = crate::uuid::leading_v7(&stem).unwrap_or_else(|| panic!("UUIDv7 で始まらない: {stem}")).to_string();
+        (stem, id)
     }
 
     #[test]
-    fn omitted_slug_uses_the_date_and_adds_suffixes() {
+    fn article_file_name_is_uuid_and_title() {
+        let site = site();
+        let path = create(site.path(), Kind::Article, None, Some("SQLite と CMS / 2026"), "2026-09-26").unwrap();
+        assert_eq!(path.parent().unwrap(), site.path().join("content/articles"));
+        let (stem, id) = stem_and_id(&path);
+        assert_eq!(stem, format!("{id}-SQLite-と-CMS-2026"));
+        let article = parse_article(&id, &fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(article.title, "SQLite と CMS / 2026");
+        assert_eq!(article.published_at, "2026-09-26");
+    }
+
+    #[test]
+    fn article_requires_a_title() {
+        let site = site();
+        for slug in [None, Some("long-read")] {
+            let err = create(site.path(), Kind::Article, slug, None, "2026-09-26").unwrap_err();
+            assert!(err.to_string().contains("article にはタイトルが要ります"), "{err}");
+        }
+        assert!(!site.path().join("content/articles").exists());
+    }
+
+    #[test]
+    fn slug_follows_the_uuid() {
+        let site = site();
+        let article = create(site.path(), Kind::Article, Some("long-read"), Some("長い読み物"), "2026-09-26").unwrap();
+        let (stem, id) = stem_and_id(&article);
+        assert_eq!(stem, format!("{id}-long-read"));
+        // article は、指定した slug を frontmatter に書き、URL にする（ADR 0059）。並べる順の鍵は UUIDv7。
+        let written = fs::read_to_string(&article).unwrap();
+        assert!(written.starts_with("---\ntitle: \"長い読み物\"\nslug: long-read\ndate: 2026-09-26\n"), "{written}");
+        let parsed = parse_article(&id, &written).unwrap();
+        assert_eq!((parsed.slug.as_str(), parsed.order_key.as_str()), ("long-read", id.as_str()));
+        // 指定しなければ、frontmatter に slug を書かず、URL は UUIDv7。
+        let untitled = create(site.path(), Kind::Article, None, Some("題"), "2026-09-26").unwrap();
+        let (_, untitled_id) = stem_and_id(&untitled);
+        let written = fs::read_to_string(&untitled).unwrap();
+        assert!(!written.contains("\nslug:"), "{written}");
+        assert_eq!(parse_article(&untitled_id, &written).unwrap().slug, untitled_id);
+        let post = create(site.path(), Kind::Post, Some("hello"), None, "2026-09-26").unwrap();
+        let (stem, id) = stem_and_id(&post);
+        assert_eq!(stem, format!("{id}-hello"));
+        // post の URL は、slug を指定しても UUIDv7（frontmatter に slug を書かない）。
+        assert!(!fs::read_to_string(&post).unwrap().contains("\nslug:"));
+    }
+
+    #[test]
+    fn post_without_slug_is_named_by_uuid_and_titled_by_date() {
         let site = site();
         let first = create(site.path(), Kind::Post, None, None, "2026-09-26").unwrap();
         let second = create(site.path(), Kind::Post, None, Some("二本目"), "2026-09-26").unwrap();
-        let third = create(site.path(), Kind::Post, None, None, "2026-09-26").unwrap();
-        let dir = site.path().join("content/posts");
-        assert_eq!([first, second.clone(), third], [
-            dir.join("2026-09-26.md"),
-            dir.join("2026-09-26-2.md"),
-            dir.join("2026-09-26-3.md"),
-        ]);
-
-        let post = parse_post("2026-09-26", &fs::read_to_string(dir.join("2026-09-26.md")).unwrap()).unwrap();
+        let (first_stem, first_id) = stem_and_id(&first);
+        let (second_stem, second_id) = stem_and_id(&second);
+        // 名前は UUIDv7 だけ。同じ日付でも別の名前になり、作った順に並ぶ。
+        assert_eq!((first_stem, second_stem.clone()), (first_id.clone(), second_id.clone()));
+        assert!(first_id < second_id || first_id[..13] == second_id[..13], "{first_id} {second_id}");
+        let post = parse_post(&first_id, &fs::read_to_string(&first).unwrap()).unwrap();
         assert_eq!(post.title, "2026-09-26");
         assert_eq!(post.published_at, "2026-09-26");
-        assert_eq!(parse_post("x", &fs::read_to_string(second).unwrap()).unwrap().title, "二本目");
+        assert_eq!(parse_post(&second_id, &fs::read_to_string(&second).unwrap()).unwrap().title, "二本目");
     }
 
     #[test]
-    fn omitted_slug_skips_files_written_by_hand() {
-        let site = site();
-        let dir = site.path().join("content/articles");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("2026-09-26.md"), "手で書いた").unwrap();
-        let path = create(site.path(), Kind::Article, None, None, "2026-09-26").unwrap();
-        assert_eq!(path, dir.join("2026-09-26-2.md"));
-        assert_eq!(fs::read_to_string(dir.join("2026-09-26.md")).unwrap(), "手で書いた");
+    fn file_name_part_replaces_unsafe_characters() {
+        assert_eq!(file_name_part("SQLite と CMS"), "SQLite-と-CMS");
+        assert_eq!(file_name_part("  a / b\\c: d?*  "), "a-b-c-d");
+        assert_eq!(file_name_part("a--b__c"), "a-b__c");
+        assert_eq!(file_name_part("記事（その２）"), "記事-その２");
+        assert_eq!(file_name_part("!!!"), "");
+        assert_eq!(file_name_part(&"長".repeat(80)).chars().count(), 50);
+        assert_eq!(file_name_part(&format!("{}-b", "a".repeat(49))), "a".repeat(49));
     }
 
     #[test]
-    fn suffixes_are_counted_per_kind() {
+    fn title_without_usable_characters_leaves_only_the_uuid() {
         let site = site();
-        let post = create(site.path(), Kind::Post, None, None, "2026-09-26").unwrap();
-        let article = create(site.path(), Kind::Article, None, None, "2026-09-26").unwrap();
-        assert!(post.ends_with("posts/2026-09-26.md"));
-        assert!(article.ends_with("articles/2026-09-26.md"));
+        let path = create(site.path(), Kind::Article, None, Some("!!!"), "2026-09-26").unwrap();
+        let (stem, id) = stem_and_id(&path);
+        assert_eq!(stem, id);
     }
 
     #[test]
@@ -541,12 +606,12 @@ mod tests {
     }
 
     #[test]
-    fn refuses_to_overwrite_existing_file() {
+    fn refuses_to_overwrite_existing_page() {
         let site = site();
-        create(site.path(), Kind::Post, Some("hello"), Some("一本目"), "2026-09-26").unwrap();
-        let err = create(site.path(), Kind::Post, Some("hello"), Some("二本目"), "2026-09-27").unwrap_err();
+        create(site.path(), Kind::Page, Some("about"), Some("一本目"), "").unwrap();
+        let err = create(site.path(), Kind::Page, Some("about"), Some("二本目"), "").unwrap_err();
         assert!(err.to_string().contains("すでにあります"));
-        let written = fs::read_to_string(site.path().join("content/posts/hello.md")).unwrap();
+        let written = fs::read_to_string(site.path().join("content/pages/about.md")).unwrap();
         assert!(written.contains("一本目"));
     }
 

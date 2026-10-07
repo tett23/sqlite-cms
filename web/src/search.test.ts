@@ -11,11 +11,11 @@ beforeAll(async () => {
   const migrations = import.meta.glob<string>("../../migrations/*.sql", { query: "?raw", import: "default", eager: true });
   for (const file of Object.keys(migrations).sort()) sql.exec(migrations[file]);
   const post = (slug: string, title: string, date: string, body: string) =>
-    sql.run("INSERT INTO posts VALUES (?, ?, ?, ?)", [slug, title, date, body]);
+    sql.run("INSERT INTO posts (slug, title, published_at, body_md) VALUES (?, ?, ?, ?)", [slug, title, date, body]);
   post("ruby", "ルビを振る", "2026-09-23", "本文に<ruby>振<rt>ふ</rt></ruby>り仮名を付けたいときは、`<ruby>` を使う。");
   post("shiki", "コードの色分け", "2026-09-25", "色分けには **Shiki** を使っていて、VS Code と同じ文法の定義で色を決めている。");
   post("hello", "記事置き場を作った", "2026-09-16", "書いたものを置いておく場所を作った。[仕組み](/articles/x) に書いた。");
-  sql.run("INSERT INTO articles VALUES (?, ?, ?, ?, ?, ?)", [
+  sql.run("INSERT INTO articles (slug, title, published_at, updated_at, description, body_md) VALUES (?, ?, ?, ?, ?, ?)", [
     "getting-started",
     "sqlite-cms の使い方",
     "2026-09-26",

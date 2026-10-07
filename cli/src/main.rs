@@ -26,6 +26,7 @@ mod serve;
 mod site;
 mod sitemap;
 mod spa;
+mod uuid;
 mod watch;
 #[cfg(test)]
 mod testutil;
@@ -61,15 +62,19 @@ usage: sqlite-cms <コマンド> [引数] [オプション]
 
 引数:
   SITE_DIR  記事リポジトリのディレクトリ（既定: .）
-  SLUG      ファイル名と URL になる名前（文字、数字、-、_）。省くと記事の日付（YYYY-MM-DD）に
-            なり、同じ日付があれば -2、-3 と枝番を付ける。page では省けない
+  SLUG      ファイル名に入れる名前（文字、数字、-、_）。
+            post と article のファイル名は <UUIDv7>-<SLUG>.md になる（同じ日付の記事も、作った順に並ぶ）。
+            post の URL は常に UUIDv7。article は SLUG を frontmatter の slug に書き、URL にする。
+            SLUG を省くと、post は <UUIDv7>.md、article は <UUIDv7>-<タイトル>.md（ファイル名に向かない
+            文字は - にする）になり、URL は UUIDv7 になる。
+            page では SLUG がファイル名と URL になり、省けない
             new の引数が一つで、/ を含むか . で始まるときは、SLUG ではなく SITE_DIR とみなす
 
 オプション:
   init --title <TITLE>     サイト名（既定: ディレクトリ名）
   init --force             site.toml や content/ があっても作り直す。init が作るファイル
                            （site.toml、index.md、pages/about.md）は上書きし、記事や画像は消さない
-  new --title <TITLE>      タイトル（既定: SLUG）
+  new --title <TITLE>      タイトル。article では必須。post で省くと日付、page で省くと SLUG
   new --date <YYYY-MM-DD>  日付（既定: site.toml の timezone での今日。page では使えない）
   serve --port <PORT>      待ち受けるポート（既定: 8080。0 なら空いているポート）
   serve --no-reload        記事の変更を自動で反映しない（既定では、変更を見つけて組み立て直し、
@@ -118,8 +123,9 @@ deploy の公開先（site.toml の [deploy]）:
 
 例:
   sqlite-cms init my-blog                        my-blog/ に記事リポジトリを作る
-  sqlite-cms new post hello --title はじめまして  content/posts/hello.md を作る
-  sqlite-cms new post                            content/posts/<今日の日付>.md を作る
+  sqlite-cms new post                            content/posts/<UUIDv7>.md を作る（タイトルは今日の日付）
+  sqlite-cms new post hello --title はじめまして  content/posts/<UUIDv7>-hello.md を作る
+  sqlite-cms new article --title 長い読み物       content/articles/<UUIDv7>-長い読み物.md を作る
   sqlite-cms serve                               カレントディレクトリの記事リポジトリをプレビューする
   sqlite-cms build --out public                  public/ に書き出す
   sqlite-cms deploy ../blog                      ../blog の記事リポジトリを公開する";
@@ -249,7 +255,7 @@ fn init(site_dir: PathBuf, title: Option<String>, force: bool) -> Result<()> {
     let target = if site_dir == Path::new(".") { String::new() } else { format!(" {}", site_dir.display()) };
     println!();
     println!("次は記事を書いてプレビューする:");
-    println!("  sqlite-cms new post <SLUG>{target}");
+    println!("  sqlite-cms new post{target}");
     println!("  sqlite-cms serve{target}");
     Ok(())
 }

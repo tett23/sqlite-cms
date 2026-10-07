@@ -19,9 +19,9 @@ beforeAll(async () => {
     sql.exec(migrations[file]);
   }
 
-  sql.run("INSERT INTO posts VALUES (?, ?, ?, ?)", ["old", "古い記事", "2026-01-01", "**old**"]);
-  sql.run("INSERT INTO posts VALUES (?, ?, ?, ?)", ["new", "新しい記事", "2026-09-17", "new"]);
-  sql.run("INSERT INTO articles VALUES (?, ?, ?, ?, ?, ?)", [
+  sql.run("INSERT INTO posts (slug, title, published_at, body_md) VALUES (?, ?, ?, ?)", ["old", "古い記事", "2026-01-01", "**old**"]);
+  sql.run("INSERT INTO posts (slug, title, published_at, body_md) VALUES (?, ?, ?, ?)", ["new", "新しい記事", "2026-09-17", "new"]);
+  sql.run("INSERT INTO articles (slug, title, published_at, updated_at, description, body_md) VALUES (?, ?, ?, ?, ?, ?)", [
     "long",
     "長い読み物",
     "2026-09-15",
@@ -54,6 +54,24 @@ describe("getLinkCardImages", () => {
     const images = getLinkCardImages(db);
     expect([...images]).toEqual([["https://example.com/", "/link-cards/0123456789abcdef.png"]]);
     expect(getLinkCardImages(db)).toBe(images);
+  });
+});
+
+describe("同じ日付の記事の並び（ADR 0059）", () => {
+  it("並べる順の鍵（sort_key）の降順に並べ、slug の順には並べない", async () => {
+    const SQL = await initSqlJs();
+    const sql = new SQL.Database();
+    const migrations = import.meta.glob<string>("../../migrations/*.sql", { query: "?raw", import: "default", eager: true });
+    for (const file of Object.keys(migrations).sort()) sql.exec(migrations[file]);
+    // slug の順（a < z）と、鍵の順（2 < 1 の逆）を逆にする。
+    sql.run("INSERT INTO articles (slug, title, published_at, body_md, sort_key) VALUES ('aaa', '後から', '2026-09-26', '', '0002')");
+    sql.run("INSERT INTO articles (slug, title, published_at, body_md, sort_key) VALUES ('zzz', '先に', '2026-09-26', '', '0001')");
+    sql.run("INSERT INTO posts (slug, title, published_at, body_md, sort_key) VALUES ('p', 'メモ', '2026-09-26', '', 'p')");
+    sql.run("INSERT INTO site (id, title) VALUES (1, 't')");
+    const db = new SqliteFile(sql.export());
+    sql.close();
+    expect(listArticles(db).map((a) => a.slug)).toEqual(["aaa", "zzz"]);
+    expect(listAll(db).map((e) => e.slug)).toEqual(["aaa", "zzz", "p"]);
   });
 });
 

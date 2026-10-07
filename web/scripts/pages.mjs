@@ -4,7 +4,7 @@ export const PAGES = [
   ["article-syntax", "/articles/syntax"],
   ["article-extensions", "/articles/extensions"],
   ["article-getting-started", "/articles/getting-started"],
-  ["post-ruby", "/posts/ruby"],
+  ["post-ruby", "/posts/01a0cb8f-e400-7083-945c-cc81919f7840"],
   ["about", "/about"],
   ["search", "/search?q=%E8%A8%98%E4%BA%8B"],
   ["archive", "/archive"],
