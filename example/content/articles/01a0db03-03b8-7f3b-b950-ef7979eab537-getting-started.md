@@ -2,6 +2,7 @@
 title: "sqlite-cms の使い方"
 slug: getting-started
 date: 2026-09-26
+category: howto
 description: 記事リポジトリを作ってから、記事を書き、手元で確かめ、Cloudflare や GitHub Pages に公開するまでの手順。
 tags: [sqlite-cms, 使い方]
 ---

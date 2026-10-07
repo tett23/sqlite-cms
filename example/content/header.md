@@ -4,6 +4,7 @@
 
 - [トップ](/)
 - [一覧](/archive)
+- [カテゴリ](/categories)
 - [自己紹介](/about)
 - [検索](/search)
 

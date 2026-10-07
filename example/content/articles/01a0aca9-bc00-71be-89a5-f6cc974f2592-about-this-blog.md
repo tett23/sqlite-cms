@@ -2,6 +2,7 @@
 title: "このブログの仕組み"
 slug: about-this-blog
 date: 2026-09-17
+category: howto
 updated: 2026-09-26
 description: 記事の Markdown を単一の SQLite に焼き、ブラウザ内で開いて表示する構成の説明。
 tags: [sqlite-cms, 仕組み, SQLite]

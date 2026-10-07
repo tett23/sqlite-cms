@@ -262,6 +262,33 @@ scenario("記事のタグを出し、タグを押すとそのタグの付いた�
   noProblems(tab, "タグ");
 });
 
+scenario("カテゴリの一覧とカテゴリのページを出し、記事からカテゴリに移れる（ADR 0060）", async ({ tab, origin }) => {
+  await tab.goto(origin + "/");
+  await tab.eval("[...document.querySelectorAll('header a')].find((a) => a.textContent === 'カテゴリ').click()");
+  await tab.waitFor("location.pathname === '/categories' && document.querySelector('main h1')?.textContent === 'カテゴリ'", { message: "ヘッダからカテゴリの一覧に移れない" });
+  assertEqual(
+    await tab.eval("[...document.querySelectorAll('main li')].map((li) => [li.querySelector('a').getAttribute('href'), li.querySelector('a').textContent, li.querySelector('span').textContent])"),
+    [["/howto", "使い方", "4 件"], ["/samples", "見本", "6 件"]],
+    "カテゴリの一覧",
+  );
+
+  await tab.eval("document.querySelector('main a[href=\"/howto\"]').click()");
+  await tab.waitFor("location.pathname === '/howto' && document.querySelector('main h1')?.textContent === '使い方'", { message: "カテゴリのページに移れない" });
+  assert((await tab.eval("document.querySelector('main .article-body').textContent")).includes("はじめての人は"), "カテゴリの本文がない");
+  const articles = await tab.eval("[...document.querySelectorAll('main section li > a')].map((a) => a.getAttribute('href'))");
+  assertEqual(articles.length, 4, "カテゴリの記事の数");
+  assert(articles.includes("/articles/getting-started") && !articles.includes("/articles/heavy-long"), `カテゴリの記事: ${articles}`);
+
+  // 記事の題の上に、属するカテゴリへのリンクを出す。
+  await tab.goto(origin + "/articles/heavy-long");
+  assertEqual(await tab.eval("[...document.querySelectorAll('article > p a')].map((a) => [a.getAttribute('href'), a.textContent])[0]"), ["/samples", "見本"], "記事のカテゴリ");
+
+  // カテゴリでない直下のパスは「見つかりません」。
+  await tab.goto(origin + "/no-such-category");
+  assert((await tab.eval("document.querySelector('main').textContent")).includes("見つかりません"), "見つかりませんを出さない");
+  noProblems(tab, "カテゴリ");
+});
+
 scenario("知らないページは「見つかりません」を出す", async ({ tab, origin }) => {
   await tab.goto(origin + "/articles/does-not-exist");
   assert((await tab.eval("document.querySelector('main').textContent")).includes("見つかりません"), "見つかりませんを出さない");
@@ -279,7 +306,7 @@ scenario("content/header.md がなければ、既定のヘッダを描く", asyn
   await tab.goto(defaultOrigin + "/");
   assertEqual(await tab.eval("document.querySelector('meta[name=\"sqlite-cms-header\"]')"), null, "目印");
   assertEqual(await count(tab, "header .site-header-body"), 0, "カスタムのヘッダ");
-  assertEqual(await count(tab, "header nav a"), 4, "既定の案内");
+  assertEqual(await count(tab, "header nav a"), 5, "既定の案内（トップ、一覧、カテゴリ、自己紹介、検索）");
   assertEqual(await count(tab, "header form[role=search]"), 1, "検索ボックス");
   noProblems(tab, "既定のヘッダ");
 });

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   getArticle,
+  getCategory,
   getLinkCardImages,
   getMediaSizes,
   getPage,
@@ -8,8 +9,10 @@ import {
   getSite,
   listAll,
   listArticles,
+  listCategories,
   listPosts,
   loadDb,
+  type ArticleSummary,
 } from "./db";
 import { pageDescription, setMetaDescription } from "./documentMeta";
 import { MarkdownBody } from "./MarkdownBody";
@@ -82,21 +85,7 @@ function Home() {
 
       <section className="mb-10">
         <h2 className="mb-3 text-lg font-bold">記事</h2>
-        {articles.length === 0 ? (
-          <p>まだありません。</p>
-        ) : (
-          <ul className="space-y-4">
-            {articles.map((a) => (
-              <li key={a.slug}>
-                <Link to={`/articles/${a.slug}`}>{a.title}</Link>
-                <span className="ml-3 text-sm text-gray-600">
-                  <time>{a.publishedAt}</time>
-                </span>
-                {a.description && <p className="mt-1 text-sm text-gray-700">{a.description}</p>}
-              </li>
-            ))}
-          </ul>
-        )}
+        <ArticleList articles={articles} />
       </section>
 
       <section>
@@ -115,6 +104,24 @@ function Home() {
         )}
       </section>
     </div>
+  );
+}
+
+/** article の一覧（題、日付、要約）。 */
+function ArticleList({ articles }: { articles: ArticleSummary[] }) {
+  if (articles.length === 0) return <p>まだありません。</p>;
+  return (
+    <ul className="space-y-4">
+      {articles.map((a) => (
+        <li key={a.slug}>
+          <Link to={`/articles/${a.slug}`}>{a.title}</Link>
+          <span className="ml-3 text-sm text-gray-600">
+            <time>{a.publishedAt}</time>
+          </span>
+          {a.description && <p className="mt-1 text-sm text-gray-700">{a.description}</p>}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -163,6 +170,14 @@ function ArticlePage({ slug }: { slug: string }) {
 
   return (
     <article>
+      {/* 属するカテゴリ（ADR 0060）。 */}
+      {article.category && (
+        <p className="mb-1 text-sm">
+          <Link to={`/${article.category.slug}`} className="inline-block py-1">
+            {article.category.title}
+          </Link>
+        </p>
+      )}
       <h1 className="text-2xl font-bold">{article.title}</h1>
       <p className="mt-1 text-gray-600">
         <time>{article.publishedAt}</time>
@@ -186,6 +201,55 @@ function AboutPage() {
       <h1 className="text-2xl font-bold">{page.title}</h1>
       <MarkdownBody source={page.bodyMd} linkCardImages={getLinkCardImages(db)} mediaSizes={getMediaSizes(db)} progressive />
     </article>
+  );
+}
+
+/** カテゴリの一覧（ADR 0060）。 */
+function CategoriesPage() {
+  const { db, error } = useDb();
+  useDocumentMeta(db, "カテゴリ");
+  if (!db) return <Loading error={error} />;
+  const categories = listCategories(db);
+
+  return (
+    <div>
+      <h1 className="mb-4 text-2xl font-bold">カテゴリ</h1>
+      {categories.length === 0 ? (
+        <p>まだありません。</p>
+      ) : (
+        <ul className="space-y-4">
+          {categories.map((c) => (
+            <li key={c.slug}>
+              <Link to={`/${c.slug}`}>{c.title}</Link>
+              <span className="ml-3 text-sm text-gray-600">{c.articleCount} 件</span>
+              {c.description && <p className="mt-1 text-sm text-gray-700">{c.description}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** カテゴリのトップページ（ADR 0060）。本文と、そのカテゴリの article の一覧。URL は /<slug>。 */
+function CategoryPage({ slug }: { slug: string }) {
+  const { db, error } = useDb();
+  const category = db ? getCategory(db, slug) : null;
+  useDocumentMeta(db, category?.title ?? null, category?.description);
+  if (!db) return <Loading error={error} />;
+  if (!category) return <NotFound />;
+
+  return (
+    <div>
+      <h1 className="text-2xl font-bold">{category.title}</h1>
+      {category.bodyMd.trim() !== "" && (
+        <MarkdownBody source={category.bodyMd} linkCardImages={getLinkCardImages(db)} mediaSizes={getMediaSizes(db)} progressive />
+      )}
+      <section className="mt-8">
+        <h2 className="mb-3 text-lg font-bold">記事</h2>
+        <ArticleList articles={listArticles(db, slug)} />
+      </section>
+    </div>
   );
 }
 
@@ -427,6 +491,9 @@ const ROUTES: [string, (params: Record<string, string>) => ReactNode][] = [
   ["/about", () => <AboutPage />],
   ["/search", () => <SearchPage />],
   ["/archive", () => <ArchivePage />],
+  ["/categories", () => <CategoriesPage />],
+  // カテゴリはサイトの直下（ADR 0060）。ほかのページと重なる名前は、CLI がカテゴリに使わせない。最後に置く。
+  ["/:slug", ({ slug }) => <CategoryPage slug={slug} />],
 ];
 
 function CurrentPage() {
@@ -484,6 +551,7 @@ export default function App() {
             <nav className="space-x-4">
               <Link to="/">トップ</Link>
               <Link to="/archive">一覧</Link>
+              <Link to="/categories">カテゴリ</Link>
               <Link to="/about">自己紹介</Link>
               <Link to="/search">検索</Link>
             </nav>

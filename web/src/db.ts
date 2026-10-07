@@ -22,6 +22,23 @@ export interface Article extends ArticleSummary {
   bodyMd: string;
   /** タグ（ADR 0048）。先頭の # は付かない。 */
   tags: string[];
+  /** 属するカテゴリ（ADR 0060）。なければ null。 */
+  category: CategoryLink | null;
+}
+
+/** カテゴリへのリンクに使うもの。URL は /<slug>。 */
+export interface CategoryLink {
+  slug: string;
+  title: string;
+}
+
+/** 記事のカテゴリ（ADR 0060）。 */
+export interface Category extends CategoryLink {
+  description: string | null;
+  /** トップページの本文。 */
+  bodyMd: string;
+  /** 属する article の数。 */
+  articleCount: number;
 }
 
 export interface Page {
@@ -135,8 +152,10 @@ export function getPost(db: SqliteFile, slug: string): Post | null {
   };
 }
 
-export function listArticles(db: SqliteFile): ArticleSummary[] {
-  return [...db.table("articles")].sort(newestFirst).map((row) => ({
+/** article を新しい順に返す。category を渡すと、そのカテゴリの article だけを返す（ADR 0060）。 */
+export function listArticles(db: SqliteFile, category?: string): ArticleSummary[] {
+  const rows = db.table("articles").filter((row) => category === undefined || row.category === category);
+  return rows.sort(newestFirst).map((row) => ({
     slug: text(row, "slug")!,
     title: text(row, "title")!,
     publishedAt: text(row, "published_at")!,
@@ -157,7 +176,46 @@ export function getArticle(db: SqliteFile, slug: string): Article | null {
     description: text(row, "description"),
     bodyMd: text(row, "body_md")!,
     tags: tagsOf(db, "article", slug),
+    category: categoryLink(db, text(row, "category")),
   };
+}
+
+const categoryCache = new WeakMap<SqliteFile, Category[]>();
+
+/**
+ * カテゴリを、並び順（CLI がそろえた position）に返す（ADR 0060）。同じ DB では一度だけ読む。
+ * カテゴリの表のない DB（表を足す前の sqlite-cms で作ったもの）では、空を返す。
+ */
+export function listCategories(db: SqliteFile): Category[] {
+  let categories = categoryCache.get(db);
+  if (!categories) {
+    const counts = new Map<string, number>();
+    for (const row of db.table("articles")) {
+      const slug = text(row, "category");
+      if (slug !== null) counts.set(slug, (counts.get(slug) ?? 0) + 1);
+    }
+    const rows = db.hasTable("categories") ? [...db.table("categories")] : [];
+    categories = rows
+      .sort((a, b) => (a.position as number) - (b.position as number))
+      .map((row) => ({
+        slug: text(row, "slug")!,
+        title: text(row, "title")!,
+        description: text(row, "description"),
+        bodyMd: text(row, "body_md")!,
+        articleCount: counts.get(text(row, "slug")!) ?? 0,
+      }));
+    categoryCache.set(db, categories);
+  }
+  return categories;
+}
+
+export function getCategory(db: SqliteFile, slug: string): Category | null {
+  return listCategories(db).find((category) => category.slug === slug) ?? null;
+}
+
+function categoryLink(db: SqliteFile, slug: string | null): CategoryLink | null {
+  const category = slug === null ? null : getCategory(db, slug);
+  return category ? { slug: category.slug, title: category.title } : null;
 }
 
 export function getPage(db: SqliteFile, slug: string): Page | null {

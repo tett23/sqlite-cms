@@ -8,6 +8,7 @@ export const PAGES = [
   ["about", "/about"],
   ["search", "/search?q=%E8%A8%98%E4%BA%8B"],
   ["archive", "/archive"],
+  ["category", "/howto"],
   // 重いページの見本（コード、数式、図がそれぞれ多い記事と、長い記事）。
   ["heavy-code", "/articles/heavy-code"],
   ["heavy-math", "/articles/heavy-math"],

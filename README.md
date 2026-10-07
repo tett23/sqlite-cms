@@ -70,7 +70,7 @@ sqlite-cms new post hello --title はじめまして     # 最初の記事の雛
 sqlite-cms serve                                  # http://127.0.0.1:8080/ で確認
 ```
 
-`init` は、ビルドに必要な `site.toml` と `content/`（トップページ、既定のヘッダと同じ見た目のヘッダ、仮のファビコン、`robots.txt`、自己紹介のページ、記事用の空のディレクトリ）、公開に使う認証情報の見本 `.env.example` を作り、`.gitignore` に `.env` と `.sqlite-cms-cache/` を書く。
+`init` は、ビルドに必要な `site.toml` と `content/`（トップページ、既定のヘッダと同じ見た目のヘッダ、仮のファビコン、`robots.txt`、自己紹介のページ、記事とカテゴリ用の空のディレクトリ）、公開に使う認証情報の見本 `.env.example` を作り、`.gitignore` に `.env` と `.sqlite-cms-cache/` を書く。
 すでに `site.toml` か `content/` があるときはエラーになる。
 `--force` を付けると作り直す。このとき `init` が作るファイル（`site.toml`、`content/index.md`、`content/header.md`、`content/favicon.svg`、`content/robots.txt`、`content/pages/about.md`、`.env.example`）は上書きされるが、書いた記事や画像、`.env` は消えない。既存の `.gitignore` には、足りない行を足すだけにする。
 
@@ -86,6 +86,7 @@ content/
   posts/           -- ブログ的な軽い記事（/posts/:slug）
   articles/        -- 長めの読み物（/articles/:slug）
   pages/           -- 固定ページ。about.md が自己紹介（/about）
+  categories/      -- 記事のカテゴリ。<slug>.md がカテゴリのページ（/<slug>）になる
   media/           -- 画像など（任意。/media/ で配信）
 .env               -- deploy の認証情報（任意。Git に入れない）
 .env.example       -- .env の見本（init が作る）
@@ -156,7 +157,7 @@ tags: [組版, SQLite]
 ```
 
 - `posts/` の frontmatter は `title` と `date`。`tags`（タグ）を任意で持つ。
-- `articles/` は加えて `description`（一覧用の要約）と `updated`（改稿日）を任意で持つ。
+- `articles/` は加えて `description`（一覧用の要約）、`updated`（改稿日）、`slug`（URL）、`category`（カテゴリ）を任意で持つ。
 - `pages/` の frontmatter は `title` だけ。
 
 `tags` に書いたタグは、記事の日付の下に `#組版 #SQLite` のように表示される。
@@ -228,6 +229,31 @@ Markdown では書けない表現のために、次の HTML のタグだけを�
 | TOML | `toml` |
 | TypeScript | `typescript`、`ts`、`cts`、`mts` |
 | YAML | `yaml`、`yml` |
+
+### カテゴリ
+
+article は、一つのカテゴリに入れられる。カテゴリごとに、本文とそのカテゴリの article の一覧を出すページができる。
+
+```sh
+sqlite-cms new category typesetting --title 組版          # content/categories/typesetting.md を作る
+sqlite-cms new article --title 禁則 --category typesetting  # カテゴリ「組版」の article を作る
+```
+
+```markdown
+---
+title: 組版
+description: 一覧と meta description に使う要約（任意）
+order: 1        # カテゴリの並び順（任意。小さいものが先。なければ title の順で後ろに並べる）
+---
+
+カテゴリのページの本文（任意）。
+```
+
+- カテゴリのページの URL は、サイトの直下の `/<slug>`（`/typesetting`）。カテゴリの一覧は `/categories`。
+- ほかのページと URL が重なる slug（`about`、`archive`、`search`、`posts`、`articles`、`categories`、`assets`、`db`、`media`、`link-cards`）は使えない。ビルドと `new` がエラーにする。
+- article は frontmatter の `category: typesetting` でカテゴリを決める（一つだけ）。書いたカテゴリがなければ、ビルドがエラーになる。
+- article の URL（`/articles/…`）にはカテゴリを入れないので、カテゴリを変えても URL は変わらない。記事の題の上に、カテゴリへのリンクが出る。
+- カテゴリの名前は、RSS にも `category` として載る。post にはカテゴリを付けない。
 
 ### 拡張の記法
 

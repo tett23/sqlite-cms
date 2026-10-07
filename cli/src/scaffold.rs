@@ -9,6 +9,8 @@ pub enum Kind {
     Post,
     Article,
     Page,
+    /// 記事のカテゴリ（ADR 0060）。
+    Category,
 }
 
 impl Kind {
@@ -17,6 +19,7 @@ impl Kind {
             "post" => Some(Self::Post),
             "article" => Some(Self::Article),
             "page" => Some(Self::Page),
+            "category" => Some(Self::Category),
             _ => None,
         }
     }
@@ -26,7 +29,13 @@ impl Kind {
             Self::Post => "posts",
             Self::Article => "articles",
             Self::Page => "pages",
+            Self::Category => "categories",
         }
+    }
+
+    /// 日付を持たない種別（page とカテゴリ）。slug を省けず、--date を使えない。
+    pub fn is_dateless(self) -> bool {
+        matches!(self, Self::Page | Self::Category)
     }
 }
 
@@ -60,6 +69,7 @@ pub fn template(kind: Kind, title: &str, date: &str) -> String {
         Kind::Post => format!("---\ntitle: {title}\ndate: {date}\ntags: []\n---\n\n"),
         Kind::Article => format!("---\ntitle: {title}\ndate: {date}\ndescription:\ntags: []\n---\n\n"),
         Kind::Page => format!("---\ntitle: {title}\n---\n\n"),
+        Kind::Category => format!("---\ntitle: {title}\ndescription:\n---\n\n"),
     }
 }
 
@@ -88,12 +98,27 @@ pub fn file_name_part(title: &str) -> String {
     joined.chars().take(FILE_NAME_TITLE_CHARS).collect::<String>().trim_end_matches('-').to_string()
 }
 
-/// 記事の雛形を作る（ADR 0058）。
+/// カテゴリを指定しない `create_in_category`（テストで使う）。
+#[cfg(test)]
+pub fn create(site_dir: &Path, kind: Kind, slug: Option<&str>, title: Option<&str>, date: &str) -> Result<PathBuf> {
+    create_in_category(site_dir, kind, slug, title, date, None)
+}
+
+/// 記事の雛形を作る（ADR 0058、0059、0060）。
 /// post と article のファイル名は `<UUIDv7>.md` か `<UUIDv7>-<名前>.md` にする。URL の slug は UUIDv7 になる。
 /// 名前は、slug を指定すればそれ、なければ article ならタイトル（`file_name_part`）、post なら付けない。
+/// article で slug を指定したら、frontmatter に書いて URL にする。
 /// post のタイトルを省くと日付をタイトルにする。article はタイトルを省けない。
-/// page は今までどおり `<slug>.md` で、slug を省けない（タイトルを省くと slug をタイトルにする）。
-pub fn create(site_dir: &Path, kind: Kind, slug: Option<&str>, title: Option<&str>, date: &str) -> Result<PathBuf> {
+/// page とカテゴリは `<slug>.md` で、slug を省けない（タイトルを省くと slug をタイトルにする）。
+/// category は article の属するカテゴリで、記事リポジトリにあるものだけを指定できる。
+pub fn create_in_category(
+    site_dir: &Path,
+    kind: Kind,
+    slug: Option<&str>,
+    title: Option<&str>,
+    date: &str,
+    category: Option<&str>,
+) -> Result<PathBuf> {
     if let Some(slug) = slug {
         validate_slug(slug)?;
     }
@@ -102,6 +127,17 @@ pub fn create(site_dir: &Path, kind: Kind, slug: Option<&str>, title: Option<&st
     }
     if slug.is_none() && kind == Kind::Page {
         bail!("page は日付を持たないので、slug を省略できません");
+    }
+    if slug.is_none() && kind == Kind::Category {
+        bail!("カテゴリは slug が URL（/<slug>）になるので、slug を省略できません");
+    }
+    if let (Kind::Category, Some(slug)) = (kind, slug) {
+        if crate::db::RESERVED_CATEGORY_SLUGS.contains(&slug) {
+            bail!("カテゴリの slug {slug:?} は、サイトのほかのページと URL（/{slug}）が重なるので使えません");
+        }
+    }
+    if category.is_some() && kind != Kind::Article {
+        bail!("カテゴリを指定できるのは article だけです");
     }
     if title.is_none() && kind == Kind::Article {
         bail!("article にはタイトルが要ります（--title で指定してください）");
@@ -113,11 +149,18 @@ pub fn create(site_dir: &Path, kind: Kind, slug: Option<&str>, title: Option<&st
         );
     }
 
+    if let Some(category) = category {
+        validate_slug(category)?;
+        if !crate::db::categories(site_dir)?.iter().any(|c| c.slug == category) {
+            bail!("カテゴリ {category:?} がありません。先に sqlite-cms new category {category} --title <名前> で作ってください");
+        }
+    }
+
     let dir = site_dir.join("content").join(kind.dir());
     fs::create_dir_all(&dir).with_context(|| format!("{} を作れません", dir.display()))?;
 
     let (file_name, title) = match kind {
-        Kind::Page => {
+        Kind::Page | Kind::Category => {
             let slug = slug.expect("確かめ済み");
             (slug.to_string(), title.unwrap_or(slug).to_string())
         }
@@ -136,6 +179,10 @@ pub fn create(site_dir: &Path, kind: Kind, slug: Option<&str>, title: Option<&st
     // article で slug を指定したら、frontmatter に書き、URL にする（ADR 0059）。ファイル名の後ろの名前だけでは、タイトルから作ったものと区別できない。
     if let (Kind::Article, Some(slug)) = (kind, slug) {
         body = body.replacen("\ndate: ", &format!("\nslug: {slug}\ndate: "), 1);
+    }
+    // カテゴリは、日付の後ろに書く（ADR 0060）。
+    if let Some(category) = category {
+        body = body.replacen("\ndescription:", &format!("\ncategory: {category}\ndescription:"), 1);
     }
     let path = dir.join(format!("{file_name}.md"));
     if !write_new(&path, &body)? {
@@ -176,6 +223,7 @@ pub const HEADER_MD: &str = "\
 
 - [トップ](/)
 - [一覧](/archive)
+- [カテゴリ](/categories)
 - [自己紹介](/about)
 - [検索](/search)
 
@@ -278,6 +326,7 @@ pub fn init(site_dir: &Path, title: Option<&str>, force: bool) -> Result<InitRep
         ("content/pages/about.md", template(Kind::Page, "自己紹介", "")),
         ("content/posts/.gitkeep", String::new()),
         ("content/articles/.gitkeep", String::new()),
+        ("content/categories/.gitkeep", String::new()),
         ("content/media/.gitkeep", String::new()),
         (crate::dotenv::EXAMPLE_FILE_NAME, crate::dotenv::EXAMPLE.to_string()),
     ];
@@ -335,6 +384,7 @@ mod tests {
                 ".env.example",
                 ".gitignore",
                 "content/articles/.gitkeep",
+                "content/categories/.gitkeep",
                 "content/favicon.svg",
                 "content/header.md",
                 "content/index.md",
@@ -345,7 +395,7 @@ mod tests {
                 "site.toml",
             ]
         );
-        assert_eq!(report.written.len(), 11);
+        assert_eq!(report.written.len(), 12);
         assert!(report.overwritten.is_empty());
         assert!(report.appended.is_empty());
         assert_eq!(fs::read_to_string(site.join(".env.example")).unwrap(), crate::dotenv::EXAMPLE);
@@ -422,7 +472,7 @@ mod tests {
         assert!(tmp.path().join("content/posts/hello.md").is_file());
         assert!(tmp.path().join("content/media/photo.png").is_file());
         // .gitignore にはすでに .env があるので触らない。
-        assert_eq!(report.overwritten.len(), 10);
+        assert_eq!(report.overwritten.len(), 11);
         assert!(!report.written.iter().any(|path| path.ends_with(".gitignore")));
         assert!(report.appended.is_empty());
     }
@@ -596,6 +646,35 @@ mod tests {
         let path = create(site.path(), Kind::Article, None, Some("!!!"), "2026-09-26").unwrap();
         let (stem, id) = stem_and_id(&path);
         assert_eq!(stem, id);
+    }
+
+    #[test]
+    fn category_and_article_in_a_category() {
+        let site = site();
+        let path = create(site.path(), Kind::Category, Some("typesetting"), Some("組版"), "").unwrap();
+        assert_eq!(path, site.path().join("content/categories/typesetting.md"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "---\ntitle: \"組版\"\ndescription:\n---\n\n");
+
+        let article = create_in_category(site.path(), Kind::Article, None, Some("禁則"), "2026-09-26", Some("typesetting")).unwrap();
+        let (_, id) = stem_and_id(&article);
+        let written = fs::read_to_string(&article).unwrap();
+        assert!(written.contains("\ndate: 2026-09-26\ncategory: typesetting\ndescription:\n"), "{written}");
+        assert_eq!(parse_article(&id, &written).unwrap().category.as_deref(), Some("typesetting"));
+    }
+
+    #[test]
+    fn category_errors() {
+        let site = site();
+        let err = create(site.path(), Kind::Category, None, Some("t"), "").unwrap_err().to_string();
+        assert!(err.contains("slug を省略できません"), "{err}");
+        let err = create(site.path(), Kind::Category, Some("archive"), Some("t"), "").unwrap_err().to_string();
+        assert!(err.contains("URL（/archive）が重なる"), "{err}");
+        let err = create_in_category(site.path(), Kind::Article, None, Some("t"), "2026-09-26", Some("missing")).unwrap_err().to_string();
+        assert!(err.contains("カテゴリ \"missing\" がありません"), "{err}");
+        let err = create_in_category(site.path(), Kind::Post, None, None, "2026-09-26", Some("missing")).unwrap_err().to_string();
+        assert!(err.contains("カテゴリを指定できるのは article だけ"), "{err}");
+        assert!(!site.path().join("content/articles").exists());
+        assert!(!site.path().join("content/categories").exists());
     }
 
     #[test]

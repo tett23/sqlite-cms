@@ -2,6 +2,7 @@
 title: "記法の一覧"
 slug: syntax
 date: 2026-09-25
+category: howto
 description: Markdown と GFM の記法、コードの色分け、本文に書ける HTML のタグを、実際の表示と一緒に並べたもの。
 tags: [書き方, 記法, HTML]
 ---

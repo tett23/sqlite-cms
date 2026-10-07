@@ -1,6 +1,6 @@
 import initSqlJs from "sql.js";
 import { beforeAll, describe, expect, it } from "vitest";
-import { getArticle, getLinkCardImages, getPage, getPost, getSite, listAll, listArticles, listPosts, tagsOf } from "./db";
+import { getArticle, getCategory, getLinkCardImages, listCategories, getPage, getPost, getSite, listAll, listArticles, listPosts, tagsOf } from "./db";
 import { SqliteFile } from "./sqlite";
 
 let db: SqliteFile;
@@ -75,6 +75,49 @@ describe("同じ日付の記事の並び（ADR 0059）", () => {
   });
 });
 
+describe("カテゴリ（ADR 0060）", () => {
+  async function dbWith(statements: string[], withMigrations = true): Promise<SqliteFile> {
+    const SQL = await initSqlJs();
+    const sql = new SQL.Database();
+    if (withMigrations) {
+      const migrations = import.meta.glob<string>("../../migrations/*.sql", { query: "?raw", import: "default", eager: true });
+      for (const file of Object.keys(migrations).sort()) sql.exec(migrations[file]);
+    }
+    for (const statement of statements) sql.run(statement);
+    const file = new SqliteFile(sql.export());
+    sql.close();
+    return file;
+  }
+
+  it("カテゴリを並び順に返し、article の数を数え、カテゴリで article を絞る", async () => {
+    const db = await dbWith([
+      "INSERT INTO categories VALUES ('samples', '見本', NULL, '', 1)",
+      "INSERT INTO categories VALUES ('howto', '使い方', '書き方の案内', '# 案内', 0)",
+      "INSERT INTO articles (slug, title, published_at, body_md, category) VALUES ('a', 'A', '2026-09-01', '', 'howto')",
+      "INSERT INTO articles (slug, title, published_at, body_md, category) VALUES ('b', 'B', '2026-09-02', '', 'howto')",
+      "INSERT INTO articles (slug, title, published_at, body_md) VALUES ('c', 'C', '2026-09-03', '')",
+    ]);
+    expect(listCategories(db)).toEqual([
+      { slug: "howto", title: "使い方", description: "書き方の案内", bodyMd: "# 案内", articleCount: 2 },
+      { slug: "samples", title: "見本", description: null, bodyMd: "", articleCount: 0 },
+    ]);
+    expect(listCategories(db)).toBe(listCategories(db));
+    expect(getCategory(db, "howto")?.title).toBe("使い方");
+    expect(getCategory(db, "missing")).toBeNull();
+    expect(listArticles(db, "howto").map((a) => a.slug)).toEqual(["b", "a"]);
+    expect(listArticles(db, "samples")).toEqual([]);
+    expect(listArticles(db).map((a) => a.slug)).toEqual(["c", "b", "a"]);
+    expect(getArticle(db, "a")?.category).toEqual({ slug: "howto", title: "使い方" });
+    expect(getArticle(db, "c")?.category).toBeNull();
+  });
+
+  it("カテゴリの表のない DB では、カテゴリなしとして扱う", async () => {
+    const db = await dbWith(["CREATE TABLE articles (slug TEXT PRIMARY KEY, title TEXT, published_at TEXT, body_md TEXT)", "INSERT INTO articles VALUES ('a', 'A', '2026-09-01', '')"], false);
+    expect(listCategories(db)).toEqual([]);
+    expect(getArticle(db, "a")?.category).toBeNull();
+  });
+});
+
 describe("listPosts / getPost", () => {
   it("日付降順で返す", () => {
     expect(listPosts(db).map((p) => p.slug)).toEqual(["new", "old"]);
@@ -111,6 +154,7 @@ describe("listArticles / getArticle", () => {
       description: "要約。",
       bodyMd: "| a |\n|---|\n| 1 |",
       tags: ["組版", "SQLite"],
+      category: null,
     });
   });
 });

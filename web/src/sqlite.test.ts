@@ -67,7 +67,7 @@ describe("SQLite のファイルを読む（ADR 0047）", () => {
     for (const file of Object.keys(migrations).sort()) db.exec(migrations[file]);
     db.run("INSERT INTO site VALUES (1, 't', NULL, 'CC0', NULL, '# home', 'd', '[t](/)')");
     db.run("INSERT INTO posts VALUES ('p', 'P', '2026-09-26', ?, 'p')", [pseudoRandomText(20000, 1)]);
-    db.run("INSERT INTO articles VALUES ('a', 'A', '2026-09-25', NULL, '要約', '本文', 'a')");
+    db.run("INSERT INTO articles VALUES ('a', 'A', '2026-09-25', NULL, '要約', '本文', 'a', NULL)");
     db.run("INSERT INTO pages VALUES ('about', '自己紹介', '本文')");
     db.run("INSERT INTO link_cards VALUES ('https://example.com/', '/link-cards/x.png')");
     const file = new SqliteFile(db.export());
