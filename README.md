@@ -485,6 +485,22 @@ FallbackResource /blog/index.html
 
 DB（`/db/*.sqlite`）はファイル名が中身で変わるので、長くキャッシュさせてよい。`/db/manifest.json` はキャッシュさせない。
 
+`/assets/` には `Access-Control-Allow-Origin: *` を付ける。mermaid の図は、ページとは別の iframe（オリジンを持たない sandbox）の中で描き、その iframe が `/assets/` の JS を読むためである。
+付けていないときは、ページの中で図を描く（図は描けるが、図を描くあいだページが入力に応えにくくなる）。
+Cloudflare（`_headers`）と GitHub Pages では、何もしなくてよい。
+
+```nginx
+location /blog/assets/ {
+    add_header Access-Control-Allow-Origin *;
+}
+```
+
+```apache
+<FilesMatch "\.js$">
+    Header set Access-Control-Allow-Origin "*"
+</FilesMatch>
+```
+
 ## ライセンス
 
 [MIT](LICENSE)。

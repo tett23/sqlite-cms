@@ -7,7 +7,12 @@ use anyhow::{bail, Context, Result};
 use crate::linkcard::{self, Fetcher};
 use crate::{db, favicon, feed, media, robots, site, sitemap};
 
+/// 図を描くための作業用のページ（ADR 0055）は、オリジンを持たない sandbox の iframe の中で /assets/ の JS を読む。
+/// オリジンが違う読み込みになるので、/assets/ に Access-Control-Allow-Origin を付ける。
 pub const HEADERS: &str = "\
+/assets/*
+  Access-Control-Allow-Origin: *
+
 /db/*.sqlite
   Cache-Control: public, max-age=31536000, immutable
 
@@ -415,6 +420,8 @@ mod tests {
             assert!(files.iter().any(|f| f == expected), "{expected} がありません: {files:?}");
         }
         assert_eq!(fs::read_to_string(out_dir.join("_headers")).unwrap(), HEADERS);
+        // 図を描く作業用のページが、オリジンを持たない iframe から /assets/ の JS を読めるようにする（ADR 0055）。
+        assert!(HEADERS.contains("/assets/*\n  Access-Control-Allow-Origin: *\n"));
     }
 
     #[test]

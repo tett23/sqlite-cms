@@ -135,7 +135,7 @@ scenario("長い本文は先頭から少しずつ描き、最後まで描く。�
   noProblems(tab, "少しずつ描く");
 });
 
-scenario("elk は、図で指定したときだけ読み込む（ADR 0040）", async ({ tab, origin }) => {
+scenario("図は sandbox の iframe の中で描き、elk は、図で指定したときだけ読み込む（ADR 0040、0055）", async ({ tab, origin }) => {
   await tab.size(1200, 30000);
   // 図の数。すべて描き終わるまで待ってから、elk を読み込んだかを見る（一つ目が描けた時点では、elk の図がまだのことがある）。
   for (const [pathname, diagrams, expected] of [["/articles/complex-mixed", 7, false], ["/articles/heavy-diagrams", 10, true]]) {
@@ -145,6 +145,8 @@ scenario("elk は、図で指定したときだけ読み込む（ADR 0040）", a
       message: `${pathname} の図が ${diagrams} 個描かれない`,
     });
     assertEqual(tab.requests.some((url) => /\/elk-[^/]*\.js$/.test(url)), expected, `${pathname} で elk を読み込んだか`);
+    // 図は、オリジンを持たない sandbox の iframe の中で描く（ADR 0055）。iframe が応えなければ外して本体で描くので、残っていれば iframe で描いた。
+    assertEqual(await count(tab, 'iframe[sandbox="allow-scripts"][src$="/mermaid-frame.html"]'), 1, `${pathname} の図を描く iframe`);
   }
   await tab.size(1024, 800);
 });
