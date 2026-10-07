@@ -1,5 +1,6 @@
 ---
 title: "sqlite-cms の使い方"
+slug: getting-started
 date: 2026-09-26
 description: 記事リポジトリを作ってから、記事を書き、手元で確かめ、Cloudflare や GitHub Pages に公開するまでの手順。
 tags: [sqlite-cms, 使い方]
@@ -54,7 +55,8 @@ content/
 sqlite-cms new post first-post --title "最初の記事"
 ```
 
-`content/posts/first-post.md` に雛形ができるので、本文を書き足します。
+`content/posts/<UUIDv7>-first-post.md` に雛形ができるので、本文を書き足します。
+先頭の UUIDv7 は作った時刻から作る名前で、記事の URL（`/posts/<UUIDv7>`）になります。同じ日付の記事も、作った順に並びます。
 日付は今日が入ります。タイムゾーンは `site.toml` の `timezone` で決められます。
 
 日々のメモなら、名前を考えずに作れます。
@@ -63,13 +65,22 @@ sqlite-cms new post first-post --title "最初の記事"
 sqlite-cms new post
 ```
 
-名前（slug）を省くと、日付が名前になります（`content/posts/2026-09-26.md`）。
-同じ日にもう一本作ると、`2026-09-26-2.md` になります。
+名前を省くと、ファイル名は `content/posts/<UUIDv7>.md` に、タイトルは今日の日付になります。
+
+長めの読み物（article）は、タイトルを付けて作ります。ファイル名にタイトルが入ります。
+
+```sh
+sqlite-cms new article --title "長い読み物"
+sqlite-cms new article long-read --title "長い読み物"
+```
+
+名前（`long-read`）を付けると、frontmatter に `slug: long-read` が入り、URL が `/articles/long-read` になります。
+付けなければ、URL は UUIDv7 です。
 
 | 種別 | 置き場所 | URL | 向いているもの |
 |---|---|---|---|
-| `post` | `content/posts/` | `/posts/<slug>` | 日々のメモ |
-| `article` | `content/articles/` | `/articles/<slug>` | 要約付きの読み物 |
+| `post` | `content/posts/` | `/posts/<UUIDv7>` | 日々のメモ |
+| `article` | `content/articles/` | `/articles/<slug>`（slug がなければ `/articles/<UUIDv7>`） | 要約付きの読み物 |
 | `page` | `content/pages/` | `/about` のみ | 自己紹介などの固定ページ |
 
 ## 手元で確かめる

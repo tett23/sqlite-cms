@@ -24,28 +24,28 @@ pub struct FeedItem {
     pub tags: Vec<String>,
 }
 
-/// post と article を、日付の新しい順（同じ日付ならパスの逆順）に並べ、先頭の MAX_ITEMS 件を返す。
+/// post と article を、日付の新しい順（同じ日付なら、種別と並べる順の鍵の逆順、ADR 0059）に並べ、先頭の MAX_ITEMS 件を返す。
 pub fn items(posts: &[Post], articles: &[Article]) -> Vec<FeedItem> {
-    let mut items: Vec<FeedItem> = posts
+    let mut items: Vec<(String, FeedItem)> = posts
         .iter()
-        .map(|p| FeedItem {
+        .map(|p| (format!("posts/{}", p.slug), FeedItem {
             path: format!("posts/{}", p.slug),
             title: p.title.clone(),
             date: p.published_at.clone(),
             summary: excerpt(&p.body_md),
             tags: p.tags.clone(),
-        })
-        .chain(articles.iter().map(|a| FeedItem {
+        }))
+        .chain(articles.iter().map(|a| (format!("articles/{}", a.order_key), FeedItem {
             path: format!("articles/{}", a.slug),
             title: a.title.clone(),
             date: a.published_at.clone(),
             summary: a.description.clone().filter(|d| !d.trim().is_empty()).unwrap_or_else(|| excerpt(&a.body_md)),
             tags: a.tags.clone(),
-        }))
+        })))
         .collect();
-    items.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| b.path.cmp(&a.path)));
+    items.sort_by(|(a_key, a), (b_key, b)| b.date.cmp(&a.date).then_with(|| b_key.cmp(a_key)));
     items.truncate(MAX_ITEMS);
-    items
+    items.into_iter().map(|(_, item)| item).collect()
 }
 
 /// Markdown の本文から、記号を大まかに取り除いた書き出しを作る。コードブロックと HTML のタグは除く。
@@ -194,6 +194,7 @@ mod tests {
     fn article(slug: &str, date: &str, description: Option<&str>) -> Article {
         Article {
             slug: slug.into(),
+            order_key: slug.into(),
             title: format!("{slug} & <題>"),
             published_at: date.into(),
             updated_at: None,
@@ -201,6 +202,15 @@ mod tests {
             body_md: "本文の**書き出し**。".into(),
             tags: vec!["組版".into(), "A&B".into()],
         }
+    }
+
+    #[test]
+    fn same_date_articles_follow_their_order_key_not_their_slug() {
+        // frontmatter の slug を URL にしても、同じ日付の中は並べる順の鍵（作った順の UUIDv7）で並べる（ADR 0059）。
+        let older = Article { order_key: "0001".into(), ..article("zzz", "2026-09-26", None) };
+        let newer = Article { order_key: "0002".into(), ..article("aaa", "2026-09-26", None) };
+        let paths: Vec<String> = items(&[], &[older, newer]).into_iter().map(|item| item.path).collect();
+        assert_eq!(paths, ["articles/aaa", "articles/zzz"]);
     }
 
     #[test]

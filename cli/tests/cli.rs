@@ -226,7 +226,7 @@ fn serve_previews_the_site() {
     assert!(content_type.starts_with("text/html"));
     assert!(String::from_utf8_lossy(&body).contains("id=\"root\""));
 
-    let (status, _, body) = http_get(&server.address, "/posts/hello");
+    let (status, _, body) = http_get(&server.address, "/posts/01a0a783-6000-7bb3-952f-c9db377ef55a");
     assert_eq!(status, 200);
     assert!(String::from_utf8_lossy(&body).contains("id=\"root\""));
 
@@ -472,6 +472,35 @@ fn empty_site(tmp: &Path) -> PathBuf {
     site
 }
 
+/// dir の中の Markdown のファイル（名前の順）。
+fn markdown_files(dir: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = match fs::read_dir(dir) {
+        Ok(entries) => entries.map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|e| e == "md")).collect(),
+        Err(_) => Vec::new(),
+    };
+    files.sort();
+    files
+}
+
+/// dir の中の、ただ一つの Markdown のファイル。名前が UUIDv7 で始まり、後ろが suffix（`-hello` か空）であること（ADR 0058）。
+fn only_uuid_file(dir: &Path, suffix: &str) -> PathBuf {
+    let files = markdown_files(dir);
+    assert_eq!(files.len(), 1, "{files:?}");
+    let stem = files[0].file_stem().unwrap().to_str().unwrap();
+    assert!(is_uuid_v7(&stem[..stem.len().min(36)]), "{stem}");
+    assert_eq!(&stem[36..], suffix, "{stem}");
+    files[0].clone()
+}
+
+fn is_uuid_v7(s: &str) -> bool {
+    s.len() == 36
+        && s.char_indices().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => c == '-',
+            14 => c == '7',
+            _ => c.is_ascii_hexdigit() && !c.is_ascii_uppercase(),
+        })
+}
+
 #[test]
 fn new_creates_a_document_that_builds() {
     let tmp = testutil::tempdir();
@@ -482,14 +511,16 @@ fn new_creates_a_document_that_builds() {
         &site,
     );
     assert!(output.status.success(), "{}", stderr(&output));
-    assert!(stdout(&output).contains("hello.md を作りました"));
-    let written = fs::read_to_string(site.join("content/posts/hello.md")).unwrap();
+    assert!(stdout(&output).contains("-hello.md を作りました"), "{}", stdout(&output));
+    let written = fs::read_to_string(only_uuid_file(&site.join("content/posts"), "-hello")).unwrap();
     assert!(written.starts_with("---\ntitle: \"[はじめまして] \\\"引用\\\"\"\ndate: 2026-09-26\ntags: []\n---\n"));
 
-    for (kind, slug) in [("article", "long"), ("page", "about")] {
-        let output = run(&["new", kind, slug], &site);
-        assert!(output.status.success(), "{}", stderr(&output));
-    }
+    let output = run(&["new", "article", "--title", "長い 読み物"], &site);
+    assert!(output.status.success(), "{}", stderr(&output));
+    only_uuid_file(&site.join("content/articles"), "-長い-読み物");
+    let output = run(&["new", "page", "about"], &site);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(site.join("content/pages/about.md").is_file());
 
     let out = tmp.path().join("public");
     let output = run(&["build", "--data-only", "--out", out.to_str().unwrap()], &site);
@@ -497,15 +528,25 @@ fn new_creates_a_document_that_builds() {
 }
 
 #[test]
-fn new_refuses_to_overwrite() {
+fn new_refuses_to_overwrite_a_page() {
     let tmp = testutil::tempdir();
     let site = empty_site(tmp.path());
-    assert!(run(&["new", "post", "hello", "--title", "一本目"], &site).status.success());
+    assert!(run(&["new", "page", "about", "--title", "一本目"], &site).status.success());
 
-    let output = run(&["new", "post", "hello", "--title", "二本目"], &site);
+    let output = run(&["new", "page", "about", "--title", "二本目"], &site);
     assert!(!output.status.success());
     assert!(stderr(&output).contains("すでにあります"));
-    assert!(fs::read_to_string(site.join("content/posts/hello.md")).unwrap().contains("一本目"));
+    assert!(fs::read_to_string(site.join("content/pages/about.md")).unwrap().contains("一本目"));
+}
+
+#[test]
+fn new_article_requires_a_title() {
+    let tmp = testutil::tempdir();
+    let site = empty_site(tmp.path());
+    let output = run(&["new", "article", "long"], &site);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("article にはタイトルが要ります"), "{}", stderr(&output));
+    assert!(markdown_files(&site.join("content/articles")).is_empty());
 }
 
 #[test]
@@ -526,7 +567,7 @@ fn default_date(site_timezone: Option<&str>, env_tz: &str) -> String {
     }
     let output = sqlite_cms().args(["new", "post", "x"]).env("TZ", env_tz).current_dir(&site).output().unwrap();
     assert!(output.status.success(), "{}", stderr(&output));
-    let written = fs::read_to_string(site.join("content/posts/x.md")).unwrap();
+    let written = fs::read_to_string(only_uuid_file(&site.join("content/posts"), "-x")).unwrap();
     written.lines().find_map(|l| l.strip_prefix("date: ")).unwrap().to_string()
 }
 
@@ -568,7 +609,7 @@ fn unknown_timezone_fails_new_but_not_build() {
     let output = run(&["new", "post", "x"], &site);
     assert!(!output.status.success());
     assert!(stderr(&output).contains("Mars/Olympus_Mons"), "{}", stderr(&output));
-    assert!(!site.join("content/posts/x.md").exists());
+    assert!(markdown_files(&site.join("content/posts")).is_empty());
 
     let output = run(&["new", "post", "x", "--date", "2026-09-26"], &site);
     assert!(output.status.success(), "{}", stderr(&output));
@@ -587,7 +628,7 @@ fn init_new_build_is_the_first_run_flow() {
     assert!(output.status.success(), "{}", stderr(&output));
     let out = stdout(&output);
     assert!(out.contains("site.toml を作りました"), "{out}");
-    assert!(out.contains("sqlite-cms new post <SLUG> my-blog"), "{out}");
+    assert!(out.contains("sqlite-cms new post my-blog"), "{out}");
 
     let site = tmp.path().join("my-blog");
     assert!(run(&["new", "post", "hello", "--date", "2026-09-26"], &site).status.success());
@@ -608,7 +649,7 @@ fn init_new_build_is_the_first_run_flow() {
 fn init_refuses_existing_site_unless_forced() {
     let tmp = testutil::tempdir();
     assert!(run(&["init"], tmp.path()).status.success());
-    fs::write(tmp.path().join("content/posts/hello.md"), "---\ntitle: 記事\ndate: 2026-09-26\n---\n").unwrap();
+    fs::write(tmp.path().join("content/posts/01a0a783-6000-7bb3-952f-c9db377ef55a.md"), "---\ntitle: 記事\ndate: 2026-09-26\n---\n").unwrap();
     fs::write(tmp.path().join("site.toml"), "title = \"編集済み\"\n").unwrap();
 
     let output = run(&["init"], tmp.path());
@@ -620,40 +661,53 @@ fn init_refuses_existing_site_unless_forced() {
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(stdout(&output).contains("site.toml を上書きしました"));
     assert!(!fs::read_to_string(tmp.path().join("site.toml")).unwrap().contains("編集済み"));
-    assert!(tmp.path().join("content/posts/hello.md").is_file());
+    assert!(tmp.path().join("content/posts/01a0a783-6000-7bb3-952f-c9db377ef55a.md").is_file());
 }
 
 #[test]
-fn new_without_slug_uses_the_date_and_suffixes() {
+fn new_posts_on_the_same_date_get_distinct_uuids_and_keep_their_order() {
     let tmp = testutil::tempdir();
     let site = empty_site(tmp.path());
 
     let first = run(&["new", "post", "--date", "2026-09-26"], &site);
     assert!(first.status.success(), "{}", stderr(&first));
-    assert!(stdout(&first).contains("2026-09-26.md を作りました"));
     let second = run(&["new", "post", "--date", "2026-09-26", "--title", "二本目"], &site);
     assert!(second.status.success(), "{}", stderr(&second));
-    assert!(stdout(&second).contains("2026-09-26-2.md を作りました"));
 
+    // 名前は UUIDv7 だけで、作った順に並ぶ（同じミリ秒なら乱数の順になるので、二つ目が後ろとは限らない）。
+    let files = markdown_files(&site.join("content/posts"));
+    assert_eq!(files.len(), 2);
+    let stems: Vec<String> = files.iter().map(|f| f.file_stem().unwrap().to_str().unwrap().to_string()).collect();
+    assert!(stems.iter().all(|stem| is_uuid_v7(stem)), "{stems:?}");
+    // タイトルを省いた post は、日付がタイトルになる。
+    let titles: Vec<String> = files.iter().map(|f| fs::read_to_string(f).unwrap().lines().nth(1).unwrap().to_string()).collect();
+    assert!(titles.contains(&"title: \"2026-09-26\"".to_string()), "{titles:?}");
+    assert!(titles.contains(&"title: \"二本目\"".to_string()), "{titles:?}");
+
+    // 組み立てると、URL の slug は UUIDv7 になる。
     let out = tmp.path().join("public");
     let output = run(&["build", "--data-only", "--out", out.to_str().unwrap()], &site);
     assert!(output.status.success(), "{}", stderr(&output));
+    let db = fs::read_dir(out.join("db")).unwrap().map(|e| e.unwrap().path()).find(|p| p.extension().is_some_and(|e| e == "sqlite")).unwrap();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let mut slugs: Vec<String> =
+        conn.prepare("SELECT slug FROM posts").unwrap().query_map([], |row| row.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+    slugs.sort();
+    assert_eq!(slugs, stems);
 }
 
 #[test]
-fn new_without_slug_names_the_file_after_the_date_it_writes() {
+fn new_post_without_title_is_titled_by_the_date_it_writes() {
     let tmp = testutil::tempdir();
     let site = empty_site(tmp.path());
     fs::write(site.join("site.toml"), "title = \"t\"\ntimezone = \"+14:00\"\n").unwrap();
 
-    let output = sqlite_cms().args(["new", "article"]).env("TZ", "Etc/GMT+12").current_dir(&site).output().unwrap();
+    let output = sqlite_cms().args(["new", "post"]).env("TZ", "Etc/GMT+12").current_dir(&site).output().unwrap();
     assert!(output.status.success(), "{}", stderr(&output));
 
-    let entries: Vec<PathBuf> = fs::read_dir(site.join("content/articles")).unwrap().map(|e| e.unwrap().path()).collect();
-    assert_eq!(entries.len(), 1);
-    let stem = entries[0].file_stem().unwrap().to_str().unwrap().to_string();
-    let written = fs::read_to_string(&entries[0]).unwrap();
-    assert!(written.contains(&format!("\ndate: {stem}\n")), "{stem}: {written}");
+    let written = fs::read_to_string(only_uuid_file(&site.join("content/posts"), "")).unwrap();
+    let date = written.lines().find_map(|l| l.strip_prefix("date: ")).unwrap();
+    assert!(written.contains(&format!("\ntitle: \"{date}\"\n")), "{written}");
 }
 
 #[test]
@@ -662,7 +716,7 @@ fn new_without_slug_accepts_a_site_path() {
     let site = empty_site(tmp.path());
     let output = run(&["new", "post", "./site", "--date", "2026-09-26"], tmp.path());
     assert!(output.status.success(), "{}", stderr(&output));
-    assert!(site.join("content/posts/2026-09-26.md").is_file());
+    only_uuid_file(&site.join("content/posts"), "");
 }
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n fake png";
@@ -881,7 +935,7 @@ fn serve_and_build_use_the_base_path() {
     let address = line.strip_prefix("http://").and_then(|rest| rest.split('/').next()).unwrap().to_string();
     let server = ServeProcess { child, address };
 
-    let (status, _, body) = http_get(&server.address, "/blog/posts/hello");
+    let (status, _, body) = http_get(&server.address, "/blog/posts/01a0a783-6000-7bb3-952f-c9db377ef55a");
     assert_eq!(status, 200);
     assert!(String::from_utf8_lossy(&body).contains("content=\"/blog/\""));
     assert_eq!(http_get(&server.address, "/blog/db/manifest.json").0, 200);

@@ -44,10 +44,10 @@ function build(seed: number): { sql: Database; file: SqliteFile; slugs: { posts:
   const articles = new Set<string>();
   const pages = new Set<string>();
   for (let i = 0; i < r.int(40); i++) {
-    sql.run("INSERT INTO posts VALUES (?, ?, ?, ?)", [slug(posts), `post ${i}`, r.pick(DATES), `本文 ${i}`]);
+    sql.run("INSERT INTO posts (slug, title, published_at, body_md) VALUES (?, ?, ?, ?)", [slug(posts), `post ${i}`, r.pick(DATES), `本文 ${i}`]);
   }
   for (let i = 0; i < r.int(40); i++) {
-    sql.run("INSERT INTO articles VALUES (?, ?, ?, ?, ?, ?)", [
+    sql.run("INSERT INTO articles (slug, title, published_at, updated_at, description, body_md) VALUES (?, ?, ?, ?, ?, ?)", [
       slug(articles),
       `article ${i}`,
       r.pick(DATES),

@@ -1,5 +1,6 @@
 ---
 title: "拡張の記法"
+slug: extensions
 date: 2026-09-26
 description: Zenn を参考にした Markdown の拡張（メッセージ、折りたたみ、数式、図、コードのファイル名など）を、実際の表示と一緒に並べたもの。
 tags: [書き方, 記法]

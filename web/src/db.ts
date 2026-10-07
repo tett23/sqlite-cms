@@ -82,9 +82,15 @@ export async function loadDb(): Promise<SqliteFile> {
 /** 列の値を文字列として読む（NULL なら null）。 */
 const text = (row: Row, column: string) => (row[column] ?? null) as string | null;
 
-/** 新しい順（日付の降順、同じ日付なら slug の降順）。 */
+/**
+ * 同じ日付の記事を並べる順の鍵（ADR 0059）。ファイル名から取ったもの（作った時刻の UUIDv7 か、ファイル名）。
+ * 鍵の列のない DB（列を足す前の sqlite-cms で作ったもの）では、slug を使う。
+ */
+const sortKey = (row: Row) => text(row, "sort_key") ?? text(row, "slug")!;
+
+/** 新しい順（日付の降順、同じ日付なら並べる順の鍵の降順）。 */
 const newestFirst = (a: Row, b: Row) =>
-  compareBinary(text(b, "published_at")!, text(a, "published_at")!) || compareBinary(text(b, "slug")!, text(a, "slug")!);
+  compareBinary(text(b, "published_at")!, text(a, "published_at")!) || compareBinary(sortKey(b), sortKey(a));
 
 const tagCache = new WeakMap<SqliteFile, Map<string, string[]>>();
 
@@ -224,23 +230,32 @@ export interface ListEntry {
 
 /** post と article を、日付の新しい順（同じ日付なら article、slug の逆順）にまとめて返す。 */
 export function listAll(db: SqliteFile): ListEntry[] {
-  const entries: ListEntry[] = [
+  const entries: { entry: ListEntry; key: string }[] = [
     ...db.table("articles").map((row) => ({
-      kind: "article" as const,
-      slug: text(row, "slug")!,
-      title: text(row, "title")!,
-      publishedAt: text(row, "published_at")!,
-      description: text(row, "description"),
+      entry: {
+        kind: "article" as const,
+        slug: text(row, "slug")!,
+        title: text(row, "title")!,
+        publishedAt: text(row, "published_at")!,
+        description: text(row, "description"),
+      },
+      key: sortKey(row),
     })),
     ...db.table("posts").map((row) => ({
-      kind: "post" as const,
-      slug: text(row, "slug")!,
-      title: text(row, "title")!,
-      publishedAt: text(row, "published_at")!,
-      description: null,
+      entry: {
+        kind: "post" as const,
+        slug: text(row, "slug")!,
+        title: text(row, "title")!,
+        publishedAt: text(row, "published_at")!,
+        description: null,
+      },
+      key: sortKey(row),
     })),
   ];
-  return entries.sort(
-    (a, b) => compareBinary(b.publishedAt, a.publishedAt) || compareBinary(a.kind, b.kind) || compareBinary(b.slug, a.slug),
-  );
+  return entries
+    .sort(
+      (a, b) =>
+        compareBinary(b.entry.publishedAt, a.entry.publishedAt) || compareBinary(a.entry.kind, b.entry.kind) || compareBinary(b.key, a.key),
+    )
+    .map(({ entry }) => entry);
 }

@@ -74,6 +74,7 @@ mod tests {
     fn article(slug: &str, date: &str, updated: Option<&str>) -> Article {
         Article {
             slug: slug.into(),
+            order_key: slug.into(),
             title: "t".into(),
             published_at: date.into(),
             updated_at: updated.map(str::to_string),

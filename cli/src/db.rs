@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -22,14 +23,25 @@ fn read_docs<T>(dir: &Path, parse: impl Fn(&str, &str) -> Result<T>) -> Result<V
         .collect();
     paths.sort();
 
+    let mut seen: HashMap<String, &Path> = HashMap::new();
     paths
         .iter()
         .map(|path| {
-            let slug = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+            let slug = slug_of(path);
+            if let Some(other) = seen.insert(slug.to_string(), path) {
+                bail!("{} と {} が同じ slug（{slug}）になります。どちらかの名前を変えてください", other.display(), path.display());
+            }
             let raw = fs::read_to_string(path).with_context(|| format!("{} を読めません", path.display()))?;
             parse(slug, &raw)
         })
         .collect()
+}
+
+/// ファイルの slug（URL の名前、ADR 0058）。ファイル名が UUIDv7 で始まれば（`<UUIDv7>-<タイトル>.md`）UUIDv7、
+/// そうでなければ（UUIDv7 を使う前に書いた記事や固定ページ）、拡張子を除いたファイル名。
+fn slug_of(path: &Path) -> &str {
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+    crate::uuid::leading_v7(stem).unwrap_or(stem)
 }
 
 fn read_optional(path: &Path) -> Result<Option<String>> {
@@ -106,17 +118,25 @@ pub fn build_db_bytes(site_dir: &Path, link_cards: &[LinkCard], media_sizes: &[M
 
     for p in read_docs(&content_dir.join("posts"), parse_post)? {
         conn.execute(
-            "INSERT INTO posts (slug, title, published_at, body_md) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO posts (slug, title, published_at, body_md, sort_key) VALUES (?1, ?2, ?3, ?4, ?1)",
             (&p.slug, &p.title, &p.published_at, &p.body_md),
         )?;
         insert_tags(&conn, "post", &p.slug, &p.tags)?;
     }
 
-    for a in read_docs(&content_dir.join("articles"), parse_article)? {
+    let articles = read_docs(&content_dir.join("articles"), parse_article)?;
+    // frontmatter の slug（ADR 0059）が、ほかの article の slug と重ならないこと。
+    let mut slugs: HashMap<&str, &str> = HashMap::new();
+    for a in &articles {
+        if let Some(other) = slugs.insert(&a.slug, &a.order_key) {
+            bail!("article の {other} と {} が同じ slug（{}）になります。frontmatter の slug を変えてください", a.order_key, a.slug);
+        }
+    }
+    for a in articles {
         conn.execute(
-            "INSERT INTO articles (slug, title, published_at, updated_at, description, body_md)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            (&a.slug, &a.title, &a.published_at, &a.updated_at, &a.description, &a.body_md),
+            "INSERT INTO articles (slug, title, published_at, updated_at, description, body_md, sort_key)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (&a.slug, &a.title, &a.published_at, &a.updated_at, &a.description, &a.body_md, &a.order_key),
         )?;
         insert_tags(&conn, "article", &a.slug, &a.tags)?;
     }
@@ -212,7 +232,7 @@ mod tests {
         );
         assert_eq!(
             column(&conn, "SELECT version FROM schema_migrations ORDER BY version"),
-            ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009"]
+            ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010"]
         );
     }
 
@@ -288,6 +308,50 @@ mod tests {
         let (_dir, conn) = open(&build_db_bytes(site.path(), &[], &[]).unwrap());
         let header: Option<String> = conn.query_row("SELECT header_md FROM site", [], |r| r.get(0)).unwrap();
         assert_eq!(header.as_deref(), Some("[記事置き場](/)\n\ntett23 の記事\n\n<div class=\"partial-search\"></div>\n\n"));
+    }
+
+    #[test]
+    fn slug_is_the_leading_uuid_or_the_whole_file_name() {
+        // UUIDv7 で始まるファイルは UUIDv7 を、そうでないもの（前からある記事、固定ページ）はファイル名を slug にする（ADR 0058）。
+        let id = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f";
+        let other = "017f22e2-79b0-7cc3-98c4-dc0c0c073990";
+        let site = site_fixture(&[
+            (&format!("posts/{id}.md"), POST),
+            ("posts/2026-09-17.md", POST),
+            (&format!("articles/{other}-長い-読み物.md"), POST),
+            ("articles/legacy.md", POST),
+            ("pages/about.md", "---\ntitle: 自己紹介\n---\n本文\n"),
+        ]);
+        let (_dir, conn) = open(&build_db_bytes(site.path(), &[], &[]).unwrap());
+        assert_eq!(column(&conn, "SELECT slug FROM posts ORDER BY slug"), ["017f22e2-79b0-7cc3-98c4-dc0c0c07398f", "2026-09-17"]);
+        assert_eq!(column(&conn, "SELECT slug FROM articles ORDER BY slug"), [other, "legacy"]);
+        assert_eq!(column(&conn, "SELECT slug FROM pages"), ["about"]);
+    }
+
+    #[test]
+    fn article_url_slug_and_sort_key_go_into_the_table() {
+        let id = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f";
+        let custom = "---\ntitle: t\nslug: long-read\ndate: 2026-09-17\n---\n本文\n";
+        let site = site_fixture(&[(&format!("articles/{id}-long-read.md"), custom), (&format!("posts/{id}.md"), POST)]);
+        let (_dir, conn) = open(&build_db_bytes(site.path(), &[], &[]).unwrap());
+        assert_eq!(column(&conn, "SELECT slug || ' ' || sort_key FROM articles"), [format!("long-read {id}")]);
+        assert_eq!(column(&conn, "SELECT slug || ' ' || sort_key FROM posts"), [format!("{id} {id}")]);
+    }
+
+    #[test]
+    fn articles_with_the_same_frontmatter_slug_are_an_error() {
+        let raw = "---\ntitle: t\nslug: same\ndate: 2026-09-17\n---\n本文\n";
+        let site = site_fixture(&[("articles/a.md", raw), ("articles/b.md", raw)]);
+        let err = build_db_bytes(site.path(), &[], &[]).unwrap_err().to_string();
+        assert!(err.contains("article の a と b が同じ slug（same）になります"), "{err}");
+    }
+
+    #[test]
+    fn files_with_the_same_slug_are_an_error() {
+        let id = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f";
+        let site = site_fixture(&[(&format!("posts/{id}.md"), POST), (&format!("posts/{id}-copy.md"), POST)]);
+        let err = build_db_bytes(site.path(), &[], &[]).unwrap_err().to_string();
+        assert!(err.contains(&format!("同じ slug（{id}）になります")), "{err}");
     }
 
     #[test]
