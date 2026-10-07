@@ -14,6 +14,7 @@ import {
 import { pageDescription, setMetaDescription } from "./documentMeta";
 import { MarkdownBody } from "./MarkdownBody";
 import { withBasePath } from "./base";
+import { EXTERNAL_LINK_PROPS, isExternal } from "./externalLink";
 import { Link, matchPath, navigate, usePath, useSearch } from "./router";
 import { search, searchPath, tagQuery, type SearchKind } from "./search";
 import type { SqliteFile } from "./sqlite";
@@ -502,7 +503,13 @@ export default function App() {
           {site.license && (
             <p>
               ライセンス:{" "}
-              {site.license.url ? <a href={site.license.url}>{site.license.name}</a> : site.license.name}
+              {site.license.url ? (
+                <a href={site.license.url} {...(isExternal(site.license.url) ? EXTERNAL_LINK_PROPS : {})}>
+                  {site.license.name}
+                </a>
+              ) : (
+                site.license.name
+              )}
             </p>
           )}
           {FEED_HREF && (

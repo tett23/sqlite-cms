@@ -10,7 +10,7 @@ const render = (source: string) =>
 describe("リンクカードの部品を読み込む前", () => {
   it("URL だけの段落は、カードを置く場所の中に、普通のリンクとして出す。部品は読み込まない", () => {
     expect(render("https://example.com/path")).toBe(
-      '<div class="link-card-slot"><a href="https://example.com/path">https://example.com/path</a></div>',
+      '<div class="link-card-slot"><a href="https://example.com/path" target="_blank" rel="noopener">https://example.com/path</a></div>',
     );
     // サーバーでの描画では読み込みを始めない（ブラウザでは、画面の近くに来てから読み込む）。
     expect(linkCardLoader.loaded()).toBeNull();

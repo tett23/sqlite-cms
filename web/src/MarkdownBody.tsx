@@ -18,6 +18,7 @@ import { MathView } from "./render/Math";
 import { rehypeRawHtml } from "./markdown/rawHtml";
 import { remarkExtensions } from "./markdown/remarkExtensions";
 import { PARTIAL_SEARCH_CLASS, sanitizeSchema, unwrapPlainElements } from "./sanitize";
+import { EXTERNAL_LINK_PROPS, isExternal } from "./externalLink";
 import { Link } from "./router";
 import type { MediaSize } from "./db";
 
@@ -133,7 +134,8 @@ const TaskLabel = createContext<string | undefined>(undefined);
 
 const components: Components = {
   a({ node: _node, href, ...props }) {
-    return isInternal(href) ? <Link to={href} {...props} /> : <a href={href} {...props} />;
+    if (isInternal(href)) return <Link to={href} {...props} />;
+    return <a href={href} {...props} {...(isExternal(href) ? EXTERNAL_LINK_PROPS : {})} />;
   },
   // 本文の画像（/media/…）とリンクカードの画像（/link-cards/…）は、サイトを置くパスから始める（ADR 0030）。
   img({ node: _node, src, ...props }) {

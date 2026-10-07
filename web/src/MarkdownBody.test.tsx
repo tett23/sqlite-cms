@@ -29,8 +29,19 @@ describe("MarkdownBody", () => {
     expect(html).toMatch(/<input type="checkbox" checked disabled[^>]*\/>/);
   });
 
+  it("サイトの外へのリンクは新しいタブで開き、サイト内とページ内のリンクはそのまま（ADR 0057）", () => {
+    expect(render("[外](https://zenn.dev/)")).toContain('<a href="https://zenn.dev/" target="_blank" rel="noopener">外</a>');
+    expect(render('<a href="https://zenn.dev/">HTML で書いた外</a>')).toContain('<a href="https://zenn.dev/" target="_blank" rel="noopener">');
+    expect(render("[内](/about)")).toContain('<a href="/about">内</a>');
+    expect(render("[相対](about)")).toContain('<a href="about">相対</a>');
+    expect(render("[メール](mailto:a@example.com)")).toContain('<a href="mailto:a@example.com">メール</a>');
+    expect(render("本文[^1]\n\n[^1]: 注。")).not.toContain("target=");
+    // 書き手が HTML に書いた target と rel は取り除く（サイト内のリンクを新しいタブで開かせない）。
+    expect(render('<a href="/about" target="_blank" rel="opener">内</a>')).toContain('<a href="/about">内</a>');
+  });
+
   it("GFM の自動リンクを描画する", () => {
-    expect(render("www.example.com")).toContain('<a href="http://www.example.com">');
+    expect(render("www.example.com")).toContain('<a href="http://www.example.com" target="_blank" rel="noopener">');
   });
 
   it("GFM の脚注を日本語のラベルで描画する", () => {
