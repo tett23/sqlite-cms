@@ -70,9 +70,9 @@ sqlite-cms new post hello --title はじめまして     # 最初の記事の雛
 sqlite-cms serve                                  # http://127.0.0.1:8080/ で確認
 ```
 
-`init` は、ビルドに必要な `site.toml` と `content/`（トップページ、仮のファビコン、`robots.txt`、自己紹介のページ、記事用の空のディレクトリ）、公開に使う認証情報の見本 `.env.example` を作り、`.gitignore` に `.env` と `.sqlite-cms-cache/` を書く。
+`init` は、ビルドに必要な `site.toml` と `content/`（トップページ、既定のヘッダと同じ見た目のヘッダ、仮のファビコン、`robots.txt`、自己紹介のページ、記事用の空のディレクトリ）、公開に使う認証情報の見本 `.env.example` を作り、`.gitignore` に `.env` と `.sqlite-cms-cache/` を書く。
 すでに `site.toml` か `content/` があるときはエラーになる。
-`--force` を付けると作り直す。このとき `init` が作るファイル（`site.toml`、`content/index.md`、`content/favicon.svg`、`content/robots.txt`、`content/pages/about.md`、`.env.example`）は上書きされるが、書いた記事や画像、`.env` は消えない。既存の `.gitignore` には、足りない行を足すだけにする。
+`--force` を付けると作り直す。このとき `init` が作るファイル（`site.toml`、`content/index.md`、`content/header.md`、`content/favicon.svg`、`content/robots.txt`、`content/pages/about.md`、`.env.example`）は上書きされるが、書いた記事や画像、`.env` は消えない。既存の `.gitignore` には、足りない行を足すだけにする。
 
 ## 記事リポジトリの構成
 
@@ -80,7 +80,7 @@ sqlite-cms serve                                  # http://127.0.0.1:8080/ で�
 site.toml          -- サイトの設定（必須）
 content/
   index.md         -- トップページの本文（任意。frontmatter なしの Markdown）
-  header.md        -- ヘッダ（任意。なければ既定のヘッダ）
+  header.md        -- ヘッダ（任意。init が既定のヘッダと同じ見た目のものを作る。なければ既定のヘッダ）
   favicon.svg      -- ファビコン（任意。init が仮のものを作る）
   robots.txt       -- クローラへの指示（任意。init がすべて許可するものを作る。なければ同じ内容を配信）
   posts/           -- ブログ的な軽い記事（/posts/:slug）

@@ -143,6 +143,20 @@ const SITE_TOML_REST: &str = r#"
 
 const INDEX_MD: &str = "<!-- トップページの本文をここに Markdown で書く。このコメントは表示されない -->\n";
 
+/// ヘッダ（ADR 0043、0056）。既定のヘッダと同じ見た目になるもの。見本（example/content/header.md）と同じにする。
+pub const HEADER_MD: &str = "\
+{{! ヘッダ（任意）。書かなければ既定のヘッダになる。site.toml の値を二重の波括弧で埋め込める }}
+{{! 最初の段落はサイト名として大きく表示する。search のパーシャルの場所に検索ボックスを置く }}
+[{{title}}](/)
+
+- [トップ](/)
+- [一覧](/archive)
+- [自己紹介](/about)
+- [検索](/search)
+
+{{> search}}
+";
+
 fn site_toml(title: &str) -> String {
     format!(
         "# サイトの設定。書ける項目は sqlite-cms --help を参照\ntitle = {}\n{SITE_TOML_REST}",
@@ -233,6 +247,7 @@ pub fn init(site_dir: &Path, title: Option<&str>, force: bool) -> Result<InitRep
     let files = [
         ("site.toml", site_toml(&title)),
         ("content/index.md", INDEX_MD.to_string()),
+        ("content/header.md", HEADER_MD.to_string()),
         ("content/favicon.svg", crate::favicon::placeholder(&title)),
         ("content/robots.txt", crate::robots::DEFAULT.to_string()),
         ("content/pages/about.md", template(Kind::Page, "自己紹介", "")),
@@ -296,6 +311,7 @@ mod tests {
                 ".gitignore",
                 "content/articles/.gitkeep",
                 "content/favicon.svg",
+                "content/header.md",
                 "content/index.md",
                 "content/media/.gitkeep",
                 "content/pages/about.md",
@@ -304,7 +320,7 @@ mod tests {
                 "site.toml",
             ]
         );
-        assert_eq!(report.written.len(), 10);
+        assert_eq!(report.written.len(), 11);
         assert!(report.overwritten.is_empty());
         assert!(report.appended.is_empty());
         assert_eq!(fs::read_to_string(site.join(".env.example")).unwrap(), crate::dotenv::EXAMPLE);
@@ -317,7 +333,22 @@ mod tests {
 
         let output = crate::output::SiteOutput::data(&site, &crate::linkcard::Offline).unwrap();
         assert!(output.files.contains_key("/db/manifest.json"));
+        // 作ったヘッダは、サイト名を埋め込んで DB に入る（ADR 0056）。
+        let db = output.files.iter().find(|(path, _)| path.ends_with(".sqlite")).unwrap().1;
+        let dir = crate::testutil::tempdir();
+        fs::write(dir.path().join("db.sqlite"), db).unwrap();
+        let conn = rusqlite::Connection::open(dir.path().join("db.sqlite")).unwrap();
+        let header: String = conn.query_row("SELECT header_md FROM site", [], |row| row.get(0)).unwrap();
+        assert!(header.starts_with("[my-blog](/)\n"), "{header}");
+        assert!(header.contains("<div class=\"partial-search\"></div>"), "{header}");
         assert!(!output.files.keys().any(|path| path.contains(".gitkeep")));
+    }
+
+    #[test]
+    fn header_template_is_the_same_as_the_example() {
+        // 見本のヘッダと init が作るヘッダをそろえておく（ADR 0056）。
+        let example = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../example/content/header.md")).unwrap();
+        assert_eq!(HEADER_MD, example);
     }
 
     #[test]
@@ -366,7 +397,7 @@ mod tests {
         assert!(tmp.path().join("content/posts/hello.md").is_file());
         assert!(tmp.path().join("content/media/photo.png").is_file());
         // .gitignore にはすでに .env があるので触らない。
-        assert_eq!(report.overwritten.len(), 9);
+        assert_eq!(report.overwritten.len(), 10);
         assert!(!report.written.iter().any(|path| path.ends_with(".gitignore")));
         assert!(report.appended.is_empty());
     }
