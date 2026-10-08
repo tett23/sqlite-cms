@@ -1,6 +1,6 @@
 import http from "node:http";
 import { describe, expect, it, vi } from "vitest";
-import { launchChrome, waitForDevTools } from "./cdp.mjs";
+import { launchChrome, launchOnce, waitForDevTools } from "./cdp.mjs";
 
 describe("launchChrome", () => {
   it("起動に失敗するか DevTools が応えなければ、その Chrome を止めて起動し直す", async () => {
@@ -48,5 +48,23 @@ describe("waitForDevTools", () => {
     await waitForDevTools(port, 2000);
     await new Promise((resolve) => server.close(resolve));
     await expect(waitForDevTools(port, 500)).rejects.toThrow(`Chrome の DevTools が応えない（ポート ${port}）`);
+  });
+});
+
+describe("launchOnce", () => {
+  it("起動が上限の時間までに終わらなければ、その Chrome を止めて失敗する", async () => {
+    const launcher = { launch: () => new Promise(() => {}), kill: vi.fn(), port: 0 };
+    await expect(launchOnce({}, 50, () => launcher)).rejects.toThrow("Chrome が 0.05 秒で起動しない");
+    expect(launcher.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it("起動が終われば、ポートと止める関数を返す。起動を待つ時間を延ばして渡す", async () => {
+    let options;
+    const launcher = { launch: async () => {}, kill: vi.fn(), port: 9222 };
+    const chrome = await launchOnce({ chromeFlags: ["--headless=new"] }, 1000, (o) => ((options = o), launcher));
+    expect(chrome.port).toBe(9222);
+    chrome.kill();
+    expect(launcher.kill).toHaveBeenCalledTimes(1);
+    expect(options).toMatchObject({ chromeFlags: ["--headless=new"], connectionPollInterval: 500, maxConnectionRetries: 120 });
   });
 });
