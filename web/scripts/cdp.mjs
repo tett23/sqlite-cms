@@ -10,6 +10,47 @@ export const CHROME_LAUNCH_ATTEMPTS = 3;
 /** 起動した Chrome の DevTools の口（/json/version）が応えるまで待つ時間。 */
 const DEVTOOLS_READY_TIMEOUT = 10000;
 
+/**
+ * Chrome の DevTools の口が開くまで、chrome-launcher が待つ時間（0.5 秒ごとに確かめる）。既定の 25 秒では、
+ * CI の機械で Chrome を三つ同時に起動したとき（Lighthouse の計測）に、間に合わないことがあった。
+ */
+const CHROME_CONNECTION_POLL_INTERVAL = 500;
+const CHROME_CONNECTION_RETRIES = 120;
+
+/** 一回の起動の上限。起動が戻らないまま止まることがあったので（v0.4.6 の CI で、6 分の制限まで止まった）、過ぎたら止めて起動し直す。 */
+export const CHROME_LAUNCH_TIMEOUT = 90000;
+
+/**
+ * Chrome を一回起動する。timeout を過ぎても起動が終わらなければ、その Chrome を止めて失敗にする。
+ * chrome-launcher の launch() は、終わるまで Chrome を止める手段を返さないので、Launcher を使う。createLauncher はテストで差し替える。
+ */
+export async function launchOnce(options, timeout = CHROME_LAUNCH_TIMEOUT, createLauncher = (o) => new chromeLauncher.Launcher(o)) {
+  const launcher = createLauncher({
+    connectionPollInterval: CHROME_CONNECTION_POLL_INTERVAL,
+    maxConnectionRetries: CHROME_CONNECTION_RETRIES,
+    ...options,
+  });
+  let timer;
+  try {
+    await Promise.race([
+      launcher.launch(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Chrome が ${timeout / 1000} 秒で起動しない`)), timeout);
+      }),
+    ]);
+  } catch (error) {
+    try {
+      launcher.kill();
+    } catch {
+      // 止められなくても、失敗として返す。
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+  return { port: launcher.port, kill: () => launcher.kill() };
+}
+
 /** Chrome の DevTools の口に応えるまで待つ。応えなければ例外にする。 */
 export async function waitForDevTools(port, timeout = DEVTOOLS_READY_TIMEOUT) {
   const start = Date.now();
@@ -35,7 +76,7 @@ export async function waitForDevTools(port, timeout = DEVTOOLS_READY_TIMEOUT) {
  */
 export async function launchChrome({
   attempts = CHROME_LAUNCH_ATTEMPTS,
-  launch = chromeLauncher.launch,
+  launch = launchOnce,
   ready = (chrome) => waitForDevTools(chrome.port),
   log = console.error,
 } = {}) {
