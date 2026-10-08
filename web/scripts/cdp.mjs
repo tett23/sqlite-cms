@@ -1,6 +1,79 @@
 // Chrome DevTools Protocol（CDP）で、ヘッドレスの Chrome のタブを動かす（E2E のテストと Core Web Vitals の計測で使う）。
+// Chrome の起動（launchChrome）は、Lighthouse の計測でも使う。
+import * as chromeLauncher from "chrome-launcher";
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Chrome を起動する回数の上限。 */
+export const CHROME_LAUNCH_ATTEMPTS = 3;
+
+/** 起動した Chrome の DevTools の口（/json/version）が応えるまで待つ時間。 */
+const DEVTOOLS_READY_TIMEOUT = 10000;
+
+/** Chrome の DevTools の口に応えるまで待つ。応えなければ例外にする。 */
+export async function waitForDevTools(port, timeout = DEVTOOLS_READY_TIMEOUT) {
+  const start = Date.now();
+  let lastError;
+  while (Date.now() - start < timeout) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(2000) });
+      if (response.ok) return;
+      lastError = new Error(`DevTools が ${response.status} を返した`);
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(200);
+  }
+  throw new Error(`Chrome の DevTools が応えない（ポート ${port}）: ${lastError?.message ?? "時間切れ"}`, { cause: lastError });
+}
+
+/**
+ * ヘッドレスの Chrome を起動し、DevTools の口に応えることを確かめて返す。
+ * 起動に失敗するか応えなければ、その Chrome を止めて、間を空けて起動し直す（attempts 回まで）。
+ * CI の機械では、起動した直後の Chrome につなげないことがまれにある（v0.4.5 の CI で、計測の前に ECONNREFUSED で止まった）。
+ * launch と ready はテストで差し替える。
+ */
+export async function launchChrome({
+  attempts = CHROME_LAUNCH_ATTEMPTS,
+  launch = chromeLauncher.launch,
+  ready = (chrome) => waitForDevTools(chrome.port),
+  log = console.error,
+} = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    let chrome;
+    try {
+      chrome = await launch({ chromeFlags: ["--headless=new", ...(process.env.CI ? ["--no-sandbox"] : [])] });
+      await ready(chrome);
+      return chrome;
+    } catch (error) {
+      lastError = error;
+      try {
+        chrome?.kill();
+      } catch {
+        // 止められなくても、起動し直す。
+      }
+      if (attempt < attempts) {
+        log(`Chrome を起動できませんでした（${attempt} 回目）。起動し直します: ${error?.message ?? error}`);
+        await sleep(1000 * attempt);
+      }
+    }
+  }
+  throw new Error(`Chrome を ${attempts} 回起動しても、つなげませんでした: ${lastError?.message ?? lastError}`, { cause: lastError });
+}
+
+/** fn を、接続を拒まれたとき（ECONNREFUSED）だけ、間を空けてやり直す。 */
+async function retryOnRefused(fn, attempts = 3) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      const refused = error?.cause?.code === "ECONNREFUSED" || error?.code === "ECONNREFUSED";
+      if (!refused || attempt >= attempts) throw error;
+      await sleep(500 * attempt);
+    }
+  }
+}
 
 /** Chrome に送った一つの命令を待つ時間。Chrome が応えなくなったときに、止まり続けないようにする。 */
 export const COMMAND_TIMEOUT = 30000;
@@ -9,7 +82,9 @@ export const COMMAND_TIMEOUT = 30000;
 export class Tab {
   static async open(port) {
     const signal = AbortSignal.timeout(COMMAND_TIMEOUT);
-    const target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: "PUT", signal })).json();
+    const target = await retryOnRefused(async () =>
+      (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: "PUT", signal })).json(),
+    );
     const tab = new Tab(port, target);
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("Chrome のタブにつながらない")), COMMAND_TIMEOUT);

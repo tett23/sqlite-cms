@@ -4,8 +4,8 @@ import { spawn } from "node:child_process";
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import * as chromeLauncher from "chrome-launcher";
 import lighthouse from "lighthouse";
+import { launchChrome } from "./cdp.mjs";
 import { PAGES } from "./pages.mjs";
 import { startServer } from "./server.mjs";
 
@@ -35,9 +35,7 @@ const percent = (score) => (score === null || score === undefined ? "-" : String
 
 /** pages を一つの Chrome で順に計測し、レポートを書き出して、点数と必須の項目の失敗を返す。 */
 async function measure(origin, pages) {
-  const chrome = await chromeLauncher.launch({
-    chromeFlags: ["--headless=new", ...(process.env.CI ? ["--no-sandbox"] : [])],
-  });
+  const chrome = await launchChrome();
   const results = [];
   /** 項目の日本語の名前（Lighthouse のレポートから取る）。 */
   const titles = {};

@@ -5,8 +5,7 @@ import { appendFile, cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promis
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import * as chromeLauncher from "chrome-launcher";
-import { sleep, Tab } from "./cdp.mjs";
+import { launchChrome, sleep, Tab } from "./cdp.mjs";
 import { PAGES } from "./pages.mjs";
 import { startServer } from "./server.mjs";
 
@@ -390,7 +389,7 @@ async function main() {
   await writeFile(path.join(baseSite, "site.toml"), `base_path = "/blog/"\n${toml.replace(/^url = .*$/m, 'url = "https://example.com/blog/"')}`);
 
   const [server, defaultServer, baseServer] = await Promise.all([startServer(siteDir), startServer(defaultSite), startServer(baseSite)]);
-  const chrome = await chromeLauncher.launch({ chromeFlags: ["--headless=new", ...(process.env.CI ? ["--no-sandbox"] : [])] });
+  const chrome = await launchChrome();
   const results = [];
   try {
     for (const { name, fn } of scenarios) {
