@@ -360,6 +360,7 @@ function HeaderSearch() {
     }
   };
 
+  // 狭い画面では、サイト名と案内は左に寄せたまま、検索ボックスだけを右に寄せる（広い画面は、ヘッダが右に寄せる）。
   return (
     <form
       role="search"
@@ -370,7 +371,7 @@ function HeaderSearch() {
         event.preventDefault();
         go(searchPath(query));
       }}
-      className="relative flex items-center gap-1"
+      className="relative flex items-center gap-1 max-sm:ml-auto"
     >
       <label htmlFor="header-search" className="sr-only">
         サイトの中を検索
