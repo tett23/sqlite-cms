@@ -53,6 +53,16 @@ a.site-title:visited {
   }
 }
 
+/*
+ * 狭い画面では、サイト名と案内は左に寄せたまま、検索ボックスだけを右に寄せる。
+ * 検索ボックスの部品の ml-auto は、上の margin: 0 に打ち消されるので、ここでも指定する。
+ */
+@media (max-width: 639.98px) {
+  .site-header-body > form {
+    margin-left: auto;
+  }
+}
+
 .site-header-body > p:first-child {
   margin-right: auto;
   font-size: 1.25rem;

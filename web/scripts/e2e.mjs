@@ -297,7 +297,7 @@ scenario("知らないページは「見つかりません」を出す", async (
 /**
  * 広い画面で、検索ボックスが案内と同じ行の右端にあるか。案内を足して一行に収まらなくなると、検索ボックスだけが次の行の左に回る。
  * サイト名、案内、検索ボックスの縦の中心が、ヘッダの一行の中にそろい、検索ボックスの右端がヘッダの右端にあること。
- * サイト名が長くて次の行に回るときも、検索ボックスが右端にあること。
+ * サイト名が長くて次の行に回るときも、検索ボックスが右端にあること。狭い画面でも、検索ボックスが右端にあること。
  */
 async function assertSearchBoxOnTheRight(tab, what) {
   await tab.size(1024, 800);
@@ -323,6 +323,18 @@ async function assertSearchBoxOnTheRight(tab, what) {
   })()`);
   assert(wrapped.formTop > wrapped.titleTop + 16, `${what}: 長いサイト名で、検索ボックスが二行目に回っていない（${JSON.stringify(wrapped)}）`);
   assert(Math.abs(wrapped.formRight - wrapped.headerRight) < 2, `${what}: 長いサイト名で、検索ボックスが右端にない（${JSON.stringify(wrapped)}）`);
+
+  // 狭い画面（スマートフォン）では、案内は左に寄せたまま、検索ボックスを右端に置く。
+  await tab.size(412, 800);
+  const narrow = await tab.eval(`(() => {
+    const header = document.querySelector("header").getBoundingClientRect();
+    const nav = document.querySelector("header ul, header nav").getBoundingClientRect();
+    const form = document.querySelector("header form[role=search]").getBoundingClientRect();
+    return { navLeft: nav.left, formRight: form.right, headerLeft: header.left, headerRight: header.right };
+  })()`);
+  await tab.size(1024, 800);
+  assert(Math.abs(narrow.navLeft - narrow.headerLeft) < 2, `${what}: 狭い画面で、案内が左端にない（${JSON.stringify(narrow)}）`);
+  assert(Math.abs(narrow.formRight - narrow.headerRight) < 2, `${what}: 狭い画面で、検索ボックスが右端にない（${JSON.stringify(narrow)}）`);
 }
 
 scenario("content/header.md のヘッダを描く（ADR 0043）", async ({ tab, origin }) => {
