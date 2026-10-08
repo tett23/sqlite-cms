@@ -6,8 +6,7 @@
 import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import * as chromeLauncher from "chrome-launcher";
-import { sleep, Tab } from "./cdp.mjs";
+import { launchChrome, sleep, Tab } from "./cdp.mjs";
 import { PAGES, shard } from "./pages.mjs";
 import { startServer } from "./server.mjs";
 import { cls, COLLECTOR, failures, inp, lcp, THRESHOLDS } from "./vitals.mjs";
@@ -139,7 +138,7 @@ async function main() {
   await rm(outDir, { recursive: true, force: true });
   await mkdir(outDir, { recursive: true });
   const server = await startServer(siteDir);
-  const chrome = await chromeLauncher.launch({ chromeFlags: ["--headless=new", ...(process.env.CI ? ["--no-sandbox"] : [])] });
+  const chrome = await launchChrome();
   const results = [];
   try {
     await warmUp(chrome.port, server.origin);
