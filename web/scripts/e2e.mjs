@@ -324,16 +324,15 @@ async function assertSearchBoxOnTheRight(tab, what) {
   assert(wrapped.formTop > wrapped.titleTop + 16, `${what}: 長いサイト名で、検索ボックスが二行目に回っていない（${JSON.stringify(wrapped)}）`);
   assert(Math.abs(wrapped.formRight - wrapped.headerRight) < 2, `${what}: 長いサイト名で、検索ボックスが右端にない（${JSON.stringify(wrapped)}）`);
 
-  // 狭い画面（スマートフォン）では、案内は左に寄せたまま、検索ボックスを右端に置く。
+  // 狭い画面（スマートフォン）でも、検索ボックスを右端に置く。
+  // 案内の位置は見ない。フォントの幅でサイト名と案内が一行に収まるか（Linux の CI では収まる）が変わり、収まると案内は右に寄る。
   await tab.size(412, 800);
   const narrow = await tab.eval(`(() => {
     const header = document.querySelector("header").getBoundingClientRect();
-    const nav = document.querySelector("header ul, header nav").getBoundingClientRect();
     const form = document.querySelector("header form[role=search]").getBoundingClientRect();
-    return { navLeft: nav.left, formRight: form.right, headerLeft: header.left, headerRight: header.right };
+    return { formRight: form.right, headerRight: header.right };
   })()`);
   await tab.size(1024, 800);
-  assert(Math.abs(narrow.navLeft - narrow.headerLeft) < 2, `${what}: 狭い画面で、案内が左端にない（${JSON.stringify(narrow)}）`);
   assert(Math.abs(narrow.formRight - narrow.headerRight) < 2, `${what}: 狭い画面で、検索ボックスが右端にない（${JSON.stringify(narrow)}）`);
 }
 
