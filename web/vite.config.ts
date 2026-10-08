@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
+import { devDatabase, runDataScript } from "./dev/devDatabase";
 import tailwindcss from "@tailwindcss/vite";
 
 /**
@@ -73,7 +74,18 @@ function modulePreloadEntry(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [tailwindcss(), katexWoff2Only(), inlineEntryCss(), modulePreloadEntry()],
+  plugins: [
+    tailwindcss(),
+    katexWoff2Only(),
+    inlineEntryCss(),
+    modulePreloadEntry(),
+    // 開発サーバーの DB が消えていたり古くなったりしていたら、書き出し直す（ADR 0062）。
+    devDatabase({
+      publicDir: fileURLToPath(new URL("./public", import.meta.url)),
+      migrationsDir: fileURLToPath(new URL("../migrations", import.meta.url)),
+      rebuild: () => runDataScript(fileURLToPath(new URL(".", import.meta.url))),
+    }),
+  ],
   // React の代わりに Preact（preact/compat）を使う。ソースと依存（react-markdown）は react から import したままにする。
   resolve: {
     alias: [
