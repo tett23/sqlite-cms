@@ -251,7 +251,12 @@ scenario("記事のタグを出し、タグを押すとそのタグの付いた�
     ["#書き方", "#HTML", "#組版"],
     "検索の結果のタグ",
   );
-  assert((await count(tab, "main > div > ul > li")) < (await tab.eval("(async () => { history.replaceState(null, '', '/search?q=組版'); dispatchEvent(new Event('sqlite-cms:navigate')); await new Promise((r) => setTimeout(r, 300)); return document.querySelectorAll('main > div > ul > li').length; })()")), "語で探すと、タグで探すより多く出るはず");
+  // 語で探すと、タグで探すより多く出る。決まった時間ではなく、結果が出るまで待つ（遅い CI の機械では、0.3 秒では結果が出ないことがあった）。
+  const tagged = await count(tab, "main > div > ul > li");
+  await tab.eval("history.replaceState(null, '', '/search?q=組版'); dispatchEvent(new Event('sqlite-cms:navigate'))");
+  await tab.waitFor(`document.querySelector('#search-query').value === '組版' && document.querySelectorAll('main > div > ul > li').length > ${tagged}`, {
+    message: "語で探すと、タグで探すより多く出るはず",
+  });
 
   // ヘッダの検索ボックスでも、# で始まる語でタグを探せる。
   await tab.goto(origin + "/about");
