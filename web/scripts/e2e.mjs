@@ -160,6 +160,21 @@ scenario("入れ子のリストのある項目と次の項目のあいだを、�
     return { afterNested: Math.round(second.getBoundingClientRect().top - nested.getBoundingClientRect().bottom) };
   })()`);
   assertEqual(gaps.afterNested, 0, "入れ子のリストの最後の項目と、次の項目のあいだ");
+
+  // 項目のあいだに空行のあるリスト（ゆるいリスト）では、項目の中身が段落で包まれる。段落の下に余白を付けない（ADR 0063）。
+  const loose = await tab.eval(`(() => {
+    const list = [...document.querySelectorAll(".article-body > ul")].find((ul) => ul.querySelector(":scope > li > p"));
+    const [nestedItem, twoParagraphs, last] = [...list.children];
+    const rect = (e) => e.getBoundingClientRect();
+    const [first, second] = twoParagraphs.querySelectorAll(":scope > p");
+    return {
+      textToNested: Math.round(rect(nestedItem.querySelector(":scope > ul > li")).top - rect(nestedItem.querySelector(":scope > p")).bottom),
+      nestedToNext: Math.round(rect(twoParagraphs).top - rect(nestedItem.querySelector(":scope > ul > li")).bottom),
+      betweenParagraphs: Math.round(rect(second).top - rect(first).bottom),
+      paragraphsToNext: Math.round(rect(last).top - rect(second).bottom),
+    };
+  })()`);
+  assertEqual(loose, { textToNested: 0, nestedToNext: 0, betweenParagraphs: 8, paragraphsToNext: 0 }, "ゆるいリストの隙間");
   noProblems(tab, "入れ子のリスト");
 });
 

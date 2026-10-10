@@ -125,6 +125,18 @@ a.site-title:visited {
   margin-bottom: 0;
 }
 
+/*
+ * 項目のあいだに空行のあるリスト（ゆるいリスト）では、項目の中身が段落（p）で包まれる。
+ * 段落の下の余白を付けず、空行のないリストと同じ詰まり方にする（ADR 0063）。項目の中の段落が二つ以上のときだけ、あいだを空ける。
+ */
+.article-body li > p {
+  margin-bottom: 0;
+}
+
+.article-body li > p + p {
+  margin-top: 0.5rem;
+}
+
 .article-body ul {
   list-style: disc;
 }
