@@ -3,7 +3,7 @@ title: "複雑なページの見本：全部入りの記事"
 slug: complex-mixed
 date: 2026-09-26
 category: samples
-description: 表示の重さを確かめるための見本。コード、数式、図、リンクカード、画像を節ごとに交互に並べ、後から読み込むライブラリ（Shiki、KaTeX、mermaid）をすべて同じページで使う。
+description: 表示の重さを確かめるための見本。コード、数式、図、リンクカード、GitHub のファイルと Gist の埋め込み、画像を節ごとに交互に並べ、後から読み込むライブラリ（Shiki、KaTeX、mermaid）をすべて同じページで使う。
 tags: [見本, 計測]
 ---
 
@@ -116,6 +116,12 @@ stateDiagram-v2
   色なし --> 読み込み中: 画面の近くに来た
   読み込み中 --> 色付き: 手が空いた
 ```
+
+GitHub のファイルと Gist は、ビルドのときに中身を取得して、行番号つきのコードブロックとして色を付けます。
+
+https://github.com/tett23/sqlite-cms/blob/469f9e2f54b88121ed95125dbffa9e1cacab67a5/web/src/useHighlightedBlock.ts#L9-L47
+
+https://gist.github.com/tett23/14543e0572d1cbca2cab962f7106713a
 
 ## 四. 数式を描く
 

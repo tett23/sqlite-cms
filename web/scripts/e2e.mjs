@@ -80,7 +80,7 @@ scenario("色分け、数式、図を描き、書き誤りだけを元の文字�
     ["/articles/heavy-code", { "pre.shiki": 32 }],
     ["/articles/heavy-math", { ".math-error": 1 }],
     ["/articles/heavy-diagrams", { ".mermaid-diagram": 10, ".diagram-error": 1 }],
-    ["/articles/complex-mixed", { "pre.shiki": 8, ".mermaid-diagram": 7, ".math-error": 0, "a.link-card": 2 }],
+    ["/articles/complex-mixed", { "pre.shiki": 12, ".mermaid-diagram": 7, ".math-error": 0, "a.link-card": 2, "figure.code-embed": 4 }],
   ];
   for (const [pathname, counts] of expectations) {
     await tab.goto(origin + pathname);
