@@ -22,6 +22,7 @@ docs/        仕様書と ADR
 - Rust（stable）
 - C コンパイラ（リンクカードの画像を WebP にする libwebp を、ビルドのときに一緒にビルドする。ADR 0049。macOS は Xcode の Command Line Tools）
 - Node 22 以降
+- [adr-guard](https://github.com/tett23/adr-guard)（コミットするとき。下の「ADR」）
 
 型検査には、Go で実装された TypeScript 7 の `tsc` を使う（ADR 0012）。
 npm がプラットフォーム用のバイナリを自動で入れるので、Go を別に入れる必要はない。
@@ -29,30 +30,54 @@ npm がプラットフォーム用のバイナリを自動で入れるので、G
 
 ## ADR
 
-設計の判断は `docs/adr/` に、連番の ADR として書く。
-コミットした ADR は書き換えない。判断を改めるときは、次の番号で新しい ADR を書き、どの ADR のどの判断を改めるかをそこに書く。
-コミットしていない ADR は、コミットするまで直してよい。
+設計の判断は `docs/adr/` に、連番の ADR として書く（ADR 0064）。
 
-例外として、「状態」の節（`## 状態` の行から、次の `## ` で始まる行の手前まで）だけは、コミットした後も書き換えてよい。
-提案として書いた ADR を承認して「採用」にするときなどに使う。
+- 実装に入る前に、ADR を書く。書いた ADR はコミットせず、レビューを受ける。承認されたら、ステータスを「採択」にしてコミットする。
+- ファイル名は `0064-align-adr-conventions-with-global-rules.md` のように、連番の後を、内容が分かる英語の kebab-case にする。
+- 中身は次の形で書く。データの構造やアルゴリズムを変えるときは、その節も立てる。
 
-この決まりは、二つのフックが同じ判断（`.githooks/check-adr.sh`）で守る。
-HEAD にある ADR が、状態の節のほかで書き換えられたり、消されたり、名前を変えられたりしていれば、問題とみなす。
+```markdown
+# ADR 0064: タイトル
 
-Claude Code で作業するときは、`.claude/settings.json` の PostToolUse のフック（`.claude/hooks/check-adr-immutable.sh`）が、ツールを使うたびに作業ツリーを HEAD と比べる。
-問題があれば、エラーにして取り消すよう伝える。
-編集のツールだけでなく、シェルのコマンドでの書き換えも見つける。
-ただし、書き換えの後に知らせる仕組みなので、書き換え自体は止めない。
+ステータス: 提案
 
-コミットは、git の pre-commit フック（`.githooks/pre-commit`）で止める。
-コミットする中身（インデックス）を HEAD と比べ、問題のあるコミットを拒む。
-状態の節だけを変えるコミットと、新しい ADR を足すコミットは通る。
-フックはリポジトリで管理しているが、git は自動では使わないので、クローンしたら一度だけ次を実行して有効にする。
+## 文脈
+
+## 実装すること
+
+## 実装しないこと
+
+## テスト設計
+
+## トレードオフ
+```
+
+- ステータスは、提案、採択、採択→変更後の ADR 番号、却下、破棄など。
+- コミットした ADR は、ステータスのほかは書き換えない。判断を改めるときは、次の番号で新しい ADR を書き、どの ADR のどの判断を改めるかをそこに書く。
+- ADR で仕様が変わったら、`docs/specifications.md` と `README.md` も同じときに直す。
+- ADR を破棄するときは、ステータスを「破棄」にして残し、理由を `docs/specifications.md` の「破棄した ADR」に書く。
+
+0063 より前の ADR は、日本語のファイル名と、題名と「状態」の節（`## 状態`）の古い形で書いてある。
+adr-guard（下記）が、コミットした ADR の名前の変更と、`ステータス:` の行のほかの変更を拒むので、古い形のまま残す。
+状態の節が今と合わないもの（0038 から 0062 の「提案。」）は、`docs/specifications.md` の「古い形の ADR」に今のステータスを書いた。
+
+コミットした ADR の書き換えは、[adr-guard](https://github.com/tett23/adr-guard)（v0.1.0）で止める（ADR 0064）。
+adr-guard は、コミットした ADR の `ステータス:` で始まる行のほかの変更、削除、名前の変更を、すべて違反とする。
+新しい ADR を足すことと、まだコミットしていない ADR の編集はよい。
+
+- git の pre-commit フック（`.githooks/pre-commit`）：`adr-guard pre-commit` で、コミットする中身（インデックス）を HEAD と比べ、違反のあるコミットを拒む。
+- Claude Code のフック（`.claude/settings.json` の PreToolUse）：`adr-guard claude-hook` で、Write・Edit・MultiEdit によるコミットした ADR の変更を止める。シェルのコマンドでの書き換えは見ないので、pre-commit フックと CI で止める。
+- CI（`.github/workflows/adr.yml`）：`main` への push と PR で、`adr-guard check-range` が、範囲のマージ以外の各コミットを親と比べる。範囲の中で一度でも ADR を書き換えたコミットがあると、後で戻しても失敗するので、マージする前にブランチの履歴を直す。
+
+手元では、adr-guard を入れてから、クローンしたら一度だけ git のフックを有効にする。
+adr-guard がないと、pre-commit フックがコマンドを見つけられず、コミットできない。
 
 ```sh
+cargo install --git https://github.com/tett23/adr-guard --tag v0.1.0
 git config core.hooksPath .githooks
 ```
 
+リリースのバイナリから入れる方法は、adr-guard の README にある。
 有効になっているかは `git config --get core.hooksPath` で確かめられる（`.githooks` と出る）。
 
 ## 依存の方針
@@ -154,6 +179,7 @@ cargo run -- serve example
 1 と 2 は一つのジョブ（`test`）で、速く終わる検査から順に行う（ADR 0044）。
 3 から 5 は、`test` が作った `target/debug/sqlite-cms` を Artifact で受け取り、別々の機械（`browser` のジョブ）で並行して行う（ADR 0052）。どれかが失敗しても、ほかの検査は最後まで行う。
 `docs/`、`README.md`、`DEVELOPMENT.md` だけを変えたときは動かさない。
+ADR の検査（`.github/workflows/adr.yml`）は別のワークフローで、ドキュメントだけの変更でも動く（ADR 0064）。
 同じ PR に続けて push したときは、古い実行を取り消す。`main` への push は取り消さない。
 
 ## Lighthouse

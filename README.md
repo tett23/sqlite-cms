@@ -531,6 +531,28 @@ location /blog/assets/ {
 </FilesMatch>
 ```
 
+## 設計の記録（ADR）
+
+設計の判断は、`docs/adr/` に連番の ADR（Architecture Decision Record）として残している。
+今の仕様の全体は `docs/specifications.md` にまとめてある。
+
+- 実装の前に ADR を書き、レビューを受けてから「採択」にしてコミットする。
+- ファイル名は `0064-align-adr-conventions-with-global-rules.md` のように、番号の後を内容が分かる英語の kebab-case にする。
+- 中身は、ステータスの行と、文脈、実装すること、実装しないこと、テスト設計、トレードオフの節で書く（0063 より前の ADR は、日本語の題名と「状態」の節の古い形）。
+- コミットした ADR は、ステータスのほかは書き換えない。判断を改めるときは、新しい番号の ADR を書く。
+- 破棄した ADR は、ステータスを「破棄」にして残し、理由を `docs/specifications.md` の「破棄した ADR」に書く。
+- ADR で仕様が変わったら、`docs/specifications.md` とこの README も同時に直す。
+
+コミットした ADR の書き換えは、[adr-guard](https://github.com/tett23/adr-guard) で止める（git の pre-commit フック、Claude Code のフック、CI）。
+コミットする前に、adr-guard を入れ、クローンしたら一度だけ git のフックを有効にする。
+
+```sh
+cargo install --git https://github.com/tett23/adr-guard --tag v0.1.0
+git config core.hooksPath .githooks
+```
+
+詳しくは `DEVELOPMENT.md` の「ADR」にある。
+
 ## ライセンス
 
 [MIT](LICENSE)。

@@ -1,16 +1,9 @@
 {
   "hooks": {
-    "PostToolUse": [
+    "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/check-adr-immutable.sh\"",
-            "timeout": 10,
-            "statusMessage": "コミット済みの ADR の変更を確かめています"
-          }
-        ]
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [{ "type": "command", "command": "adr-guard claude-hook" }]
       }
     ]
   }
