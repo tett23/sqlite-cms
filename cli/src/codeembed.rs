@@ -262,6 +262,12 @@ fn read_cache(site_dir: &Path, url: &str) -> Option<Vec<EmbedFile>> {
     (entry.url == url).then_some(entry.files)
 }
 
+/// 取得した結果を保存してあるか。見本のキャッシュのテスト（ADR 0066）で使う。
+#[cfg(test)]
+pub fn is_cached(site_dir: &Path, url: &str) -> bool {
+    read_cache(site_dir, url).is_some()
+}
+
 fn write_cache(site_dir: &Path, url: &str, files: &[EmbedFile]) -> Result<()> {
     let path = cache_path(site_dir, url);
     let dir = path.parent().expect("キャッシュのディレクトリ");

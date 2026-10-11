@@ -1,0 +1,11 @@
+{
+  "url": "https://gist.github.com/tett23/7b97b03b2773a954f7325f7d3f4c1e58",
+  "files": [
+    {
+      "file_name": "chain.ts",
+      "source_url": "https://gist.github.com/tett23/7b97b03b2773a954f7325f7d3f4c1e58#file-chain-ts",
+      "start_line": 1,
+      "content": "type FunctionArgs<F extends Function> = F extends (...args: infer U) => any\n  ? U\n  : never;\n\ntype AnyFunction = (...args: any) => any;\n\ntype ComposeFunciton<F extends AnyFunction, G extends AnyFunction> = (\n  ...args: FunctionArgs<F>\n) => ReturnType<G>;\n\nfunction composite<\n  F extends (...args: any[]) => any,\n  G extends (args: ReturnType<F>) => any\n>(f: F, g: G): ComposeFunciton<F, G> {\n  return (...args: Array<FunctionArgs<F>>): ReturnType<G> => g(f(...args));\n}\n\ntype FContainer<F extends AnyFunction> = {\n  then: <G extends (arg: ReturnType<F>) => any>(\n    g: G,\n  ) => FContainer<ComposeFunciton<F, G>>;\n  apply: (...args: FunctionArgs<F>) => ReturnType<F>;\n  unwrap: () => (...args: FunctionArgs<F>) => ReturnType<F>;\n};\n\nfunction id<F extends AnyFunction>(f: F): FContainer<F> {\n  return {\n    then: <G extends (args: ReturnType<F>) => any>(\n      g: G,\n    ): FContainer<ComposeFunciton<F, G>> => id(composite(f, g)),\n    apply: (...args: Array<FunctionArgs<F>>) => f(...args),\n    unwrap: () => f,\n  };\n}\n\nfunction add(a: number, b: number): number {\n  return a + b;\n}\n\nfunction increment(v: number): number {\n  return v + 1;\n}\n\nfunction toString(v: number): string {\n  return `${v}`;\n}\n\nconst b1 = composite(add, increment);\nconsole.log(b1(1, 2)); // 4\n\n// const b2 = composite(toString, add); // type error\n\nconst a1 = id(add).then(increment).then(toString).apply(1, 2);\nconsole.log(a1); // '4'\n\nconst a2 = id(add).unwrap();\nconsole.log(a2(1, 2)); // 3\n\nconst a3 = id(add).then(increment).unwrap();\nconsole.log(a3(1, 2)); // 4\n\n// id(add).then(toString).then(increment); // type error"
+    }
+  ]
+}
