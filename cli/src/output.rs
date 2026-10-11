@@ -414,6 +414,27 @@ mod tests {
         assert_eq!(urls, [ok]);
     }
 
+    /// ブラウザの検査は通信せず、見本にコミットしたキャッシュだけを使う（ADR 0066）。見本の URL の結果が、すべて保存してあること。
+    #[test]
+    fn example_has_cached_results_for_every_url() {
+        let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../example");
+        let urls: std::collections::BTreeSet<String> =
+            db::markdown_sources(&example).unwrap().iter().flat_map(|source| linkcard::card_urls(source)).collect();
+        assert!(!urls.is_empty());
+        let missing: Vec<&String> = urls
+            .iter()
+            .filter(|url| match codeembed::target(url) {
+                Some(_) => !codeembed::is_cached(&example, url),
+                None => !linkcard::is_cached(&example, url),
+            })
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "見本のキャッシュ（example/.sqlite-cms-cache/）に、次の URL の結果がありません。\n\
+             `cargo run -- build example --out <一時ディレクトリ>` を通信できる場所で実行して取得し、増えたキャッシュをコミットしてください: {missing:?}"
+        );
+    }
+
     #[test]
     fn favicon_comes_from_content_or_falls_back_to_a_placeholder() {
         let site = site_fixture();

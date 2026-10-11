@@ -16,7 +16,9 @@ export function startServer(siteDir) {
   const [command, args] = process.env.SQLITE_CMS_BIN
     ? [process.env.SQLITE_CMS_BIN, serve]
     : ["cargo", ["run", "--quiet", "--manifest-path", path.join(webDir, "../cli/Cargo.toml"), "--", ...serve]];
-  const child = spawn(command, args, { stdio: ["ignore", "pipe", "inherit"] });
+  // 外部と通信せず、記事リポジトリに保存した結果（見本ではコミットしたキャッシュ）だけを使う（ADR 0066）。
+  // 外部のサイトの都合（回数の制限など）で、検査が落ちないようにするためである。
+  const child = spawn(command, args, { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, SQLITE_CMS_OFFLINE: "1" } });
   return new Promise((resolve, reject) => {
     child.on("exit", (code) => reject(new Error(`sqlite-cms serve が終了しました（${code}）`)));
     createInterface({ input: child.stdout }).once("line", (line) => {

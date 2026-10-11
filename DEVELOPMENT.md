@@ -133,7 +133,17 @@ npm --prefix web run e2e
 Lighthouse と同じく、手元に Chrome が要り、`SQLITE_CMS_BIN` でビルド済みのバイナリを使える。
 jsdom などの DOM の代わりになるライブラリは入れず、描画を伴う動きはこの E2E で確かめる。
 
-`serve` や Lighthouse の計測で見本を配信すると、リンクカードの画像を取得して `example/.sqlite-cms-cache/` に保存する（Git には入れない）。
+E2E、Lighthouse、Core Web Vitals は、`sqlite-cms serve` を `SQLITE_CMS_OFFLINE=1` で起動し（`web/scripts/server.mjs`）、外部と通信しない（ADR 0066）。
+見本のリンクカードの画像とコードの埋め込みは、コミットしたキャッシュ（`example/.sqlite-cms-cache/`）から使う。外部のサイトの回数の制限や障害で、検査が落ちないようにするためである。
+見本に URL だけの行を足したり変えたりしたら、通信できる場所で見本を組み立てて取得し、増えたキャッシュをコミットする。
+
+```sh
+cargo run -- build example --out "$(mktemp -d)/out"
+git add example/.sqlite-cms-cache
+```
+
+取り忘れると、CLI の単体テスト（`example_has_cached_results_for_every_url`）が、その URL を挙げて失敗する。
+取り直すときは、`example/.sqlite-cms-cache/` を消してから組み立てる。
 
 ## SPA の開発
 

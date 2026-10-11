@@ -1,0 +1,11 @@
+{
+  "url": "https://github.com/tett23/sqlite-cms/blob/03d87cb35f81c72990a14e4f83024c14d030731a/migrations/0006_link_cards.sql#L1-L5",
+  "files": [
+    {
+      "file_name": "0006_link_cards.sql",
+      "source_url": "https://github.com/tett23/sqlite-cms/blob/03d87cb35f81c72990a14e4f83024c14d030731a/migrations/0006_link_cards.sql#L1-L5",
+      "start_line": 1,
+      "content": "-- リンクカードの画像（ADR 0028）。URL だけの行の URL と、配信する画像のパス。\nCREATE TABLE link_cards (\n  url        TEXT PRIMARY KEY,\n  image_path TEXT NOT NULL\n);"
+    }
+  ]
+}

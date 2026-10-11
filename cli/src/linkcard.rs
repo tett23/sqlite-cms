@@ -347,6 +347,12 @@ fn read_cache(site_dir: &Path, url: &str) -> Option<Option<LinkCard>> {
     Some(Some(LinkCard { url: url.to_string(), path: format!("{PATH_PREFIX}{file}"), bytes }))
 }
 
+/// 取得した結果を保存してあるか（ページに画像がなかったことも含む）。見本のキャッシュのテスト（ADR 0066）で使う。
+#[cfg(test)]
+pub fn is_cached(site_dir: &Path, url: &str) -> bool {
+    read_cache(site_dir, url).is_some()
+}
+
 fn write_cache(site_dir: &Path, url: &str, card: Option<&LinkCard>) -> Result<()> {
     let dir = cache_dir(site_dir);
     fs::create_dir_all(&dir).with_context(|| format!("{} を作れません", dir.display()))?;
