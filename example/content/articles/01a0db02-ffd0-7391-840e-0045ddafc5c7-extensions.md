@@ -115,3 +115,17 @@ https://zenn.dev/zenn/articles/markdown-guide
 
 カードには、ホスト名と URL と、そのページの画像（OGP の画像）を表示します。
 画像は `sqlite-cms` がビルドのときに取得し、このサイトから配信します。ページの題名は取得しません。
+
+## GitHub のファイルと Gist
+
+GitHub のファイルと Gist の URL だけの行は、カードの代わりに中身を表示します。
+中身は `sqlite-cms` がビルドのときに取得するので、読むときに GitHub とは通信しません。
+ファイルの URL の末尾に `#L1-L5` のように行の範囲を書くと、その行だけを表示します。
+
+https://github.com/tett23/sqlite-cms/blob/03d87cb35f81c72990a14e4f83024c14d030731a/migrations/0006_link_cards.sql#L1-L5
+
+Gist は、すべてのファイルを表示します。`#file-<ファイル名>` を付けると、そのファイルだけを表示します。
+
+https://gist.github.com/tett23/7b97b03b2773a954f7325f7d3f4c1e58
+
+ブランチ名の URL は、元のファイルが変わっても、取得し直すまで古い中身のままです。コミットの SHA の URL（パーマリンク）を使ってください。

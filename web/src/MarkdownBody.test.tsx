@@ -83,4 +83,54 @@ describe("ヘッダの Markdown（ADR 0043）", () => {
   it("部品を渡さなければ、目印は何も描かない", () => {
     expect(render('<div class="partial-search"></div>')).toBe('<div class="article-body mt-6"></div>');
   });
+
+  describe("コードの埋め込み（ADR 0065）", () => {
+    const fileUrl = "https://github.com/o/r/blob/0123abc/src/a.rs#L10-L12";
+    const gistUrl = "https://gist.github.com/u/0123456789abcdef0123";
+    const embeds = new Map([
+      [fileUrl, [{ fileName: "a.rs", sourceUrl: fileUrl, startLine: 10, content: "fn a() {}\nfn b() {}\nfn c() {}" }]],
+      [
+        gistUrl,
+        [
+          { fileName: "a.unknown", sourceUrl: `${gistUrl}#file-a-unknown`, startLine: 1, content: "<script>alert(1)</script>" },
+          { fileName: "b.py", sourceUrl: `${gistUrl}#file-b-py`, startLine: 1, content: "print(1)" },
+        ],
+      ],
+    ]);
+    const renderEmbeds = (source: string) => renderToStaticMarkup(<MarkdownBody source={source} codeEmbeds={embeds} />);
+
+    it("中身のある URL は見出しとコードブロックになり、ない URL はリンクカードのまま", () => {
+      const html = renderEmbeds(`${fileUrl}\n\nhttps://example.com/`);
+      expect(html).toContain('<figure class="code-embed">');
+      expect(html).toContain(`<a href="${fileUrl}" target="_blank" rel="noopener">a.rs<span class="code-embed-source">o/r L10-L12</span></a>`);
+      expect(html).toContain('class="link-card-slot"');
+      expect(html).toContain('href="https://example.com/"');
+      expect(html).not.toContain(`class="link-card-slot"><a href="${fileUrl}"`);
+    });
+
+    it("Gist の複数のファイルを並び順どおりに出す", () => {
+      const html = renderEmbeds(gistUrl);
+      expect(html.indexOf("a.unknown")).toBeLessThan(html.indexOf("b.py"));
+      expect(html).toContain('<span class="code-embed-source">Gist</span>');
+      expect(html).toContain(`href="${gistUrl}#file-b-py"`);
+    });
+
+    it("行番号は start_line から始まり、欄の幅は最後の行の番号の桁数に合う", () => {
+      const html = renderEmbeds(fileUrl);
+      expect(html).toContain("counter-reset:line 9");
+      expect(html).toContain("--line-number-width:2ch");
+      expect(renderEmbeds(gistUrl)).toContain("counter-reset:line 0");
+      expect(renderEmbeds(gistUrl)).toContain("--line-number-width:1ch");
+    });
+
+    it("中身は HTML として解釈せず、文字のまま出す", () => {
+      const html = renderEmbeds(gistUrl);
+      expect(html).not.toContain("<script>");
+      expect(html).toContain("&lt;script>alert(1)&lt;/script>");
+    });
+
+    it("本文のコードブロックには行番号の指定を付けない", () => {
+      expect(renderEmbeds("```rs\nfn a() {}\n```")).not.toContain("counter-reset");
+    });
+  });
 });

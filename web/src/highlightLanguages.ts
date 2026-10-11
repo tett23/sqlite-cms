@@ -54,3 +54,18 @@ export function needsHighlight(className: unknown): boolean {
     return HIGHLIGHT_LANGUAGES.has(language) || language.startsWith(DIFF_LANGUAGE_PREFIX);
   });
 }
+
+/** 拡張子が言語の名前と違うもの。 */
+const EXTENSION_LANGUAGES: Readonly<Record<string, string>> = { htm: "html", markdown: "md" };
+
+/**
+ * ファイル名の拡張子から、Shiki で色を付ける言語を決める（コードの埋め込み、ADR 0065）。
+ * 本文のコードブロックで使える言語に当てはまらなければ undefined（色を付けない）。
+ */
+export function languageOfFile(fileName: string): string | undefined {
+  const dot = fileName.lastIndexOf(".");
+  if (dot <= 0) return undefined;
+  const extension = fileName.slice(dot + 1).toLowerCase();
+  const language = EXTENSION_LANGUAGES[extension] ?? extension;
+  return HIGHLIGHT_LANGUAGES.has(language) ? language : undefined;
+}

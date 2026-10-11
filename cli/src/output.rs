@@ -4,6 +4,7 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 
+use crate::codeembed;
 use crate::linkcard::{self, Fetcher};
 use crate::{db, favicon, feed, media, robots, site, sitemap};
 
@@ -112,11 +113,15 @@ pub struct SiteOutput {
 }
 
 impl SiteOutput {
-    /// DB、マニフェスト、画像、favicon、リンクカードの画像を組み立てる。リンクカードの画像は fetcher で取得する。
+    /// DB、マニフェスト、画像、favicon、リンクカードの画像を組み立てる。
+    /// コードの埋め込み（ADR 0065）とリンクカードの画像は fetcher で取得する。中身を取得できた URL は、リンクカードの画像を取得しない。
     pub fn data(site_dir: &Path, fetcher: &dyn Fetcher) -> Result<Self> {
-        let cards = linkcard::collect(site_dir, &db::markdown_sources(site_dir)?, fetcher);
+        let sources = db::markdown_sources(site_dir)?;
+        let embeds = codeembed::collect(site_dir, &sources, fetcher);
+        let embedded = embeds.iter().map(|embed| embed.url.clone()).collect();
+        let cards = linkcard::collect(site_dir, &sources, fetcher, &embedded);
         let media = media::read_media(&site_dir.join("content").join("media"))?;
-        let bytes = db::build_db_bytes(site_dir, &cards, &media::sizes(&media))?;
+        let bytes = db::build_db_bytes(site_dir, &cards, &embeds, &media::sizes(&media))?;
         let db_path = format!("/db/{}", db::db_file_name(&bytes));
 
         let mut files = BTreeMap::new();
@@ -369,6 +374,44 @@ mod tests {
         assert_eq!(&paths[1..], ["/db/manifest.json", "/favicon.svg", "/media/a.png", "/robots.txt"]);
         let manifest = String::from_utf8(output.files["/db/manifest.json"].clone()).unwrap();
         assert_eq!(manifest, format!("{{\"db\":\"{}\"}}\n", paths[0]));
+    }
+
+    /// 決めた URL にだけ応える偽の取得。取得した URL を覚える。
+    struct FakeFetcher {
+        responses: Vec<(&'static str, &'static [u8])>,
+        requested: std::cell::RefCell<Vec<String>>,
+    }
+
+    impl Fetcher for FakeFetcher {
+        fn fetch(&self, url: &str, _max_bytes: u64, _purpose: &str) -> Result<linkcard::Fetched> {
+            self.requested.borrow_mut().push(url.to_string());
+            let (_, body) = self.responses.iter().find(|(u, _)| *u == url).ok_or_else(|| anyhow::anyhow!("404"))?;
+            Ok(linkcard::Fetched { url: url.to_string(), body: body.to_vec() })
+        }
+    }
+
+    #[test]
+    fn embedded_urls_skip_link_cards_and_failed_ones_fall_back_to_cards() {
+        let site = site_fixture();
+        let ok = "https://github.com/o/r/blob/0123abc/a.rs";
+        let missing = "https://github.com/o/r/blob/0123abc/missing.rs";
+        fs::write(site.path().join("content/index.md"), format!("{ok}\n\n{missing}\n")).unwrap();
+        let fetcher = FakeFetcher {
+            responses: vec![("https://raw.githubusercontent.com/o/r/0123abc/a.rs", b"fn main() {}\n")],
+            requested: Default::default(),
+        };
+        let output = SiteOutput::data(site.path(), &fetcher).unwrap();
+        // 中身を取得できた URL は、リンクカードのページを取得しない。取得できなかった URL は、リンクカードとして取得する。
+        assert_eq!(
+            *fetcher.requested.borrow(),
+            ["https://raw.githubusercontent.com/o/r/0123abc/a.rs", "https://raw.githubusercontent.com/o/r/0123abc/missing.rs", missing]
+        );
+        let db_path = paths(&output).into_iter().find(|p| p.starts_with("/db/articles-")).unwrap().to_string();
+        let dir = crate::testutil::tempdir();
+        fs::write(dir.path().join("db.sqlite"), &output.files[&db_path]).unwrap();
+        let conn = rusqlite::Connection::open(dir.path().join("db.sqlite")).unwrap();
+        let urls: Vec<String> = conn.prepare("SELECT url FROM code_embed_files").unwrap().query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+        assert_eq!(urls, [ok]);
     }
 
     #[test]

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from
 import {
   getArticle,
   getCategory,
+  getCodeEmbeds,
   getLinkCardImages,
   getMediaSizes,
   getPage,
@@ -81,7 +82,7 @@ function Home() {
 
   return (
     <div>
-      {homeMd && <MarkdownBody source={homeMd} className="mb-8" linkCardImages={getLinkCardImages(db)} mediaSizes={getMediaSizes(db)} progressive />}
+      {homeMd && <MarkdownBody source={homeMd} className="mb-8" linkCardImages={getLinkCardImages(db)} codeEmbeds={getCodeEmbeds(db)} mediaSizes={getMediaSizes(db)} progressive />}
 
       <section className="mb-10">
         <h2 className="mb-3 text-lg font-bold">記事</h2>
@@ -156,7 +157,7 @@ function PostPage({ slug }: { slug: string }) {
         <time>{post.publishedAt}</time>
       </p>
       <Tags tags={post.tags} className="mt-1" />
-      <MarkdownBody source={post.bodyMd} linkCardImages={getLinkCardImages(db)} mediaSizes={getMediaSizes(db)} progressive />
+      <MarkdownBody source={post.bodyMd} linkCardImages={getLinkCardImages(db)} codeEmbeds={getCodeEmbeds(db)} mediaSizes={getMediaSizes(db)} progressive />
     </article>
   );
 }
@@ -184,7 +185,7 @@ function ArticlePage({ slug }: { slug: string }) {
         {article.updatedAt && <span className="ml-3">（{article.updatedAt} 改稿）</span>}
       </p>
       <Tags tags={article.tags} className="mt-1" />
-      <MarkdownBody source={article.bodyMd} linkCardImages={getLinkCardImages(db)} mediaSizes={getMediaSizes(db)} progressive />
+      <MarkdownBody source={article.bodyMd} linkCardImages={getLinkCardImages(db)} codeEmbeds={getCodeEmbeds(db)} mediaSizes={getMediaSizes(db)} progressive />
     </article>
   );
 }
@@ -199,7 +200,7 @@ function AboutPage() {
   return (
     <article>
       <h1 className="text-2xl font-bold">{page.title}</h1>
-      <MarkdownBody source={page.bodyMd} linkCardImages={getLinkCardImages(db)} mediaSizes={getMediaSizes(db)} progressive />
+      <MarkdownBody source={page.bodyMd} linkCardImages={getLinkCardImages(db)} codeEmbeds={getCodeEmbeds(db)} mediaSizes={getMediaSizes(db)} progressive />
     </article>
   );
 }
@@ -243,7 +244,7 @@ function CategoryPage({ slug }: { slug: string }) {
     <div>
       <h1 className="text-2xl font-bold">{category.title}</h1>
       {category.bodyMd.trim() !== "" && (
-        <MarkdownBody source={category.bodyMd} linkCardImages={getLinkCardImages(db)} mediaSizes={getMediaSizes(db)} progressive />
+        <MarkdownBody source={category.bodyMd} linkCardImages={getLinkCardImages(db)} codeEmbeds={getCodeEmbeds(db)} mediaSizes={getMediaSizes(db)} progressive />
       )}
       <section className="mt-8">
         <h2 className="mb-3 text-lg font-bold">記事</h2>
@@ -537,6 +538,7 @@ export default function App() {
               baseClassName="site-header-body"
               className=""
               linkCardImages={db ? getLinkCardImages(db) : undefined}
+              codeEmbeds={db ? getCodeEmbeds(db) : undefined}
               mediaSizes={db ? getMediaSizes(db) : undefined}
               partials={headerPartials}
             />

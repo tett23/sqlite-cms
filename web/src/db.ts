@@ -255,6 +255,40 @@ export function getLinkCardImages(db: SqliteFile): ReadonlyMap<string, string> {
   return images;
 }
 
+/** コードの埋め込み（ADR 0065）で表示する一つのファイル。 */
+export interface CodeEmbedFile {
+  fileName: string;
+  /** 見出しのリンク先。 */
+  sourceUrl: string;
+  /** 最初の行の番号。 */
+  startLine: number;
+  content: string;
+}
+
+const codeEmbedCache = new WeakMap<SqliteFile, ReadonlyMap<string, readonly CodeEmbedFile[]>>();
+
+/**
+ * コードの埋め込みの URL と、表示するファイル（並び順どおり、ADR 0065）。同じ DB では一度だけ読む。
+ * 表のない DB（表を入れる前の sqlite-cms で作ったもの）では、空を返す。
+ */
+export function getCodeEmbeds(db: SqliteFile): ReadonlyMap<string, readonly CodeEmbedFile[]> {
+  let embeds = codeEmbedCache.get(db);
+  if (!embeds) {
+    const rows = db.hasTable("code_embed_files") ? db.table("code_embed_files") : [];
+    const sorted = [...rows].sort((a, b) => Number(a.position) - Number(b.position));
+    const map = new Map<string, CodeEmbedFile[]>();
+    for (const row of sorted) {
+      const url = text(row, "url")!;
+      const files = map.get(url) ?? [];
+      files.push({ fileName: text(row, "file_name")!, sourceUrl: text(row, "source_url")!, startLine: Number(row.start_line), content: text(row, "content")! });
+      map.set(url, files);
+    }
+    embeds = map;
+    codeEmbedCache.set(db, embeds);
+  }
+  return embeds;
+}
+
 /** 本文の画像の大きさ（px、ADR 0051）。 */
 export interface MediaSize {
   width: number;

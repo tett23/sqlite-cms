@@ -317,6 +317,45 @@ a.site-title:visited {
   margin-bottom: 0;
 }
 
+/* コードの埋め込み（ADR 0065）。見出しは、元のファイルへのリンク。 */
+.article-body .code-embed > figcaption a {
+  color: inherit;
+}
+
+.article-body .code-embed-source {
+  margin-left: 0.75rem;
+  color: #555555;
+}
+
+/* 長いファイルで本文が読みにくくならないよう、高さを抑えて中で巻き取る。 */
+.article-body pre.code-embed-code {
+  max-height: 30rem;
+  overflow: auto;
+  padding-left: 0;
+}
+
+/* 行番号は CSS のカウンタで描く（コードを写したときに番号が混ざらない）。始まりの番号と欄の幅は、pre の style で決める。 */
+.article-body pre.code-embed-code .line {
+  counter-increment: line;
+}
+
+.article-body pre.code-embed-code .line::before {
+  content: counter(line);
+  display: inline-block;
+  box-sizing: content-box;
+  width: var(--line-number-width, 2ch);
+  padding: 0 0.75rem;
+  margin-right: 0.75rem;
+  border-right: 1px solid #dddddd;
+  text-align: right;
+  color: #6e6e6e;
+  background: #f5f5f5;
+  /* 横に巻き取っても、番号は左に残す。 */
+  position: sticky;
+  left: 0;
+  user-select: none;
+}
+
 /* 画像の直後の行の *文字* は画像の説明として表示する（Zenn と同じ） */
 .article-body img + em,
 .article-body a:has(> img) + em {
