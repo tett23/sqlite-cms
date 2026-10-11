@@ -22,6 +22,9 @@ const CARD_CACHE: &str = "link-cards";
 /// 配信するときのパスの接頭辞。
 pub const PATH_PREFIX: &str = "/link-cards/";
 
+/// 取得の User-Agent に書く用途。
+const PURPOSE: &str = "link card";
+
 /// ページの HTML は先頭のこの大きさまでを読む（`og:image` は head にある）。
 const MAX_HTML_BYTES: u64 = 1024 * 1024;
 /// これより大きい画像は使わない。
@@ -37,7 +40,8 @@ pub struct Fetched {
 /// 外部のページと画像を取得する。テストでは偽物に差し替える。
 pub trait Fetcher {
     /// URL を取得する。本文は最大で max_bytes + 1 バイトまで読む（上限を超えたかを呼び出し側で確かめられるように）。
-    fn fetch(&self, url: &str, max_bytes: u64) -> Result<Fetched>;
+    /// purpose は User-Agent に書く用途（`link card`、`code embed`）。
+    fn fetch(&self, url: &str, max_bytes: u64, purpose: &str) -> Result<Fetched>;
     /// 外部と通信しないなら true（保存済みの結果だけを使う）。
     fn offline(&self) -> bool {
         false
@@ -52,7 +56,6 @@ impl UreqFetcher {
     pub fn new() -> Self {
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(10)))
-            .user_agent(concat!("sqlite-cms/", env!("CARGO_PKG_VERSION"), " (link card)"))
             .build()
             .into();
         Self { agent }
@@ -60,9 +63,10 @@ impl UreqFetcher {
 }
 
 impl Fetcher for UreqFetcher {
-    fn fetch(&self, url: &str, max_bytes: u64) -> Result<Fetched> {
+    fn fetch(&self, url: &str, max_bytes: u64, purpose: &str) -> Result<Fetched> {
         use ureq::ResponseExt;
-        let mut response = self.agent.get(url).call()?;
+        let user_agent = format!("sqlite-cms/{} ({purpose})", env!("CARGO_PKG_VERSION"));
+        let mut response = self.agent.get(url).header("User-Agent", &user_agent).call()?;
         let final_url = response.get_uri().to_string();
         let mut body = Vec::new();
         response.body_mut().as_reader().take(max_bytes + 1).read_to_end(&mut body)?;
@@ -74,7 +78,7 @@ impl Fetcher for UreqFetcher {
 pub struct Offline;
 
 impl Fetcher for Offline {
-    fn fetch(&self, _url: &str, _max_bytes: u64) -> Result<Fetched> {
+    fn fetch(&self, _url: &str, _max_bytes: u64, _purpose: &str) -> Result<Fetched> {
         bail!("オフラインです")
     }
     fn offline(&self) -> bool {
@@ -357,12 +361,12 @@ fn write_cache(site_dir: &Path, url: &str, card: Option<&LinkCard>) -> Result<()
 
 /// ページの画像を取得する。ページに画像がなければ Ok(None)。
 fn fetch_card(fetcher: &dyn Fetcher, url: &str) -> Result<Option<LinkCard>> {
-    let page = fetcher.fetch(url, MAX_HTML_BYTES)?;
+    let page = fetcher.fetch(url, MAX_HTML_BYTES, PURPOSE)?;
     // head にある meta を読めれば足りるので、上限を超えた分は捨てる。
     let html = String::from_utf8_lossy(&page.body[..page.body.len().min(MAX_HTML_BYTES as usize)]);
     let Some(href) = og_image(&html) else { return Ok(None) };
     let image_url = resolve_url(&page.url, &href).ok_or_else(|| anyhow!("画像の URL が不正です: {href}"))?;
-    let image = fetcher.fetch(&image_url, MAX_IMAGE_BYTES).with_context(|| format!("画像 {image_url}"))?;
+    let image = fetcher.fetch(&image_url, MAX_IMAGE_BYTES, PURPOSE).with_context(|| format!("画像 {image_url}"))?;
     if image.body.len() as u64 > MAX_IMAGE_BYTES {
         bail!("画像 {image_url} が {MAX_IMAGE_BYTES} バイトを超えています");
     }
@@ -401,8 +405,9 @@ fn to_served(site_dir: &Path, card: LinkCard) -> LinkCard {
 
 /// 本文のリンクカードの画像を集める。保存済みのものはそれを使い、なければ取得して保存する。
 /// 取得できなかったものは警告を出して飛ばす（ビルドは止めない）。
-pub fn collect(site_dir: &Path, sources: &[String], fetcher: &dyn Fetcher) -> Vec<LinkCard> {
-    let urls: BTreeSet<String> = sources.iter().flat_map(|source| card_urls(source)).collect();
+/// skip の URL（中身を表示するコードの埋め込み、ADR 0065）は取得しない。
+pub fn collect(site_dir: &Path, sources: &[String], fetcher: &dyn Fetcher, skip: &BTreeSet<String>) -> Vec<LinkCard> {
+    let urls: BTreeSet<String> = sources.iter().flat_map(|source| card_urls(source)).filter(|url| !skip.contains(url)).collect();
     let mut cards = Vec::new();
     for url in urls {
         if let Some(cached) = read_cache(site_dir, &url) {
@@ -449,7 +454,7 @@ mod tests {
     }
 
     impl Fetcher for FakeFetcher {
-        fn fetch(&self, url: &str, _max_bytes: u64) -> Result<Fetched> {
+        fn fetch(&self, url: &str, _max_bytes: u64, _purpose: &str) -> Result<Fetched> {
             self.requested.borrow_mut().push(url.to_string());
             let (final_url, body) = self.responses.get(url).ok_or_else(|| anyhow!("404"))?;
             Ok(Fetched { url: final_url.clone(), body: body.clone() })
@@ -550,7 +555,7 @@ https://
             "https://example.com/html-image\n\nhttps://example.com/down\n\nhttps://example.com/a\n".to_string(),
         ];
 
-        let cards = collect(site.path(), &sources, &fetcher);
+        let cards = collect(site.path(), &sources, &fetcher, &BTreeSet::new());
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].url, "https://example.com/a");
         // PNG の先頭だけの偽の画像は WebP にできないので、取得したまま配信する（ADR 0049）。
@@ -559,7 +564,7 @@ https://
 
         // 保存した結果を使い、画像のあるページとないページは取得し直さない。取得できなかったものは取得し直す。
         fetcher.requested.borrow_mut().clear();
-        let cards = collect(site.path(), &sources, &fetcher);
+        let cards = collect(site.path(), &sources, &fetcher, &BTreeSet::new());
         assert_eq!(cards.len(), 1);
         assert_eq!(
             *fetcher.requested.borrow(),
@@ -567,7 +572,7 @@ https://
         );
 
         // オフラインでも、保存した結果は使う。
-        let cards = collect(site.path(), &sources, &Offline);
+        let cards = collect(site.path(), &sources, &Offline, &BTreeSet::new());
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].bytes, PNG);
     }
@@ -600,7 +605,7 @@ https://
         ]);
         let sources = ["https://example.com/a\n".to_string()];
 
-        let cards = collect(site.path(), &sources, &fetcher);
+        let cards = collect(site.path(), &sources, &fetcher, &BTreeSet::new());
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].path, format!("/link-cards/{}.webp", key("https://example.com/a")));
         assert!(cards[0].bytes.starts_with(b"RIFF") && &cards[0].bytes[8..12] == b"WEBP");
@@ -614,12 +619,12 @@ https://
 
         // 保存した WebP を使い、変換し直さない（保存したものを書き換えると、それが配信される）。
         fs::write(cache_dir(site.path()).join(&converted[0]), b"cached webp").unwrap();
-        let cards = collect(site.path(), &sources, &Offline);
+        let cards = collect(site.path(), &sources, &Offline, &BTreeSet::new());
         assert_eq!(cards[0].bytes, b"cached webp");
 
         // 元の画像が変われば（取得し直したとき）、WebP を作り直す。
         fs::write(cache_dir(site.path()).join(format!("{}.png", key("https://example.com/a"))), real_png([30, 30, 200, 255])).unwrap();
-        let cards = collect(site.path(), &sources, &Offline);
+        let cards = collect(site.path(), &sources, &Offline, &BTreeSet::new());
         assert!(cards[0].bytes.starts_with(b"RIFF"));
         assert_eq!(converted_files(site.path()).len(), 2);
     }

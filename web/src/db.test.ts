@@ -1,6 +1,6 @@
 import initSqlJs from "sql.js";
 import { beforeAll, describe, expect, it } from "vitest";
-import { getArticle, getCategory, getLinkCardImages, listCategories, getPage, getPost, getSite, listAll, listArticles, listPosts, tagsOf } from "./db";
+import { getArticle, getCategory, getCodeEmbeds, getLinkCardImages, listCategories, getPage, getPost, getSite, listAll, listArticles, listPosts, tagsOf } from "./db";
 import { SqliteFile } from "./sqlite";
 
 let db: SqliteFile;
@@ -40,6 +40,10 @@ beforeAll(async () => {
     "[記事置き場](/)",
   ]);
   sql.run("INSERT INTO link_cards VALUES (?, ?)", ["https://example.com/", "/link-cards/0123456789abcdef.png"]);
+  // コードの埋め込み（ADR 0065）。position の順に返すことを確かめるため、逆の順に入れる。
+  const gist = "https://gist.github.com/u/0123456789abcdef0123";
+  sql.run("INSERT INTO code_embed_files VALUES (?, 1, 'b.py', ?, 1, 'print(1)')", [gist, `${gist}#file-b-py`]);
+  sql.run("INSERT INTO code_embed_files VALUES (?, 0, 'a.rs', ?, 1, 'fn main() {}')", [gist, `${gist}#file-a-rs`]);
   // タグ（ADR 0048）。position の順に返すことを確かめるため、逆の順に入れる。
   sql.run("INSERT INTO tags VALUES ('article', 'long', 1, 'SQLite')");
   sql.run("INSERT INTO tags VALUES ('article', 'long', 0, '組版')");
@@ -54,6 +58,23 @@ describe("getLinkCardImages", () => {
     const images = getLinkCardImages(db);
     expect([...images]).toEqual([["https://example.com/", "/link-cards/0123456789abcdef.png"]]);
     expect(getLinkCardImages(db)).toBe(images);
+  });
+});
+
+describe("getCodeEmbeds", () => {
+  it("URL ごとに、表示するファイルを並び順どおりに返し、同じ DB では同じ Map を使い回す", () => {
+    const embeds = getCodeEmbeds(db);
+    const gist = "https://gist.github.com/u/0123456789abcdef0123";
+    expect([...embeds]).toEqual([
+      [
+        gist,
+        [
+          { fileName: "a.rs", sourceUrl: `${gist}#file-a-rs`, startLine: 1, content: "fn main() {}" },
+          { fileName: "b.py", sourceUrl: `${gist}#file-b-py`, startLine: 1, content: "print(1)" },
+        ],
+      ],
+    ]);
+    expect(getCodeEmbeds(db)).toBe(embeds);
   });
 });
 

@@ -3,10 +3,10 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import Markdown, { type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import { withBasePath } from "./base";
-import type { HighlightedBlock } from "./highlight";
-import { highlightLoader } from "./highlightLoader";
 import { needsHighlight } from "./highlightLanguages";
-import { inTurn, useLazy } from "./lazyLoader";
+import { useLazy } from "./lazyLoader";
+import { useHighlightedBlock } from "./useHighlightedBlock";
+import { CodeEmbed } from "./render/CodeEmbed";
 import { useNearViewport } from "./nearViewport";
 import { MATH_DISPLAY_CLASS, MATH_INLINE_CLASS } from "./markdown/math";
 import { firstPart } from "./markdown/firstPart";
@@ -20,9 +20,10 @@ import { remarkExtensions } from "./markdown/remarkExtensions";
 import { PARTIAL_SEARCH_CLASS, sanitizeSchema, unwrapPlainElements } from "./sanitize";
 import { EXTERNAL_LINK_PROPS, isExternal } from "./externalLink";
 import { Link } from "./router";
-import type { MediaSize } from "./db";
+import type { CodeEmbedFile, MediaSize } from "./db";
 
 const NO_LINK_CARD_IMAGES: ReadonlyMap<string, string> = new Map();
+const NO_CODE_EMBEDS: ReadonlyMap<string, readonly CodeEmbedFile[]> = new Map();
 const NO_MEDIA_SIZES: ReadonlyMap<string, MediaSize> = new Map();
 const NO_PARTIALS: PartialComponents = {};
 
@@ -44,8 +45,6 @@ const baseRehypePlugins: NonNullable<Options["rehypePlugins"]> = [
   [rehypeSanitize, sanitizeSchema],
   unwrapPlainElements,
 ];
-
-const logHighlightError = (error: unknown) => console.error("シンタックスハイライトを読み込めませんでした", error);
 
 function isInternal(href: unknown): href is string {
   return typeof href === "string" && href.startsWith("/") && !href.startsWith("//");
@@ -100,6 +99,9 @@ function imageSize(src: unknown, width: unknown, sizes: ReadonlyMap<string, Medi
 /** リンクカードの URL と画像のパス（DB の link_cards、ADR 0028）。 */
 const LinkCardImages = createContext<ReadonlyMap<string, string>>(new Map());
 
+/** コードの埋め込みの URL と、表示するファイル（DB の code_embed_files、ADR 0065）。 */
+const CodeEmbeds = createContext<ReadonlyMap<string, readonly CodeEmbedFile[]>>(new Map());
+
 const logLinkCardError = (error: unknown) => console.error("リンクカードを読み込めませんでした", error);
 
 /**
@@ -148,9 +150,13 @@ const components: Components = {
   },
   div({ node, ...props }) {
     const partials = useContext(Partials);
+    const embeds = useContext(CodeEmbeds);
     if (hasClass(node as HastNode, MATH_DISPLAY_CLASS)) return <MathView tex={textOf(node as HastNode)} display />;
     if (hasClass(node as HastNode, PARTIAL_SEARCH_CLASS)) return <>{partials.search ?? null}</>;
     const url = hasClass(node as HastNode, LINK_CARD_SLOT_CLASS) ? slotUrl(node as HastNode) : null;
+    // 中身を取得できた GitHub のファイルと Gist の URL は、リンクカードの代わりに中身を表示する（ADR 0065）。
+    const embed = url ? embeds.get(url) : undefined;
+    if (url && embed) return <CodeEmbed url={url} files={embed} />;
     if (url) return <LinkCardSlot url={url}>{props.children}</LinkCardSlot>;
     return <div {...props} />;
   },
@@ -167,36 +173,7 @@ const components: Components = {
       : undefined;
     const highlightable = isCode && needsHighlight(className);
     const source = isCode ? textOf(code) : "";
-    // 色を付けられる言語のコードブロックが画面の近くに来たときに、初めて Shiki を読み込み、そのブロックだけを色付けする（ADR 0029、0038）。
-    // 読み込むまでは色なしで表示する。本文の Markdown 全体は描き直さない。
-    const [ref, near] = useNearViewport<HTMLPreElement>();
-    const highlight = useLazy(highlightLoader, logHighlightError, near && highlightable);
-    // 色分けは、ブロックごとに別のタスクで行う（inTurn）。読み込み済みで、初めから画面の近くにあるとき（サーバーでの描画）だけ、最初の描画で行う。
-    // 同じ部品が別の記事のコードブロックに使い回されることがあるので、色分けの結果は、言語とコードの組と一緒に持つ。
-    const key = `${languageClass}\n${source}`;
-    const canHighlight = highlight !== null && near && highlightable && languageClass !== undefined;
-    const [highlighted, setHighlighted] = useState<{ key: string; block: HighlightedBlock | null } | null>(() => {
-      if (!canHighlight) return null;
-      const block = highlight.highlightBlock(source, languageClass);
-      return block instanceof Promise ? null : { key, block };
-    });
-    const done = highlighted?.key === key;
-    useEffect(() => {
-      if (done || !canHighlight) return;
-      let cancelled = false;
-      // 色分けの結果（Worker なら届いた結果）を、ブロックごとに別のタスクで描く（ADR 0038、0046）。
-      const cancelTurn = inTurn(() => {
-        void Promise.resolve(highlight.highlightBlock(source, languageClass)).then(
-          (block) => !cancelled && setHighlighted({ key, block }),
-          logHighlightError,
-        );
-      });
-      return () => {
-        cancelled = true;
-        cancelTurn();
-      };
-    }, [done, canHighlight, highlight, key, source, languageClass]);
-    const block = done ? highlighted.block : null;
+    const [ref, block] = useHighlightedBlock(source, languageClass, highlightable);
     if (isCode && hasClass(code, "language-mermaid")) {
       return <Diagram source={source.replace(/\n$/, "")} />;
     }
@@ -239,6 +216,7 @@ export function MarkdownBody({
   className = "mt-6",
   baseClassName = "article-body",
   linkCardImages = NO_LINK_CARD_IMAGES,
+  codeEmbeds = NO_CODE_EMBEDS,
   mediaSizes = NO_MEDIA_SIZES,
   partials = NO_PARTIALS,
   progressive = false,
@@ -249,6 +227,8 @@ export function MarkdownBody({
   baseClassName?: string;
   /** リンクカードの URL と画像のパス（DB の link_cards、ADR 0028）。 */
   linkCardImages?: ReadonlyMap<string, string>;
+  /** コードの埋め込みの URL と、表示するファイル（DB の code_embed_files、ADR 0065）。 */
+  codeEmbeds?: ReadonlyMap<string, readonly CodeEmbedFile[]>;
   /** 本文の画像の大きさ（DB の media_sizes、ADR 0051）。 */
   mediaSizes?: ReadonlyMap<string, MediaSize>;
   /** `{{> 名前}}` に置く部品（ヘッダだけで使う）。 */
@@ -286,7 +266,9 @@ export function MarkdownBody({
     <div className={className ? `${baseClassName} ${className}` : baseClassName}>
       <Partials value={partials}>
         <LinkCardImages value={linkCardImages}>
-          <MediaSizes value={mediaSizes}>{count >= children.length ? children : children.slice(0, count)}</MediaSizes>
+          <CodeEmbeds value={codeEmbeds}>
+            <MediaSizes value={mediaSizes}>{count >= children.length ? children : children.slice(0, count)}</MediaSizes>
+          </CodeEmbeds>
         </LinkCardImages>
       </Partials>
     </div>

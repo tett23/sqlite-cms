@@ -118,6 +118,40 @@ scenario("リンクカードは画面の近くに来てから部品を読み込�
   noProblems(tab, "リンクカード");
 });
 
+scenario("GitHub のファイルと Gist の URL だけの行は、中身を行番号つきで表示する（ADR 0065）", async ({ tab, origin }) => {
+  await tab.size(1200, 30000);
+  await tab.goto(origin + "/articles/extensions");
+  const file = `document.querySelector('figure.code-embed a[href*="0006_link_cards.sql"]')?.closest('figure')`;
+  const gist = `document.querySelector('figure.code-embed a[href*="gist.github.com"]')?.closest('figure')`;
+  await tab.waitFor(`${file}?.querySelector('pre.shiki') && ${gist}?.querySelector('pre.shiki')`, {
+    timeout: LAZY_TIMEOUT,
+    message: "コードの埋め込みが色付けされない",
+  });
+  assertEqual(
+    await tab.eval(`[${file}.querySelector('figcaption').textContent, ${file}.querySelector('a').getAttribute('target')]`),
+    ["0006_link_cards.sqltett23/sqlite-cms L1-L5", "_blank"],
+    "ファイルの見出し",
+  );
+  assertEqual(
+    await tab.eval(`${gist}.querySelector('a').getAttribute('href')`),
+    "https://gist.github.com/tett23/7b97b03b2773a954f7325f7d3f4c1e58#file-chain-ts",
+    "Gist の見出しのリンク先",
+  );
+  // 行番号は CSS のカウンタで描く。最初の番号は counter-reset の値 + 1、最後の番号は、それに行の数を足したもの。
+  assertEqual(
+    await tab.eval(`(() => { const pre = ${file}.querySelector('pre'); return [pre.style.counterReset, pre.querySelectorAll('.line').length, getComputedStyle(pre.querySelector('.line'), '::before').content]; })()`),
+    ["line 0", 5, "counter(line)"],
+    "行番号",
+  );
+  // コードを選んで写しても、行番号は入らない。
+  const copied = await tab.eval(`(() => { const range = document.createRange(); range.selectNodeContents(${file}.querySelector('pre')); const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range); return selection.toString(); })()`);
+  assert(copied.startsWith("-- リンクカードの画像"), `写した文字列に行番号が入っている：${copied}`);
+  // ほかの URL だけの行は、今までどおりリンクカードになる。
+  await tab.waitFor("document.querySelectorAll('a.link-card').length === 1", { timeout: LAZY_TIMEOUT, message: "リンクカードが 1 枚描かれない" });
+  await tab.size(1024, 800);
+  noProblems(tab, "コードの埋め込み");
+});
+
 scenario("長い本文は先頭から少しずつ描き、最後まで描く。本文の画像には大きさを付ける（ADR 0051）", async ({ tab, origin }) => {
   await tab.goto(origin + "/articles/heavy-long");
   await tab.waitFor(
