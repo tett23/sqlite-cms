@@ -1,0 +1,11 @@
+{
+  "url": "https://github.com/tett23/sqlite-cms/blob/469f9e2f54b88121ed95125dbffa9e1cacab67a5/web/src/useHighlightedBlock.ts#L9-L47",
+  "files": [
+    {
+      "file_name": "useHighlightedBlock.ts",
+      "source_url": "https://github.com/tett23/sqlite-cms/blob/469f9e2f54b88121ed95125dbffa9e1cacab67a5/web/src/useHighlightedBlock.ts#L9-L47",
+      "start_line": 9,
+      "content": "/**\n * コードブロックを色付けする。返す ref を pre に付ける。色付けできるまでは null を返す。\n * 色を付けられる言語のコードブロックが画面の近くに来たときに、初めて Shiki を読み込み、そのブロックだけを色付けする（ADR 0029、0038）。\n * 本文の Markdown 全体は描き直さない。highlightable が false なら Shiki を読み込まない。\n */\nexport function useHighlightedBlock(\n  source: string,\n  languageClass: string | undefined,\n  highlightable: boolean,\n): [(element: HTMLPreElement | null) => void, HighlightedBlock | null] {\n  const [ref, near] = useNearViewport<HTMLPreElement>();\n  const highlight = useLazy(highlightLoader, logHighlightError, near && highlightable);\n  // 色分けは、ブロックごとに別のタスクで行う（inTurn）。読み込み済みで、初めから画面の近くにあるとき（サーバーでの描画）だけ、最初の描画で行う。\n  // 同じ部品が別の記事のコードブロックに使い回されることがあるので、色分けの結果は、言語とコードの組と一緒に持つ。\n  const key = `${languageClass}\\n${source}`;\n  const canHighlight = highlight !== null && near && highlightable && languageClass !== undefined;\n  const [highlighted, setHighlighted] = useState<{ key: string; block: HighlightedBlock | null } | null>(() => {\n    if (!canHighlight) return null;\n    const block = highlight.highlightBlock(source, languageClass);\n    return block instanceof Promise ? null : { key, block };\n  });\n  const done = highlighted?.key === key;\n  useEffect(() => {\n    if (done || !canHighlight) return;\n    let cancelled = false;\n    // 色分けの結果（Worker なら届いた結果）を、ブロックごとに別のタスクで描く（ADR 0038、0046）。\n    const cancelTurn = inTurn(() => {\n      void Promise.resolve(highlight.highlightBlock(source, languageClass)).then(\n        (block) => !cancelled && setHighlighted({ key, block }),\n        logHighlightError,\n      );\n    });\n    return () => {\n      cancelled = true;\n      cancelTurn();\n    };\n  }, [done, canHighlight, highlight, key, source, languageClass]);\n  return [ref, done ? highlighted.block : null];\n}"
+    }
+  ]
+}
