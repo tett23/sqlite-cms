@@ -395,6 +395,25 @@ mod tests {
     }
 
     #[test]
+    fn file_names_are_percent_decoded_only_when_valid() {
+        assert_eq!(percent_decode("%E3%81%82.rs"), "あ.rs");
+        assert_eq!(percent_decode("a%20b.rs"), "a b.rs");
+        // 16 進でないもの、末尾の `%`、戻すと UTF-8 にならないものは、書かれたまま。
+        assert_eq!(percent_decode("100%ZZ.rs"), "100%ZZ.rs");
+        assert_eq!(percent_decode("a%"), "a%");
+        assert_eq!(percent_decode("a%2"), "a%2");
+        assert_eq!(percent_decode("%FF.rs"), "%FF.rs");
+    }
+
+    #[test]
+    fn gist_files_without_content_are_fetched_from_raw() {
+        let json = r#"{"files":{"a.rs":{"filename":"a.rs","content":null,"truncated":false,"raw_url":"https://gist.githubusercontent.com/u/id/raw/a.rs"}}}"#;
+        let fetcher = FakeFetcher::new(&[("https://gist.githubusercontent.com/u/id/raw/a.rs", b"fn a() {}\n")]);
+        let files = gist_files(&fetcher, "https://gist.github.com/x", json.as_bytes(), None).unwrap();
+        assert_eq!(files[0].content, "fn a() {}");
+    }
+
+    #[test]
     fn gist_anchors_lowercase_and_replace_non_alphanumerics() {
         assert_eq!(gist_anchor("Hello_World.RB"), "hello-world-rb");
         assert_eq!(gist_anchor("gistfile1.txt"), "gistfile1-txt");
