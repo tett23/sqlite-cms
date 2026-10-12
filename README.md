@@ -313,7 +313,7 @@ https://example.com/
 - URL だけの行はリンクカード（枠で囲んだリンク）になる。ホスト名と URL と、そのページの画像（OGP の `og:image`）を表示する。ページの題名は表示しない。X や YouTube などの埋め込みもしない。
 - リンクカードの画像は、`build`、`serve`、`deploy` がそのページから取得して、自分のサイトから配信する（閲覧のときにほかのサイトと通信しない）。取得したものは記事リポジトリの `.sqlite-cms-cache/` に保存し、次からはそれを使う（`init` が `.gitignore` に書く）。取り直すときは `.sqlite-cms-cache/` を消す。
 - リンクカードの画像は、カードの大きさ（240 × 126 px）に縮めた WebP にして配信する（元の画像は 100 KB を超えることがあるが、数 KB になる）。PNG、JPEG、GIF、WebP を読める。読めない画像（AVIF など）は、取得したまま配信する。
-- URL だけの行が GitHub のファイル（`https://github.com/<owner>/<repo>/blob/<ref>/<path>`）か Gist（`https://gist.github.com/<user>/<id>`）なら、リンクカードの代わりに中身を行番号つきのコードブロックで表示する（ADR 0065）。
+- URL だけの行が GitHub のファイル（`https://github.com/<owner>/<repo>/blob/<ref>/<path>`）か Gist（`https://gist.github.com/<user>/<id>`）なら、リンクカードの代わりに中身を行番号つきのコードブロックで表示する（[ADR 0065](docs/adr/0065-embed-github-files-and-gists.md)）。
   - ファイルの URL の末尾に `#L10` か `#L10-L20` を付けると、その行だけを表示する。Gist はすべてのファイルを表示し、`#file-<ファイル名>` を付けるとそのファイルだけを表示する。
   - 見出しはファイル名で、元のファイルへのリンクになる。色は拡張子から決めた言語で付ける。高さは 30rem までで、それより長いと中で巻き取る。
   - 中身はリンクカードの画像と同じく、`build`、`serve`、`deploy` が取得して `.sqlite-cms-cache/` に保存し、DB に入れる（閲覧のときに GitHub と通信しない）。
@@ -544,7 +544,7 @@ location /blog/assets/ {
 
 - 実装の前に ADR を書き、レビューを受けてから「採択」にしてコミットする。
 - ファイル名は `0064-align-adr-conventions-with-global-rules.md` のように、番号の後を内容が分かる英語の kebab-case にする。
-- 中身は、ステータスの行と、文脈、実装すること、実装しないこと、テスト設計、トレードオフの節で書く（0063 より前の ADR は、日本語の題名と「状態」の節の古い形）。
+- 中身は、ステータスの行と、文脈、実装すること、実装しないこと、テスト設計、トレードオフの節で書く（[0063](docs/adr/0063-loose-list-paragraph-spacing.md) より前の ADR は、日本語の題名と「状態」の節の古い形）。
 - コミットした ADR は、ステータスのほかは書き換えない。判断を改めるときは、新しい番号の ADR を書く。
 - 破棄した ADR は、ステータスを「破棄」にして残し、理由を `docs/specifications.md` の「破棄した ADR」に書く。
 - ADR で仕様が変わったら、`docs/specifications.md` とこの README も同時に直す。

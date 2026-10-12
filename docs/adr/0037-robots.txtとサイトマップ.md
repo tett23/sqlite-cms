@@ -10,20 +10,20 @@
 
 サイトに `/robots.txt` を置き、クロールを許可する。
 
-- 記事リポジトリの `content/robots.txt` があれば、それを `/robots.txt` として配信する。なければ、既定の内容を配信する。favicon（ADR 0022）と同じ扱いである。
+- 記事リポジトリの `content/robots.txt` があれば、それを `/robots.txt` として配信する。なければ、既定の内容を配信する。favicon（[ADR 0022](0022-faviconとmeta-description.md)）と同じ扱いである。
 - 既定の内容は、すべてのクローラにすべてのページのクロールを許可する（`User-agent: *`、`Allow: /`）。特定のクローラを断る書き方の例を注釈に書く。
 - `init` は、既定の内容の `content/robots.txt` を作る。書き手がすぐに編集できるようにするためである。`--force` では作り直す。
 - 見本（`example/content/robots.txt`）にも、同じ内容を置く。
 - `build`、`serve`、`deploy` のどれでも配信し、`--data-only`（Vite の開発サーバー向け）でも書き出す。
 
-`robots.txt` はクローラがドメインの直下でしか読まないので、`base_path`（ADR 0030）でドメインの直下でない場所に置くサイトでは効かない。README に書く。
+`robots.txt` はクローラがドメインの直下でしか読まないので、`base_path`（[ADR 0030](0030-GitHubPagesとrsyncへの公開.md)）でドメインの直下でない場所に置くサイトでは効かない。README に書く。
 
 ### サイトマップ
 
 `site.toml` に `url` を書いたときは、`/sitemap.xml` を作る。
 
 - サイトは SPA で、ページの一覧を HTML のリンクからたどれない（DB を読んだ後に描く）。検索エンジンにページの一覧を知らせる手段として作る。
-- URL は絶対 URL である必要があるので、`url` がなければ作らない（RSS と同じ、ADR 0033）。
+- URL は絶対 URL である必要があるので、`url` がなければ作らない（RSS と同じ、[ADR 0033](0033-統合一覧とRSS.md)）。
 - 載せるのは、トップページ、一覧（`/archive`）、自己紹介（page の `about` があるとき）、すべての article と post。検索のページ（結果が言葉で変わる）と、URL のないページは載せない。
 - 最終更新日（`lastmod`）は、article は改稿日（なければ公開日）、post は公開日、トップページと一覧は最も新しい記事の日付にする。自己紹介には日付を持たないので付けない。
 - `changefreq` と `priority` は付けない。Google は読まないと公表している。

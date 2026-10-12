@@ -3,12 +3,12 @@
 ## 状態
 
 提案。
-0019 の「パフォーマンスは計測して記録するだけ」に、Core Web Vitals の基準を足す。アクセシビリティとベストプラクティスの 100 点の基準（0019、0024）は変えない。
+[0019](0019-Lighthouseの計測とアクセシビリティ.md) の「パフォーマンスは計測して記録するだけ」に、Core Web Vitals の基準を足す。アクセシビリティとベストプラクティスの 100 点の基準（[0019](0019-Lighthouseの計測とアクセシビリティ.md)、[0024](0024-ベストプラクティスの必須化.md)）は変えない。
 
 ## 決定
 
 Lighthouse と同じページ（`web/scripts/pages.mjs` の `PAGES`）で Core Web Vitals（LCP、INP、CLS）を計測し、どれかのページで「良好」の上限を超えたら、計測のスクリプトを失敗させる（`web/scripts/web-vitals.mjs`）。
-CI（`ci.yml`）と、リリースのビルド（`release.yml`、0021）で、Lighthouse の後に実行する。失敗すれば CI も失敗し、Release は作られない。
+CI（`ci.yml`）と、リリースのビルド（`release.yml`、[0021](0021-リリース時のLighthouseの計測.md)）で、Lighthouse の後に実行する。失敗すれば CI も失敗し、Release は作られない。
 
 | 指標 | 上限 |
 |---|---:|
@@ -19,12 +19,12 @@ CI（`ci.yml`）と、リリースのビルド（`release.yml`、0021）で、Li
 ### Lighthouse ではなく自前で計測する
 
 Lighthouse の通常の計測（navigation）は、ページを開くだけで操作をしないので、INP を測れない。
-Lighthouse の操作の計測（user flow）は Puppeteer を要する。依存を足さないよう、E2E（0044）と同じく、Chrome DevTools Protocol で Chrome を直接動かして計測する。
+Lighthouse の操作の計測（user flow）は Puppeteer を要する。依存を足さないよう、E2E（[0044](0044-E2EとCIの最適化.md)）と同じく、Chrome DevTools Protocol で Chrome を直接動かして計測する。
 E2E のブラウザの操作（`Tab`）は、共通の `web/scripts/cdp.mjs` に移す。
 
 ### 計測の条件と手順
 
-条件は Lighthouse のスマートフォンの計測（0019）と同じにし、点数と比べられるようにする。
+条件は Lighthouse のスマートフォンの計測（[0019](0019-Lighthouseの計測とアクセシビリティ.md)）と同じにし、点数と比べられるようにする。
 
 - 画面は 412 × 823（端末のピクセル比 1.75）。
 - CPU を 4 倍遅くする。通信は、Lighthouse が DevTools で絞るときの遅い 4G（往復の遅延 562.5 ms、下り 1.47 Mbps、上り 675 Kbps）にする。キャッシュは使わない。
@@ -58,7 +58,7 @@ E2E のブラウザの操作（`Tab`）は、共通の `web/scripts/cdp.mjs` に
 - `web-vitals` ライブラリや Puppeteer の依存。値の計算は数十行で、テストで確かめる。
 - 本番（Cloudflare）での実際の利用者の計測（RUM）。計測用の通信と保存先が要る。
 - 広い画面での計測。基準はスマートフォンの条件で判定する。
-- FCP や TBT など、Core Web Vitals 以外の指標の基準。Lighthouse のパフォーマンスの点数として記録する（0019）。
+- FCP や TBT など、Core Web Vitals 以外の指標の基準。Lighthouse のパフォーマンスの点数として記録する（[0019](0019-Lighthouseの計測とアクセシビリティ.md)）。
 
 ## テスト設計
 

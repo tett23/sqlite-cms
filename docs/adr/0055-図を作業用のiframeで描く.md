@@ -3,14 +3,14 @@
 ## 状態
 
 提案。
-0053 で残した「図のページの、mermaid の使っていない JS の警告」を直す。
-0025、0038 の「mermaid を、図のあるページで後から読み込んで描く」を、作業用の iframe の中で描く形に改める。
+[0053](0053-依存関係ツリーと使っていないJSの警告.md) で残した「図のページの、mermaid の使っていない JS の警告」を直す。
+[0025](0025-Markdownの拡張.md)、[0038](0038-表示の速さの改善.md) の「mermaid を、図のあるページで後から読み込んで描く」を、作業用の iframe の中で描く形に改める。
 
 ## 背景
 
 Lighthouse（と PageSpeed Insights）の「使用していない JavaScript の削減」が、図のページ（`/articles/heavy-diagrams`、`/articles/complex-mixed`）で、mermaid の二つのチャンクに出ていた（公開先の Brotli でも 23〜25 KiB。基準は 20 KiB）。
 二つのチャンクは、mermaid が配布の時点で分けている、どの種類の図でも使う共通の部分で、分けることも削ることもできない。
-mermaid は図の文字の大きさを DOM で測るので、Web Worker（0046、0053）にも移せない。
+mermaid は図の文字の大きさを DOM で測るので、Web Worker（[0046](0046-メインスレッドを空ける.md)、[0053](0053-依存関係ツリーと使っていないJSの警告.md)）にも移せない。
 
 Lighthouse の実装（`js-usage.js`）を読み、使っていない JS は、ページの本体のプロセス（`defaultSession`）のカバレッジだけから数えることを確かめた。
 小さな見本で、同じオリジンの iframe の中の JS は数えられ（202 KiB）、オリジンを持たない sandbox の iframe（別のプロセスで動く）の中の JS は数えられないことを確かめた。
@@ -42,7 +42,7 @@ Lighthouse の実装（`js-usage.js`）を読み、使っていない JS は、�
 
 ### 依存関係ツリー
 
-iframe にしただけでは、図のページで「ネットワークの依存関係ツリー」（0053）が失敗した。
+iframe にしただけでは、図のページで「ネットワークの依存関係ツリー」（[0053](0053-依存関係ツリーと使っていないJSの警告.md)）が失敗した。
 iframe の中でスクリプトが読み込んだ mermaid のチャンクは、Lighthouse の記録で親（iframe）をたどれず、本体の HTML から直接読んだ、優先度の高い読み込みとみなされたためである（先読みの印も付かない）。
 Lighthouse は、優先度の高くない読み込みを重要な連鎖に数えない。作業用のページの中では、Vite が動的な import の前に足す modulepreload のリンクに `fetchpriority="low"` を付ける（`HTMLHeadElement.prototype.appendChild` を包む）。本体の描画には要らない読み込みなので、本体と帯域を取り合わないようにするのにも合う。
 
