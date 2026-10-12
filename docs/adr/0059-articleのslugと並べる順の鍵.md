@@ -3,11 +3,11 @@
 ## 状態
 
 提案。
-0058 の「post と article の URL は常に UUIDv7」を、article については frontmatter の slug を優先する形に改める。
+[0058](0058-UUIDv7のファイル名とURL.md) の「post と article の URL は常に UUIDv7」を、article については frontmatter の slug を優先する形に改める。
 
 ## 決定
 
-article は、frontmatter に `slug` を書けば、それを URL（`/articles/<slug>`）にする。書かなければ、0058 のとおりファイル名から取った slug（UUIDv7 か、ファイル名）にする。
+article は、frontmatter に `slug` を書けば、それを URL（`/articles/<slug>`）にする。書かなければ、[0058](0058-UUIDv7のファイル名とURL.md) のとおりファイル名から取った slug（UUIDv7 か、ファイル名）にする。
 post と固定ページは変えない（post の URL は UUIDv7 かファイル名、固定ページはファイル名）。
 
 - `sqlite-cms new article <slug> --title …` は、ファイル名を `<UUIDv7>-<slug>.md` にし、frontmatter に `slug: <slug>` を書く。ファイル名の後ろの名前だけでは、指定した slug とタイトルから作った名前を区別できないので、frontmatter に書く。slug を省いたときは書かない。

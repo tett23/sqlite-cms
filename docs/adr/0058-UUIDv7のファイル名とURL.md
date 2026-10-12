@@ -3,8 +3,8 @@
 ## 状態
 
 提案。
-0001 の「slug はファイル名から取る」と、`sqlite-cms new` の「slug を省くと日付にし、同じ日付には枝番を付ける」を改める。
-0059 で、article は frontmatter の slug を URL にできるようにし、同じ日付の並びを、slug ではなくファイル名から取った鍵で決めるようにした。
+[0001](0001-記事フォーマットとSQLite生成.md) の「slug はファイル名から取る」と、`sqlite-cms new` の「slug を省くと日付にし、同じ日付には枝番を付ける」を改める。
+[0059](0059-articleのslugと並べる順の鍵.md) で、article は frontmatter の slug を URL にできるようにし、同じ日付の並びを、slug ではなくファイル名から取った鍵で決めるようにした。
 
 ## 背景
 
@@ -40,7 +40,7 @@ UUIDv7 の先頭の 48 ビットは作った時刻（ミリ秒）なので、slu
 見本（`example/`）の post と article を `<UUIDv7>-<今までの名前>.md` に改めた。
 UUIDv7 の時刻は記事の日付（日本時間の 9 時）にし、同じ日付の中は、今までの並び（今までの slug の降順）が保たれるよう、今までの slug の順に 1 秒ずつずらした。乱数の部分は、今までの名前のハッシュから決めた（作り直しても同じになる）。
 post の URL は UUIDv7 に変わったので、本文の中のリンク、E2E と計測のページの一覧（`web/scripts/pages.mjs`）を、新しい URL に改めた。
-article は、今までの名前を frontmatter の slug に書いて（0059）、今までの URL のままにした。
+article は、今までの名前を frontmatter の slug に書いて（[0059](0059-articleのslugと並べる順の鍵.md)）、今までの URL のままにした。
 
 ## 実装しないこと
 

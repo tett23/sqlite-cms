@@ -3,13 +3,13 @@
 ## 状態
 
 提案。
-0038 で試して採らなかった「GFM の解析だけを登録する自前のプラグイン」を採る。Core Web Vitals の基準（0050）で、LCP の余裕を増やすためである。
-0040、0044 の「数式は、描く前と描いた後で高さが変わる」を、高さの見積もりで小さくする。
+[0038](0038-表示の速さの改善.md) で試して採らなかった「GFM の解析だけを登録する自前のプラグイン」を採る。Core Web Vitals の基準（[0050](0050-CoreWebVitalsの計測.md)）で、LCP の余裕を増やすためである。
+[0040](0040-重いページと複雑なページの見本.md)、[0044](0044-E2EとCIの最適化.md) の「数式は、描く前と描いた後で高さが変わる」を、高さの見積もりで小さくする。
 v0.1.5 の CI で、`/articles/heavy-long` の LCP は 2.75 秒から 2.09 秒になり、最も悪いページは `/articles/complex-nesting` の 2.14 秒だった（見込みどおり）。
 
 ## 背景
 
-v0.1.4 の CI で、Core Web Vitals の計測（0050）が `/articles/heavy-long` の LCP 2.75 秒（上限 2.5 秒）で失敗した。
+v0.1.4 の CI で、Core Web Vitals の計測（[0050](0050-CoreWebVitalsの計測.md)）が `/articles/heavy-long` の LCP 2.75 秒（上限 2.5 秒）で失敗した。
 手元では 2.20 秒で、CI の機械は CPU が遅いので、CPU を使う処理の多いページほど差が開く（ほかのページは手元より 0.1〜0.2 秒遅いだけだった）。
 Lighthouse では、ほかに次の警告が出ていた。
 
@@ -69,7 +69,7 @@ SPA は、本文の画像のパスが表にあれば、`img` に `width` と `he
 
 ### 結果
 
-手元（Apple Silicon）の Core Web Vitals の計測（0050）。
+手元（Apple Silicon）の Core Web Vitals の計測（[0050](0050-CoreWebVitalsの計測.md)）。
 
 | | 前 | 後 |
 |---|---:|---:|

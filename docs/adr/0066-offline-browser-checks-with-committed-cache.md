@@ -4,8 +4,8 @@
 
 ## 文脈
 
-E2E、Lighthouse、Core Web Vitals（ブラウザの検査、ADR 0052）は、`sqlite-cms serve` で `example/` を配信して行う（`web/scripts/server.mjs`）。
-CI には `example/.sqlite-cms-cache/` がない（`example/.gitignore` で Git から外している）ので、検査のたびに、見本の記事のリンクカードの画像（ADR 0028）とコードの埋め込み（ADR 0065）を、外部のサイトから取得し直す。
+E2E、Lighthouse、Core Web Vitals（ブラウザの検査、[ADR 0052](0052-ブラウザの検査の並行化.md)）は、`sqlite-cms serve` で `example/` を配信して行う（`web/scripts/server.mjs`）。
+CI には `example/.sqlite-cms-cache/` がない（`example/.gitignore` で Git から外している）ので、検査のたびに、見本の記事のリンクカードの画像（[ADR 0028](0028-リンクカードの画像.md)）とコードの埋め込み（[ADR 0065](0065-embed-github-files-and-gists.md)）を、外部のサイトから取得し直す。
 
 v0.5.0 の main の CI で、E2E が一度落ちた。
 GitHub がリポジトリの OGP の画像（`opengraph.githubassets.com`）に 429（回数の制限）を返し、リンクカードの画像を取得できず、画像を確かめる場面が失敗した。
@@ -24,7 +24,7 @@ E2E は同じ見本の写しを三つ配信する（既定のヘッダ用と、`
 
 ### ブラウザの検査は通信しない
 
-- `web/scripts/server.mjs` は、`sqlite-cms serve` を `SQLITE_CMS_OFFLINE=1` で起動する。保存した結果だけを使い、外部と通信しない（ADR 0028）。
+- `web/scripts/server.mjs` は、`sqlite-cms serve` を `SQLITE_CMS_OFFLINE=1` で起動する。保存した結果だけを使い、外部と通信しない（[ADR 0028](0028-リンクカードの画像.md)）。
 - 手元でも CI でも同じにする。E2E が写す見本にも、キャッシュがそのまま写る。
 
 ### 見本の URL を変えたとき

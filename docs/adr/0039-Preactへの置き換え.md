@@ -3,14 +3,14 @@
 ## 状態
 
 提案。
-0002 の「Vite + React + TypeScript の SPA とする」を、React の代わりに Preact を使う形に改める。
-0038 で実装しないことにした「React を小さなライブラリ（Preact など）に置き換えること」を実装する。
+[0002](0002-SPAの構成と見た目.md) の「Vite + React + TypeScript の SPA とする」を、React の代わりに Preact を使う形に改める。
+[0038](0038-表示の速さの改善.md) で実装しないことにした「React を小さなライブラリ（Preact など）に置き換えること」を実装する。
 
 ## 決定
 
 SPA の描画に、React（`react`、`react-dom`）の代わりに Preact（`preact` の `preact/compat`）を使う。
 
-0038 の計測で、残る減点のほとんどは Largest Contentful Paint で、本文を描くのに要る JS と wasm の転送量で決まっていた。
+[0038](0038-表示の速さの改善.md) の計測で、残る減点のほとんどは Largest Contentful Paint で、本文を描くのに要る JS と wasm の転送量で決まっていた。
 本体の JS（gzip 後で約 190 KB）のうち、最も大きいのは react-dom だった。
 Preact は React とほぼ同じ API を持ち、`preact/compat` を通せば react-markdown もそのまま動く。
 
@@ -38,7 +38,7 @@ Preact は React とほぼ同じ API を持ち、`preact/compat` を通せば re
 Lighthouse のパフォーマンスは次のとおり変わった（手元の Apple Silicon、`serve` で配信、2 回計測してどちらも同じか 1 点差）。
 ほかの三つの分類は、変更の前後とも全ページで 100 点である。
 
-| ページ | React（0038） | Preact |
+| ページ | React（[0038](0038-表示の速さの改善.md)） | Preact |
 |---|---:|---:|
 | `/` | 86 | 88 |
 | `/articles/syntax` | 87 | 90 |
