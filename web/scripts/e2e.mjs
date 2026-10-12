@@ -73,6 +73,22 @@ scenario("画面の外のコードブロックは、近くに来てから色を�
   await tab.waitFor("document.querySelectorAll('pre.shiki').length === 32", { timeout: LAZY_TIMEOUT, message: "送っても色が付かないコードがある" });
 });
 
+scenario("いつも読み込む言語にない言語は、そのコードブロックのあるページでだけ文法を読み込んで色を付ける（ADR 0067）", async ({ tab, origin }) => {
+  const RUBY = /\/ruby-[^/]*\.js$/;
+  await tab.size(1200, 30000);
+  await tab.goto(origin + "/articles/heavy-code");
+  await tab.waitFor("document.querySelectorAll('pre.shiki').length > 0", { timeout: LAZY_TIMEOUT, message: "コードに色が付かない" });
+  await sleep(1000);
+  assert(!tab.requests.some((url) => RUBY.test(url)), "Ruby のないページで Ruby の文法を読み込んだ");
+  await tab.goto(origin + "/articles/syntax");
+  const colored = (lang) => `document.querySelector('pre.shiki code')?.closest('.article-body')?.querySelectorAll('pre.shiki').length > 0 && [...document.querySelectorAll('pre.shiki')].some((pre) => pre.textContent.includes(${JSON.stringify(lang)}))`;
+  await tab.waitFor(colored("func fizzBuzz"), { timeout: LAZY_TIMEOUT, message: "Go のコードに色が付かない" });
+  await tab.waitFor(colored("def fizz_buzz"), { timeout: LAZY_TIMEOUT, message: "Ruby のコードに色が付かない" });
+  assert(tab.requests.some((url) => RUBY.test(url)), "Ruby の文法を後から読み込んでいない");
+  await tab.size(1024, 800);
+  noProblems(tab, "使うときに読み込む言語");
+});
+
 scenario("色分け、数式、図を描き、書き誤りだけを元の文字列のまま出す", async ({ tab, origin }) => {
   // 縦に長い画面にして、すべての要素を画面の近くに置く。
   await tab.size(1200, 30000);

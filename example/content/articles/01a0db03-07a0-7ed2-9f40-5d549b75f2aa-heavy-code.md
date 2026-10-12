@@ -675,7 +675,7 @@ worker = "word-count"
 
 ## 色を付けない言語
 
-言語名のないコードブロックと、登録していない言語のコードブロックは、色なしで表示します。
+言語名のないコードブロックと、色分けの仕組み（Shiki）にない言語のコードブロックは、色なしで表示します。
 
 ```
 $ ./count.sh < input.txt
@@ -685,11 +685,8 @@ $ ./count.sh < input.txt
       1 and
 ```
 
-```ruby
-def fizzbuzz(n)
-  return "FizzBuzz" if (n % 15).zero?
-  return "Fizz" if (n % 3).zero?
-  return "Buzz" if (n % 5).zero?
-  n.to_s
-end
+```befunge
+>25*"!dlrow ,olleH":v
+                 v:,_@
+                 >  ^
 ```
