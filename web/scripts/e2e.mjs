@@ -67,16 +67,16 @@ scenario("画面の外のコードブロックは、近くに来てから色を�
   await tab.waitFor("document.querySelectorAll('pre.shiki').length > 0", { timeout: LAZY_TIMEOUT, message: "最初の画面のコードに色が付かない" });
   await sleep(1000);
   const before = await count(tab, "pre.shiki");
-  assert(before < 32, `画面の外のコードにも色が付いている（${before} 個）`);
+  assert(before < 35, `画面の外のコードにも色が付いている（${before} 個）`);
   // 少しずつ最後まで送り、どのブロックも一度は画面の近くを通るようにする。
   await tab.eval("(async () => { for (let y = 0; y < document.body.scrollHeight; y += 600) { window.scrollTo(0, y); await new Promise((r) => setTimeout(r, 50)); } })()");
-  await tab.waitFor("document.querySelectorAll('pre.shiki').length === 32", { timeout: LAZY_TIMEOUT, message: "送っても色が付かないコードがある" });
+  await tab.waitFor("document.querySelectorAll('pre.shiki').length === 35", { timeout: LAZY_TIMEOUT, message: "送っても色が付かないコードがある" });
 });
 
 scenario("いつも読み込む言語にない言語は、そのコードブロックのあるページでだけ文法を読み込んで色を付ける（ADR 0067）", async ({ tab, origin }) => {
   const RUBY = /\/ruby-[^/]*\.js$/;
   await tab.size(1200, 30000);
-  await tab.goto(origin + "/articles/heavy-code");
+  await tab.goto(origin + "/articles/complex-mixed");
   await tab.waitFor("document.querySelectorAll('pre.shiki').length > 0", { timeout: LAZY_TIMEOUT, message: "コードに色が付かない" });
   await sleep(1000);
   assert(!tab.requests.some((url) => RUBY.test(url)), "Ruby のないページで Ruby の文法を読み込んだ");
@@ -93,7 +93,7 @@ scenario("色分け、数式、図を描き、書き誤りだけを元の文字�
   // 縦に長い画面にして、すべての要素を画面の近くに置く。
   await tab.size(1200, 30000);
   const expectations = [
-    ["/articles/heavy-code", { "pre.shiki": 32 }],
+    ["/articles/heavy-code", { "pre.shiki": 35 }],
     ["/articles/heavy-math", { ".math-error": 1 }],
     ["/articles/heavy-diagrams", { ".mermaid-diagram": 10, ".diagram-error": 1 }],
     ["/articles/complex-mixed", { "pre.shiki": 12, ".mermaid-diagram": 7, ".math-error": 0, "a.link-card": 2, "figure.code-embed": 4 }],
