@@ -1,6 +1,6 @@
 import initSqlJs from "sql.js";
 import { beforeAll, describe, expect, it } from "vitest";
-import { getArticle, getCategory, getCodeEmbeds, getLinkCardImages, listCategories, getPage, getPost, getSite, listAll, listArticles, listPosts, tagsOf } from "./db";
+import { getArticle, getCategory, getCodeEmbeds, getLinkCardImages, getMediaSizes, listCategories, getPage, getPost, getSite, listAll, listArticles, listPosts, tagsOf } from "./db";
 import { SqliteFile } from "./sqlite";
 
 let db: SqliteFile;
@@ -75,6 +75,21 @@ describe("getCodeEmbeds", () => {
       ],
     ]);
     expect(getCodeEmbeds(db)).toBe(embeds);
+  });
+});
+
+describe("表を入れる前の DB", () => {
+  it("コードの埋め込みと画像の大きさの表がない DB でも、空を返す", async () => {
+    const SQL = await initSqlJs();
+    const sql = new SQL.Database();
+    const migrations = import.meta.glob<string>("../../migrations/*.sql", { query: "?raw", import: "default", eager: true });
+    // 画像の大きさ（0009）とコードの埋め込み（0012）の表を入れる前までを当てる。
+    for (const file of Object.keys(migrations).sort().filter((name) => name < "../../migrations/0009")) sql.exec(migrations[file]);
+    const old = new SqliteFile(sql.export());
+    sql.close();
+    expect(old.hasTable("code_embed_files")).toBe(false);
+    expect(getCodeEmbeds(old).size).toBe(0);
+    expect(getMediaSizes(old).size).toBe(0);
   });
 });
 

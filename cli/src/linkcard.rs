@@ -467,6 +467,56 @@ mod tests {
         }
     }
 
+    /// 一度だけ応える HTTP のサーバーを立て、受け取った要求の頭（ヘッダ）を返す。
+    fn serve_once(status: &'static str, body: &'static [u8]) -> (String, std::thread::JoinHandle<String>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/file", listener.local_addr().unwrap());
+        let handle = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut head = String::new();
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap() == 0 || line == "\r\n" {
+                    break;
+                }
+                head.push_str(&line);
+            }
+            let mut stream = stream;
+            write!(stream, "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+            stream.write_all(body).unwrap();
+            head
+        });
+        (url, handle)
+    }
+
+    #[test]
+    fn ureq_fetcher_names_the_purpose_in_the_user_agent() {
+        let (url, handle) = serve_once("200 OK", b"fn main() {}");
+        let fetched = UreqFetcher::new().fetch(&url, 1024, "code embed").unwrap();
+        assert_eq!(fetched.body, b"fn main() {}");
+        let head = handle.join().unwrap().to_ascii_lowercase();
+        let expected = format!("user-agent: sqlite-cms/{} (code embed)\r\n", env!("CARGO_PKG_VERSION"));
+        assert!(head.contains(&expected), "{head}");
+    }
+
+    /// 404 などのエラーのページを、中身（コードの埋め込みのファイル、リンクカードのページ）として使わない。
+    #[test]
+    fn ureq_fetcher_treats_error_statuses_as_failures() {
+        let (url, handle) = serve_once("404 Not Found", b"404: Not Found");
+        assert!(UreqFetcher::new().fetch(&url, 1024, "link card").is_err());
+        handle.join().unwrap();
+    }
+
+    /// 上限を超えた分は読まない（上限を超えたかを確かめられるよう、1 バイトだけ多く読む）。
+    #[test]
+    fn ureq_fetcher_reads_one_byte_past_the_limit() {
+        let (url, handle) = serve_once("200 OK", b"0123456789");
+        assert_eq!(UreqFetcher::new().fetch(&url, 4, "link card").unwrap().body, b"01234");
+        handle.join().unwrap();
+    }
+
     #[test]
     fn collects_url_only_lines_outside_code() {
         let markdown = "\
