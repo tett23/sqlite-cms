@@ -60,7 +60,7 @@ URL は www.example.com のように書くだけでリンクになり、サイ�
 ## コード
 
 言語名を書くと色が付きます。
-対応する言語は README の一覧を参照してください。
+Go や Haskell など、よく書かれる 50 の言語は、色分けの仕組みと一緒に読み込みます。
 
 ```haskell
 fizzBuzz :: Int -> String
@@ -69,6 +69,31 @@ fizzBuzz n
   | n `mod` 3 == 0 = "Fizz"
   | n `mod` 5 == 0 = "Buzz"
   | otherwise = show n
+```
+
+```go
+func fizzBuzz(n int) string {
+	switch {
+	case n%15 == 0:
+		return "FizzBuzz"
+	case n%3 == 0:
+		return "Fizz"
+	default:
+		return strconv.Itoa(n)
+	}
+}
+```
+
+Ruby や PHP など、そのほかの言語（全部でおよそ 240）も使えます。
+これらの言語の文法は、その言語のコードブロックがあるページでだけ、後から読み込みます。
+
+```ruby
+def fizz_buzz(n)
+  return "FizzBuzz" if (n % 15).zero?
+  return "Fizz" if (n % 3).zero?
+
+  n.to_s
+end
 ```
 
 言語名を書かないと、色なしで表示されます。

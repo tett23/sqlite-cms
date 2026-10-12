@@ -210,25 +210,20 @@ Markdown では書けない表現のために、次の HTML のタグだけを�
 ```
 
 コードブロックに言語名を書くと色が付く（Shiki による）。
-対応する言語名は次のとおり。これ以外の言語名と、言語名のないブロックは色なしで表示される。
+Shiki のすべての言語（約 240）の名前と別名が使える（言語名の一覧は [Shiki の Languages](https://shiki.style/languages)）。知らない言語名と、言語名のないブロックは色なしで表示される。
 
-| 言語 | 書ける言語名 |
+よく書かれる次の 50 の言語は、色分けの仕組みと一緒に読み込む。
+ほかの言語（Ruby、PHP、C++、Elixir、Vue など）の文法は、その言語のコードブロックがあるページでだけ、後から読み込む（[ADR 0067](docs/adr/0067-more-highlight-languages.md)）。
+
+| 種類 | 言語（Shiki の名前） |
 |---|---|
-| CSS | `css` |
-| diff | `diff` |
-| Haskell | `haskell`、`hs` |
-| HTML | `html` |
-| JavaScript | `javascript`、`js`、`cjs`、`mjs` |
-| JSON | `json` |
-| JSX、TSX | `jsx`、`tsx` |
-| Markdown | `markdown`、`md` |
-| Python | `python`、`py` |
-| Rust | `rust`、`rs` |
-| シェル | `shellscript`、`bash`、`sh`、`shell`、`zsh` |
-| SQL | `sql` |
-| TOML | `toml` |
-| TypeScript | `typescript`、`ts`、`cts`、`mts` |
-| YAML | `yaml`、`yml` |
+| Web | `html`、`css`、`scss`、`sass`、`less`、`javascript`、`typescript`、`jsx`、`tsx`、`json`、`jsonc` |
+| 汎用 | `c`、`csharp`、`dart`、`go`、`groovy`、`java`、`kotlin`、`lua`、`python`、`rust`、`scala`、`swift`、`zig` |
+| 関数型 | `clojure`、`fsharp`、`haskell`、`ocaml`、`r` |
+| シェルと設定 | `shellscript`、`powershell`、`bat`、`fish`、`docker`、`make`、`cmake`、`nix`、`hcl`、`terraform`、`toml`、`yaml`、`ini`、`xml`、`proto`、`prisma`、`sql` |
+| そのほか | `markdown`、`diff`、`solidity`、`gleam` |
+
+別名も使える（`ts`、`js`、`sh`、`bash`、`py`、`rs`、`yml`、`md`、`hs`、`kt`、`cs`、`dockerfile`、`tf` など）。
 
 ### カテゴリ
 
@@ -315,7 +310,7 @@ https://example.com/
 - リンクカードの画像は、カードの大きさ（240 × 126 px）に縮めた WebP にして配信する（元の画像は 100 KB を超えることがあるが、数 KB になる）。PNG、JPEG、GIF、WebP を読める。読めない画像（AVIF など）は、取得したまま配信する。
 - URL だけの行が GitHub のファイル（`https://github.com/<owner>/<repo>/blob/<ref>/<path>`）か Gist（`https://gist.github.com/<user>/<id>`）なら、リンクカードの代わりに中身を行番号つきのコードブロックで表示する（[ADR 0065](docs/adr/0065-embed-github-files-and-gists.md)）。
   - ファイルの URL の末尾に `#L10` か `#L10-L20` を付けると、その行だけを表示する。Gist はすべてのファイルを表示し、`#file-<ファイル名>` を付けるとそのファイルだけを表示する。
-  - 見出しはファイル名で、元のファイルへのリンクになる。色は拡張子から決めた言語で付ける。高さは 30rem までで、それより長いと中で巻き取る。
+  - 見出しはファイル名で、元のファイルへのリンクになる。色は、ファイル名（`Dockerfile`、`Makefile`、`.zshrc` など）か拡張子から決めた言語で付ける。高さは 30rem までで、それより長いと中で巻き取る。
   - 中身はリンクカードの画像と同じく、`build`、`serve`、`deploy` が取得して `.sqlite-cms-cache/` に保存し、DB に入れる（閲覧のときに GitHub と通信しない）。
   - ブランチ名の URL は、元のファイルが変わっても、`.sqlite-cms-cache/` を消すまで古い中身のままになる。コミットの SHA の URL（ファイルを開いて `y` を押すと出るパーマリンク）を使う。
   - 公開されたリポジトリと Gist だけを表示できる。取得できないもの（非公開、見つからない、テキストでない、100 KB を超える、GitHub の API の回数の制限を超えた）は、警告を出してリンクカードにする。

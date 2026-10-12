@@ -1,8 +1,10 @@
 import { renderToStaticMarkup } from "preact-render-to-string";
 import { beforeAll, describe, expect, it } from "vitest";
-import { BACKGROUND, DIFF_BACKGROUNDS, getHighlighter, LANGUAGES, THEME_REGISTRATION } from "./highlight";
+import { bundledLanguagesInfo } from "shiki/langs";
+import { BACKGROUND, DIFF_BACKGROUNDS, getHighlighter, highlightBlockWhenReady, LANGUAGES, THEME_REGISTRATION } from "./highlight";
 import { highlightLoader } from "./highlightLoader";
-import { HIGHLIGHT_LANGUAGES, needsHighlight } from "./highlightLanguages";
+import { LANGUAGE_IDS } from "./highlightLanguageNames.generated";
+import { needsHighlight } from "./highlightLanguages";
 import { MarkdownBody } from "./MarkdownBody";
 
 function render(source: string): string {
@@ -28,21 +30,56 @@ function text(html: string): string {
 }
 
 const SAMPLES: Record<string, string> = {
+  bat: "echo off\nset NAME=world\necho Hello %NAME%",
+  c: "#include <stdio.h>\nint main(void) { return 0; }",
+  clojure: "(defn add [a b] (+ a b))",
+  cmake: "cmake_minimum_required(VERSION 3.20)\nproject(app)",
+  csharp: "public class A { public int X = 1; }",
   css: "a { color: red; }",
+  dart: "void main() { var x = 1; print(x); }",
   diff: "- old\n+ new",
+  docker: "FROM node:24\nRUN npm ci",
+  fish: "set -x NAME world\necho \"hello $NAME\"",
+  fsharp: "let add a b = a + b",
+  gleam: "pub fn main() { let x = 1 }",
+  go: "package main\n\nfunc main() { x := 1 }",
+  groovy: "def name = \"world\"\nprintln \"hello\"",
   haskell: "main :: IO ()\nmain = print (1 + 2)",
-  html: '<p class="note">hi</p>',
+  hcl: "resource \"aws_instance\" \"a\" {\n  ami = \"x\"\n}",
+  html: "<p class=\"note\">hi</p>",
+  ini: "[core]\neditor = vim",
+  java: "public class A { int x = 1; }",
   javascript: "const x = 1;",
-  json: '{"a": 1}',
+  json: "{\"a\": 1}",
+  jsonc: "{\n  // コメント\n  \"a\": 1\n}",
+  jsx: "const A = () => <div className=\"x\" />;",
+  kotlin: "fun main() { val x = 1 }",
+  less: "@color: red;\na { color: @color; }",
+  lua: "local x = 1\nprint(x)",
+  make: "all: build\n\nbuild:\n\tcargo build",
   markdown: "# 見出し\n\n**強調**",
+  nix: "{ pkgs }: pkgs.mkShell { name = \"x\"; }",
+  ocaml: "let add a b = a + b",
+  powershell: "$name = \"world\"\nWrite-Host \"hello\"",
+  prisma: "model User {\n  id Int @id\n}",
+  proto: "syntax = \"proto3\";\nmessage A { int32 x = 1; }",
   python: "def f(x):\n    return x + 1",
+  r: "x <- c(1, 2)\nprint(x)",
   rust: "fn main() { let x = 1; }",
-  shellscript: 'echo "$HOME"',
+  sass: "$color: red\na\n  color: $color",
+  scala: "object A { val x = 1 }",
+  scss: "$color: red;\na { color: $color; }",
+  shellscript: "echo \"$HOME\"",
+  solidity: "contract A { uint x = 1; }",
   sql: "SELECT * FROM posts WHERE slug = 'a';",
-  toml: '[deploy]\nworker = "my-blog"',
+  swift: "let x = 1\nprint(x)",
+  terraform: "variable \"name\" {\n  default = \"x\"\n}",
+  toml: "[deploy]\nworker = \"my-blog\"",
   tsx: "const A = () => <div className=\"x\" />;",
   typescript: "type T = { a: number };",
-  yaml: 'title: "t"',
+  xml: "<a href=\"x\">y</a>",
+  yaml: "title: \"t\"",
+  zig: "const x: u8 = 1;",
 };
 
 describe("シンタックスハイライト", () => {
@@ -51,7 +88,8 @@ describe("シンタックスハイライト", () => {
   });
 
   it("登録した言語と見本の言語が一致する（言語を足したら見本も足す）", () => {
-    const registered = new Set(LANGUAGES.flat().map((lang) => lang.name));
+    // 中に含む言語（nix の markdown-nix など）は除き、各言語の本体の文法だけを比べる。
+    const registered = new Set(LANGUAGES.map((grammars) => grammars[grammars.length - 1].name));
     expect([...registered].sort()).toEqual(Object.keys(SAMPLES).sort());
   });
 
@@ -65,7 +103,7 @@ describe("シンタックスハイライト", () => {
     expect(text(render(fence(lang, code)))).toBe(code);
   });
 
-  it.each(["ts", "js", "jsx", "sh", "bash", "zsh", "shell", "hs", "yml", "md", "py"])(
+  it.each(["ts", "js", "sh", "bash", "zsh", "shell", "hs", "yml", "md", "py", "kt", "cs", "dockerfile", "tf"])(
     "別名 %s でも色を付ける",
     (alias) => {
       const html = render(fence(alias, "x = 1"));
@@ -122,18 +160,51 @@ describe("シンタックスハイライト", () => {
   });
 });
 
-describe("Shiki を読み込む前の言語の判断（ADR 0029）", () => {
-  it("本体に持つ言語の一覧が、Shiki に登録した言語の名前と別名に一致する", () => {
-    const registered = new Set<string>(["jsx"]);
+describe("使うときに読み込む言語（ADR 0067）", () => {
+  beforeAll(async () => {
+    await highlightLoader.load();
+  });
+
+  it("いつも読み込む言語にない言語も、文法を読み込んで色を付け、二度目は読み込み直さない", async () => {
+    expect(getHighlighter().getLoadedLanguages()).not.toContain("ruby");
+    const first = highlightBlockWhenReady('def hello(name) = puts "hi #{name}"', "language-ruby");
+    expect(first).toBeInstanceOf(Promise);
+    const block = await first;
+    expect(block?.className).toBe("shiki github-light-high-contrast");
+    expect(colors(block!.html).size).toBeGreaterThanOrEqual(2);
+    // 別名でも、読み込み済みの文法で同期的に色を付ける。
+    expect(highlightBlockWhenReady("puts 1", "language-rb")).not.toBeInstanceOf(Promise);
+  });
+
+  it("diff と言語の組では、言語のほうを読み込む", async () => {
+    const block = await highlightBlockWhenReady("- <?php echo 1;\n+ <?php echo 2;", "language-diff-php");
+    expect(block?.html).toContain("diff-add");
+    expect(getHighlighter().getLoadedLanguages()).toContain("php");
+  });
+
+  it("いつも読み込む言語は、同期的に色を付ける", () => {
+    expect(highlightBlockWhenReady("package main", "language-go")).not.toBeInstanceOf(Promise);
+  });
+
+  it("知らない言語は読み込まず、色を付けない", () => {
+    expect(highlightBlockWhenReady("x", "language-brainfuck")).toBeNull();
+  });
+});
+
+describe("Shiki を読み込む前の言語の判断（ADR 0029、0067）", () => {
+  it("本体に持つ言語名の一覧が、Shiki の言語の id と別名に一致する（違えば npm run gen:languages で作り直す）", () => {
+    const expected: Record<string, string> = {};
+    for (const { id, aliases = [] } of bundledLanguagesInfo) {
+      expected[id] = id;
+      for (const alias of aliases) expected[alias] ??= id;
+    }
+    expect(LANGUAGE_IDS).toEqual(expected);
+  });
+
+  it("いつも読み込む言語は、すべて Shiki の言語にある", () => {
     for (const grammars of LANGUAGES) {
       const main = grammars[grammars.length - 1];
-      registered.add(main.name);
-      for (const alias of main.aliases ?? []) registered.add(alias);
-    }
-    expect([...HIGHLIGHT_LANGUAGES].sort()).toEqual([...registered].sort());
-    const loaded = getHighlighter().getLoadedLanguages();
-    for (const language of HIGHLIGHT_LANGUAGES) {
-      expect(loaded, language).toContain(language === "jsx" ? "tsx" : language);
+      expect(LANGUAGE_IDS[main.name], main.name).toBe(main.name);
     }
   });
 
@@ -141,8 +212,12 @@ describe("Shiki を読み込む前の言語の判断（ADR 0029）", () => {
     expect(needsHighlight(["language-rust"])).toBe(true);
     expect(needsHighlight(["language-sh"])).toBe(true);
     expect(needsHighlight(["language-diff-ts"])).toBe(true);
+    expect(needsHighlight(["language-ruby"])).toBe(true);
+    expect(needsHighlight(["language-rb"])).toBe(true);
+    expect(needsHighlight(["language-diff-ruby"])).toBe(true);
     expect(needsHighlight(["language-mermaid"])).toBe(false);
     expect(needsHighlight(["language-brainfuck"])).toBe(false);
+    expect(needsHighlight(["language-constructor"])).toBe(false);
     expect(needsHighlight([])).toBe(false);
     expect(needsHighlight(undefined)).toBe(false);
     expect(needsHighlight(["rust"])).toBe(false);

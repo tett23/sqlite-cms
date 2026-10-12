@@ -35,13 +35,13 @@ function workerHighlight(): Highlight {
   };
 }
 
-// Shiki は大きい（gzip 後で約 150 KB と、正規表現エンジンの wasm が約 160 KB）ので、必要になったときに初めて読み込む（ADR 0029）。
+// Shiki は大きい（いつも読み込む 50 言語の文法を含めて gzip 後で約 290 KB と、正規表現エンジンの wasm が約 160 KB）ので、必要になったときに初めて読み込む（ADR 0029、0067）。
 // ブラウザでは Worker で色分けする。テスト（Node.js）には Worker がないので、同じスレッドで同期的に色分けする（ビルドではこの分岐は消える）。
 export const highlightLoader = createLoader<Highlight>(async () => {
   if (import.meta.env.MODE === "test") {
     const module = await import("./highlight");
     await module.initHighlighter();
-    return { highlightBlock: module.highlightBlock };
+    return { highlightBlock: module.highlightBlockWhenReady };
   }
   return workerHighlight();
 });

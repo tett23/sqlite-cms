@@ -108,9 +108,9 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     copyPublicDir: false,
-    // 非同期で読み込むチャンクのうち、最大は mermaid の elk レイアウト（約 1,460 kB。図で elk を指定したときだけ読み込む、ADR 0025）、
-    // 次が Shiki（約 1,070 kB、ADR 0017）。意図しない増加に気付けるよう、上限は今の最大の少し上に置く。
-    chunkSizeWarningLimit: 1500,
+    // 非同期で読み込むチャンクのうち、最大は Shiki といつも読み込む 50 言語の文法（約 2,030 kB、ADR 0017、0067）、
+    // 次が mermaid の elk レイアウト（約 1,460 kB。図で elk を指定したときだけ読み込む、ADR 0025）。意図しない増加に気付けるよう、上限は今の最大の少し上に置く。
+    chunkSizeWarningLimit: 2100,
     rolldownOptions: {
       // 図を描くための作業用のページ（ADR 0055）。本体の index.html と別に出力する。
       input: {

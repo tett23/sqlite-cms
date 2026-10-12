@@ -11,6 +11,7 @@
     "test": "vitest run",
     "lighthouse": "node scripts/lighthouse.mjs",
     "e2e": "node scripts/e2e.mjs",
+    "gen:languages": "node scripts/gen-languages.mjs",
     "web-vitals": "node scripts/web-vitals.mjs"
   },
   "dependencies": {
