@@ -3,7 +3,7 @@ title: "重いページの見本：コードの多い記事"
 slug: heavy-code
 date: 2026-09-26
 category: samples
-description: 表示の重さを確かめるための見本。色分けするすべての言語で、同じ処理を書いたコードブロックを 40 個ほど並べる。
+description: 表示の重さを確かめるための見本。色分けする主な言語で、同じ処理を書いたコードブロックを 40 個ほど並べる。
 tags: [見本, 計測, コード]
 ---
 
@@ -360,6 +360,48 @@ def count_words(text: str) -> Counter[str]:
 if __name__ == "__main__":
     for word, count in count_words("the cat and the hat").most_common():
         print(f"{word}: {count}")
+```
+
+## Ruby
+
+Ruby の文法は大きいので、色分けの仕組みと一緒には読み込まず、Ruby のコードブロックがあるページでだけ後から読み込みます。
+
+```ruby:fizzbuzz.rb
+def fizzbuzz(n)
+  s = ""
+  s += "Fizz" if (n % 3).zero?
+  s += "Buzz" if (n % 5).zero?
+  s.empty? ? n.to_s : s
+end
+
+(1..15).each { |n| puts fizzbuzz(n) }
+```
+
+```ruby:search.rb
+# 整列した items から target を探し、見つかればその位置を返す。
+def binary_search(items, target)
+  low = 0
+  high = items.length
+  while low < high
+    mid = (low + high) / 2
+    case items[mid] <=> target
+    when -1 then low = mid + 1
+    when 1 then high = mid
+    else return mid
+    end
+  end
+  nil
+end
+```
+
+```ruby:count.rb
+def count_words(text)
+  text.split.tally.sort_by { |word, count| [-count, word] }
+end
+
+count_words("the cat and the hat").each do |word, count|
+  puts "#{word}: #{count}"
+end
 ```
 
 ## Haskell
