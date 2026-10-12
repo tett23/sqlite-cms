@@ -1,6 +1,6 @@
-title = "tett23の記事置き場"
+title = "sqlite-cmsのサンプル"
 author = "tett23"
-description = "組版と日本語の文章、ソフトウェアの設計について書いている tett23 の記事置き場。"
+description = "sqlite-cms の見本のサイト。記事、ブログ、固定ページと、書ける記法をひととおり置いている。"
 # 公開したサイトの URL。書くと RSS のフィード（/rss.xml）を作る
 url = "https://gentle-tooth-fe80.tett23.workers.dev/"
 

@@ -38,7 +38,7 @@ export const List = ({ items }: { items: string[] }) => (
 ```
 
 ```toml
-title = "tett23の記事置き場"
+title = "sqlite-cmsのサンプル"
 
 [deploy]
 worker = "my-blog"

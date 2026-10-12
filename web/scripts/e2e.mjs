@@ -394,7 +394,7 @@ scenario("content/header.md のヘッダを描く（ADR 0043）", async ({ tab, 
   assertEqual(await tab.eval("document.querySelector('meta[name=\"sqlite-cms-header\"]')?.content"), "custom", "目印");
   assertEqual(await count(tab, "header .site-header-body"), 1, "カスタムのヘッダ");
   assertEqual(await count(tab, "header .site-header-body form[role=search]"), 1, "パーシャルの検索ボックス");
-  assertEqual(await tab.eval("document.querySelector('header .site-header-body p a').textContent"), "tett23の記事置き場", "サイト名");
+  assertEqual(await tab.eval("document.querySelector('header .site-header-body p a').textContent"), "sqlite-cmsのサンプル", "サイト名");
   await assertSearchBoxOnTheRight(tab, "カスタムのヘッダ");
 });
 
