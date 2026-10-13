@@ -138,6 +138,12 @@ npm --prefix web run e2e
 Lighthouse と同じく、手元に Chrome が要り、`SQLITE_CMS_BIN` でビルド済みのバイナリを使える。
 jsdom などの DOM の代わりになるライブラリは入れず、描画を伴う動きはこの E2E で確かめる。
 
+場面ごとに新しいタブを開く。ページを開く（`goto`）ときは、読み込みの完了（`Page.loadEventFired`）を待ってから本文を確かめる。
+条件を待つ間（`waitFor`）の一回ごとの評価は 5 秒で区切り、Chrome が応えなければやり直す。
+Chrome が命令に 30 秒応えずに失敗した場面だけ、新しいタブで一度やり直し、通れば結果の一覧に「（Chrome が応えず、やり直して通った）」と一回目の失敗を書く。
+条件が成り立たない、値が違うといった失敗はやり直さない（[ADR 0071](docs/adr/0071-e2e-chrome-unresponsive.md)）。
+場面の動かし方は `web/scripts/scenarios.mjs`、CDP の補助は `web/scripts/cdp.mjs` にあり、どちらも単体テストがある（`npm --prefix web test`）。
+
 E2E、Lighthouse、Core Web Vitals は、`sqlite-cms serve` を `SQLITE_CMS_OFFLINE=1` で起動し（`web/scripts/server.mjs`）、外部と通信しない（[ADR 0066](docs/adr/0066-offline-browser-checks-with-committed-cache.md)）。
 見本のリンクカードの画像とコードの埋め込みは、コミットしたキャッシュ（`example/.sqlite-cms-cache/`）から使う。外部のサイトの回数の制限や障害で、検査が落ちないようにするためである。
 見本に URL だけの行を足したり変えたりしたら、通信できる場所で見本を組み立てて取得し、増えたキャッシュをコミットする。

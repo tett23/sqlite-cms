@@ -119,6 +119,12 @@ async function retryOnRefused(fn, attempts = 3) {
 /** Chrome に送った一つの命令を待つ時間。Chrome が応えなくなったときに、止まり続けないようにする。 */
 export const COMMAND_TIMEOUT = 30000;
 
+/** 待つ間（waitFor）の、一回ごとの評価を待つ時間（ADR 0071）。応えなければ、その一回は「まだ成り立たない」とみなしてやり直す。 */
+export const POLL_EVALUATE_TIMEOUT = 5000;
+
+/** Chrome が命令に応えなかったか（ADR 0071）。この失敗の場面だけ、E2E は一度やり直す。 */
+export const isUnresponsive = (error) => error?.unresponsive === true;
+
 /** CDP の一つのタブ。送った命令の結果と、起きた出来事（コンソールのエラー、応答の状態など）を受け取る。 */
 export class Tab {
   static async open(port) {
@@ -148,12 +154,17 @@ export class Tab {
     return tab;
   }
 
-  constructor(port, target) {
+  /** ws はテストで偽物に差し替える。 */
+  constructor(port, target, ws = new WebSocket(target.webSocketDebuggerUrl)) {
     this.port = port;
     this.id = target.id;
-    this.ws = new WebSocket(target.webSocketDebuggerUrl);
+    this.ws = ws;
     this.nextId = 0;
     this.pending = new Map();
+    /** 最上位の文書の URL（Page.frameNavigated で知る）。Chrome が応えなかったときの手がかりにする（ADR 0071）。 */
+    this.url = target.url ?? "";
+    /** 出来事を待つもの（名前ごと）。 */
+    this.eventWaiters = new Map();
     /** コンソールのエラー、捕まえていない例外、400 以上の応答。 */
     this.problems = [];
     /** 読み込んだ URL。 */
@@ -161,16 +172,25 @@ export class Tab {
     this.ws.addEventListener("message", (event) => {
       const message = JSON.parse(event.data);
       if (message.id !== undefined) {
-        const { resolve, reject } = this.pending.get(message.id);
+        // 打ち切った後に届いた応答は捨てる（ADR 0071 で、待つ間の評価を短く区切るようにしたので、起きうる）。
+        const request = this.pending.get(message.id);
+        if (!request) return;
+        const { resolve, reject } = request;
         this.pending.delete(message.id);
         if (message.error) reject(new Error(message.error.message));
         else resolve(message.result);
         return;
       }
       const { method, params } = message;
+      if (message.sessionId === undefined) {
+        if (method === "Page.frameNavigated" && !params.frame.parentId) this.url = params.frame.url;
+        for (const resolve of this.eventWaiters.get(method) ?? []) resolve(params);
+        this.eventWaiters.delete(method);
+      }
       if (method === "Target.attachedToTarget") {
         const { sessionId } = params;
-        void Promise.all(["Runtime.enable", "Network.enable", "Log.enable"].map((m) => this.send(m, {}, sessionId)))
+        // 有効にする命令が失敗しても、必ず動き出させる（止まったままの iframe や Worker を残さない、ADR 0071）。
+        void Promise.allSettled(["Runtime.enable", "Network.enable", "Log.enable"].map((m) => this.send(m, {}, sessionId)))
           .then(() => this.send("Runtime.runIfWaitingForDebugger", {}, sessionId))
           .catch(() => {});
         return;
@@ -187,14 +207,20 @@ export class Tab {
     });
   }
 
-  /** 命令を送り、結果を待つ。Chrome が応えなくなったときに止まり続けないよう、時間を区切る。sessionId は、つないだ iframe に送るとき。 */
-  send(method, params = {}, sessionId = undefined) {
+  /**
+   * 命令を送り、結果を待つ。Chrome が応えなくなったときに止まり続けないよう、時間を区切る。sessionId は、つないだ iframe に送るとき。
+   * 応えなかったときの失敗には、式の先頭とタブの URL を書く（ADR 0071）。
+   */
+  send(method, params = {}, sessionId = undefined, timeout = COMMAND_TIMEOUT) {
     const id = ++this.nextId;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Chrome が ${COMMAND_TIMEOUT / 1000} 秒応えない: ${method}`));
-      }, COMMAND_TIMEOUT);
+        const expression = typeof params.expression === "string" ? `（${params.expression.slice(0, 80)}）` : "";
+        const error = new Error(`Chrome が ${timeout / 1000} 秒応えない: ${method}${expression}${this.url ? ` ${this.url}` : ""}`);
+        error.unresponsive = true;
+        reject(error);
+      }, timeout);
       this.pending.set(id, {
         resolve: (value) => (clearTimeout(timer), resolve(value)),
         reject: (error) => (clearTimeout(timer), reject(error)),
@@ -204,20 +230,43 @@ export class Tab {
   }
 
   /** 式を評価して値を返す。例外なら失敗にする。 */
-  async eval(expression) {
-    const result = await this.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+  async eval(expression, timeout = COMMAND_TIMEOUT) {
+    const result = await this.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }, undefined, timeout);
     if (result.exceptionDetails) throw new Error(`${expression}: ${result.exceptionDetails.exception?.description ?? result.exceptionDetails.text}`);
     return result.result.value;
   }
 
-  /** 条件が成り立つまで待つ。成り立たなければ失敗にする。 */
+  /**
+   * 条件が成り立つまで待つ。成り立たなければ失敗にする。
+   * 一回ごとの評価は短く区切り、応えなければ「まだ成り立たない」とみなしてやり直す（ADR 0071）。
+   */
   async waitFor(expression, { timeout = 10000, message = expression } = {}) {
     const start = Date.now();
+    let unanswered = 0;
     while (Date.now() - start < timeout) {
-      if (await this.eval(expression)) return;
+      try {
+        if (await this.eval(expression, Math.min(POLL_EVALUATE_TIMEOUT, Math.max(timeout - (Date.now() - start), 1)))) return;
+      } catch (error) {
+        if (!isUnresponsive(error)) throw error;
+        unanswered++;
+      }
       await sleep(100);
     }
-    throw new Error(`待っても成り立たない: ${message}`);
+    throw new Error(`待っても成り立たない: ${message}${unanswered > 0 ? `（Chrome が ${unanswered} 回応えなかった）` : ""}`);
+  }
+
+  /** 最上位の文書の出来事を待つ。timeout までに来なければ、Chrome が応えなかったとして失敗にする。 */
+  waitForEvent(method, timeout = COMMAND_TIMEOUT) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const error = new Error(`Chrome が ${timeout / 1000} 秒応えない: ${method} を待っても来ない${this.url ? ` ${this.url}` : ""}`);
+        error.unresponsive = true;
+        reject(error);
+      }, timeout);
+      const waiters = this.eventWaiters.get(method) ?? [];
+      waiters.push((params) => (clearTimeout(timer), resolve(params)));
+      this.eventWaiters.set(method, waiters);
+    });
   }
 
   async size(width, height) {
@@ -228,7 +277,12 @@ export class Tab {
   async goto(url) {
     this.problems = [];
     this.requests = [];
-    await this.send("Page.navigate", { url });
+    // 読み込みが終わってから確かめる。移る途中（about:blank からのプロセスの切り替えなど）の古い文書に評価を送ると、応えないことがあった（ADR 0071）。
+    const loaded = this.waitForEvent("Page.loadEventFired");
+    loaded.catch(() => {});
+    const navigated = await this.send("Page.navigate", { url });
+    if (navigated.errorText) throw new Error(`${url} を開けない: ${navigated.errorText}`);
+    await loaded;
     await this.waitFor("document.readyState === 'complete' && !document.querySelector('.loading') && document.querySelector('main') !== null", {
       message: `${url} の本文が描かれない`,
     });

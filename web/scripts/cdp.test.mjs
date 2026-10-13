@@ -1,6 +1,6 @@
 import http from "node:http";
 import { describe, expect, it, vi } from "vitest";
-import { launchChrome, launchOnce, waitForDevTools } from "./cdp.mjs";
+import { COMMAND_TIMEOUT, isUnresponsive, launchChrome, launchOnce, POLL_EVALUATE_TIMEOUT, Tab, waitForDevTools } from "./cdp.mjs";
 
 describe("launchChrome", () => {
   it("起動に失敗するか DevTools が応えなければ、その Chrome を止めて起動し直す", async () => {
@@ -66,5 +66,109 @@ describe("launchOnce", () => {
     chrome.kill();
     expect(launcher.kill).toHaveBeenCalledTimes(1);
     expect(options).toMatchObject({ chromeFlags: ["--headless=new"], connectionPollInterval: 500, maxConnectionRetries: 120 });
+  });
+});
+
+/** 偽の CDP の接続。送った命令を覚え、respond で応える（ADR 0071）。 */
+function fakeSocket(respond) {
+  const listeners = [];
+  const socket = {
+    sent: [],
+    send(data) {
+      const message = JSON.parse(data);
+      socket.sent.push(message);
+      queueMicrotask(() => respond(message, socket));
+    },
+    addEventListener(type, listener) {
+      if (type === "message") listeners.push(listener);
+    },
+    emit(message) {
+      for (const listener of listeners) listener({ data: JSON.stringify(message) });
+    },
+    reply(message, result = {}) {
+      socket.emit({ id: message.id, result });
+    },
+  };
+  return socket;
+}
+
+const methods = (socket) => socket.sent.map((m) => m.method);
+
+describe("Tab（ADR 0071）", () => {
+  it("goto は、読み込みが終わるまで評価を送らない", async () => {
+    vi.useFakeTimers();
+    const socket = fakeSocket((message, s) => {
+      if (message.method === "Page.navigate") s.reply(message, { frameId: "f" });
+      if (message.method === "Runtime.evaluate") s.reply(message, { result: { value: true } });
+    });
+    const tab = new Tab(0, { id: "t", url: "about:blank" }, socket);
+    const going = tab.goto("http://127.0.0.1/a");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(methods(socket)).toEqual(["Page.navigate"]);
+    socket.emit({ method: "Page.frameNavigated", params: { frame: { id: "f", url: "http://127.0.0.1/a" } } });
+    socket.emit({ method: "Page.loadEventFired", params: {} });
+    await vi.advanceTimersByTimeAsync(0);
+    await going;
+    vi.useRealTimers();
+    expect(methods(socket)).toEqual(["Page.navigate", "Runtime.evaluate"]);
+    expect(tab.url).toBe("http://127.0.0.1/a");
+  });
+
+  it("goto は、開けなければその理由で失敗する", async () => {
+    const socket = fakeSocket((message, s) => s.reply(message, { frameId: "f", errorText: "net::ERR_CONNECTION_REFUSED" }));
+    const tab = new Tab(0, { id: "t" }, socket);
+    await expect(tab.goto("http://127.0.0.1:1/")).rejects.toThrow("http://127.0.0.1:1/ を開けない: net::ERR_CONNECTION_REFUSED");
+  });
+
+  it("waitFor は、応えなかった評価をやり直し、成り立てば戻る", async () => {
+    vi.useFakeTimers();
+    let evaluations = 0;
+    const socket = fakeSocket((message, s) => {
+      if (message.method !== "Runtime.evaluate") return;
+      evaluations++;
+      if (evaluations >= 2) s.reply(message, { result: { value: true } });
+    });
+    const tab = new Tab(0, { id: "t" }, socket);
+    const waiting = tab.waitFor("ready()", { timeout: 20000 });
+    await vi.advanceTimersByTimeAsync(POLL_EVALUATE_TIMEOUT + 200);
+    await waiting;
+    vi.useRealTimers();
+    expect(evaluations).toBe(2);
+  });
+
+  it("waitFor は、ずっと応えなければ、応えなかった回数を書いて失敗する", async () => {
+    vi.useFakeTimers();
+    const socket = fakeSocket(() => {});
+    const tab = new Tab(0, { id: "t" }, socket);
+    const waiting = expect(tab.waitFor("ready()", { timeout: 10000, message: "準備ができない" })).rejects.toThrow(
+      "待っても成り立たない: 準備ができない（Chrome が 2 回応えなかった）",
+    );
+    await vi.advanceTimersByTimeAsync(11000);
+    await waiting;
+    vi.useRealTimers();
+  });
+
+  it("打ち切ったときの失敗に、式の先頭とタブの URL を書く。打ち切った後に届いた応答は捨てる", async () => {
+    vi.useFakeTimers();
+    const socket = fakeSocket(() => {});
+    const tab = new Tab(0, { id: "t", url: "http://127.0.0.1/articles/syntax" }, socket);
+    const evaluating = tab.eval("document.querySelector('main') !== null").catch((error) => error);
+    await vi.advanceTimersByTimeAsync(COMMAND_TIMEOUT);
+    const error = await evaluating;
+    vi.useRealTimers();
+    expect(isUnresponsive(error)).toBe(true);
+    expect(error.message).toBe("Chrome が 30 秒応えない: Runtime.evaluate（document.querySelector('main') !== null） http://127.0.0.1/articles/syntax");
+    expect(() => socket.reply(socket.sent[0], { result: { value: true } })).not.toThrow();
+  });
+
+  it("つないだ iframe や Worker は、有効にする命令が失敗しても動き出させる", async () => {
+    const socket = fakeSocket((message, s) => {
+      if (message.method === "Log.enable") s.emit({ id: message.id, error: { message: "'Log.enable' wasn't found" } });
+      else s.reply(message);
+    });
+    new Tab(0, { id: "t" }, socket);
+    socket.emit({ method: "Target.attachedToTarget", params: { sessionId: "s1", targetInfo: { type: "worker", url: "" }, waitingForDebugger: true } });
+    await vi.waitFor(() => expect(methods(socket)).toContain("Runtime.runIfWaitingForDebugger"));
+    expect(socket.sent.find((m) => m.method === "Runtime.runIfWaitingForDebugger").sessionId).toBe("s1");
   });
 });
