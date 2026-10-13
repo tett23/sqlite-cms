@@ -546,10 +546,11 @@ location /blog/assets/ {
 - 文書の中の ADR の参照（`ADR 0001`）には、ADR のファイルへのリンクを付ける。リンクのない参照は `adr-guard links --fix` で直せる。
 
 コミットした ADR の書き換えとリンクのない参照は、[adr-guard](https://github.com/tett23/adr-guard) で止める（git の pre-commit フック、CI。Claude Code のフックは、利用者の全体の設定で動かす）。
+ステータスの行の変更と、ADR の参照のリンクだけを変える書き換えは許す（`--allow-status`、`--allow-links`）。
 コミットする前に、adr-guard を入れ、クローンしたら一度だけ git のフックを有効にする。
 
 ```sh
-cargo install --git https://github.com/tett23/adr-guard --tag v0.4.0
+cargo install --git https://github.com/tett23/adr-guard --tag v0.5.0
 git config core.hooksPath .githooks
 ```
 
