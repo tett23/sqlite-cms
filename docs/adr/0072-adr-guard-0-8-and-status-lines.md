@@ -1,6 +1,6 @@
 # ADR 0072: adr-guard を 0.8.0 に上げ、古い形の ADR にステータスの行を足す
 
-ステータス: 採択
+ステータス: 採択→版は[ADR 0073](0073-adr-guard-0-8-1-and-directory-name-variants.md)
 
 ## 文脈
 

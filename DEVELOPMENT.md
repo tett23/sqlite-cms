@@ -62,12 +62,12 @@ adr-guard（下記）が、コミットした ADR の名前の変更と、`ス�
 古い形の ADR にも、題名の行の次に `ステータス:` の行を足してあり、今のステータスはこの行にある（[ADR 0072](docs/adr/0072-adr-guard-0-8-and-status-lines.md)）。
 状態の節は書いたときのままなので、今と合わないもの（[0038](docs/adr/0038-表示の速さの改善.md) から [0062](docs/adr/0062-開発サーバーのDBの書き出し直し.md) の「提案。」）がある。読み方は `docs/specifications.md` の「古い形の ADR」にある。
 
-コミットした ADR の書き換えは、[adr-guard](https://github.com/tett23/adr-guard)（v0.8.0）で止める（[ADR 0064](docs/adr/0064-align-adr-conventions-with-global-rules.md)、[0068](docs/adr/0068-adr-guard-0-4-and-adr-links.md)、[0069](docs/adr/0069-adr-guard-0-5-and-allow-status.md)、[0072](docs/adr/0072-adr-guard-0-8-and-status-lines.md)）。
+コミットした ADR の書き換えは、[adr-guard](https://github.com/tett23/adr-guard)（v0.8.1）で止める（[ADR 0064](docs/adr/0064-align-adr-conventions-with-global-rules.md)、[0068](docs/adr/0068-adr-guard-0-4-and-adr-links.md)、[0069](docs/adr/0069-adr-guard-0-5-and-allow-status.md)、[0072](docs/adr/0072-adr-guard-0-8-and-status-lines.md)、[0073](docs/adr/0073-adr-guard-0-8-1-and-directory-name-variants.md)）。
 adr-guard は、コミットした ADR の変更、削除、名前の変更を、すべて違反とする。
 新しい ADR を足すことと、まだコミットしていない ADR の編集はよい。
 ただし、`ステータス:` で始まる行の変更と、ステータスの行がなかった ADR への 1 行の追加（`--allow-status`）と、ADR の参照のリンクだけを変える書き換え（リンクを付ける、外す、リンク先を変える。`--allow-links`）は許す。
 ADR は、行頭が `ステータス:`（または `Status:`）のステータスの行を、ちょうど 1 つ持たなければならない。ないものと 2 つ以上あるものは違反である（`adr-guard check-status` で調べられる）。
-`docs/audit/` と `docs/benchmarks/`（どの深さの `docs/` の下でも）に置いた監査や計測の記録も、コミットした後の変更、削除、名前の変更を違反とする。記録には `--allow-status` と `--allow-links` が効かない。今のこのリポジトリには、これらのディレクトリはない。
+`docs/audit/`、`docs/audits/`、`docs/benchmarks/`、`docs/benchmark/`（どの深さの `docs/` の下でも）に置いた監査や計測の記録も、コミットした後の変更、削除、名前の変更を違反とする。記録には `--allow-status` と `--allow-links` が効かない。今のこのリポジトリには、これらのディレクトリはない。
 
 文書（`.md`）の中の ADR の参照（`ADR 0001` の形）には、ADR のファイルへのリンクを付ける（`[ADR 0001](docs/adr/0001-….md)`、続く番号は `[0002](…)`）。
 インラインのコード、コードブロック、リンクのテキストの中と、ADR 自身の番号は対象外である。
@@ -81,7 +81,7 @@ ADR は、行頭が `ステータス:`（または `Status:`）のステータ�
 adr-guard がないと、pre-commit フックがコマンドを見つけられず、コミットできない。
 
 ```sh
-cargo install --git https://github.com/tett23/adr-guard --tag v0.8.0
+cargo install --git https://github.com/tett23/adr-guard --tag v0.8.1
 git config core.hooksPath .githooks
 ```
 
