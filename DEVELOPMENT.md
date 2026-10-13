@@ -158,6 +158,7 @@ git add example/.sqlite-cms-cache
 
 取り忘れると、CLI の単体テスト（`example_has_cached_results_for_every_url`）が、その URL を挙げて失敗する。
 取り直すときは、`example/.sqlite-cms-cache/` を消してから組み立てる。
+見本の Gist のコードの埋め込みは中身が変わりうるので、通信できる場所で見本を組み立てると取り直される（[ADR 0074](docs/adr/0074-refresh-mutable-code-embeds.md)）。Gist が更新されていればキャッシュが書き換わるので、その結果をコミットする。
 
 ## SPA の開発
 

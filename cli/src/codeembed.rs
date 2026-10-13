@@ -144,6 +144,15 @@ pub fn target(url: &str) -> Option<Target> {
     None
 }
 
+/// 中身が変わりうる URL か（ADR 0074）。GitHub のファイルで、`<ref>` がコミットの SHA（40 桁の 16 進数）のものだけが変わらない。
+/// 短い SHA はブランチ名と見分けられないので、変わりうるものとして扱う。Gist は変わりうる。
+pub fn is_mutable(url: &str) -> bool {
+    match url.strip_prefix(GITHUB_PREFIX) {
+        Some(path) => !path.split('/').nth(3).is_some_and(|reference| reference.len() == 40 && is_hex(reference)),
+        None => true,
+    }
+}
+
 /// Gist のファイル名を、`#file-` の後の名前と比べる形にする（小文字にし、英数字以外を `-` にする）。
 pub fn gist_anchor(file_name: &str) -> String {
     file_name.chars().map(|c| if c.is_alphanumeric() { c.to_lowercase().next().unwrap_or(c) } else { '-' }).collect()
@@ -278,20 +287,23 @@ fn write_cache(site_dir: &Path, url: &str, files: &[EmbedFile]) -> Result<()> {
 }
 
 /// 本文のコードの埋め込みを集める。保存済みのものはそれを使い、なければ取得して保存する。
-/// 取得できなかったものは警告を出して飛ばす（その URL は今までどおりリンクカードになる。ビルドは止めない）。
+/// 中身が変わりうる URL（ブランチ名の URL と Gist）は、通信できて fetcher が取り直すとき、保存した結果があっても取り直す（ADR 0074）。
+/// 取得できなかったものは警告を出し、保存した結果があればそれを使い、なければ飛ばす（その URL は今までどおりリンクカードになる。ビルドは止めない）。
 pub fn collect(site_dir: &Path, sources: &[String], fetcher: &dyn Fetcher) -> Vec<CodeEmbed> {
     let urls: BTreeSet<String> = sources.iter().flat_map(|source| linkcard::card_urls(source)).collect();
     let mut embeds = Vec::new();
     for url in urls {
         let Some(target) = target(&url) else { continue };
-        if let Some(files) = read_cache(site_dir, &url) {
-            embeds.push(CodeEmbed { url, files });
+        let cached = read_cache(site_dir, &url);
+        let refresh = !fetcher.offline() && fetcher.refresh_mutable() && is_mutable(&url);
+        if let Some(files) = cached.as_ref().filter(|_| !refresh) {
+            embeds.push(CodeEmbed { url, files: files.clone() });
             continue;
         }
         if fetcher.offline() {
             continue;
         }
-        eprintln!("コードの埋め込みを取得しています: {url}");
+        eprintln!("コードの埋め込みを{}しています: {url}", if cached.is_some() { "取り直" } else { "取得" });
         match fetch_embed(fetcher, &url, &target) {
             Ok(files) => {
                 if let Err(error) = write_cache(site_dir, &url, &files) {
@@ -299,7 +311,13 @@ pub fn collect(site_dir: &Path, sources: &[String], fetcher: &dyn Fetcher) -> Ve
                 }
                 embeds.push(CodeEmbed { url, files });
             }
-            Err(error) => eprintln!("警告: コードの埋め込みを取得できませんでした（リンクカードにします）: {url}: {error:#}"),
+            Err(error) => match cached {
+                Some(files) => {
+                    eprintln!("警告: コードの埋め込みを取り直せませんでした（保存した中身を使います）: {url}: {error:#}");
+                    embeds.push(CodeEmbed { url, files });
+                }
+                None => eprintln!("警告: コードの埋め込みを取得できませんでした（リンクカードにします）: {url}: {error:#}"),
+            },
         }
     }
     embeds
@@ -496,6 +514,55 @@ mod tests {
         assert_eq!(files.iter().map(|f| f.content.as_str()).collect::<Vec<_>>(), ["print(1)"]);
     }
 
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    #[test]
+    fn only_full_commit_shas_are_immutable() {
+        assert!(!is_mutable(&format!("https://github.com/o/r/blob/{SHA}/src/a.rs#L1-L5")));
+        for url in [
+            "https://github.com/o/r/blob/main/src/a.rs",
+            "https://github.com/o/r/blob/v1.0/src/a.rs",
+            "https://github.com/o/r/blob/0123abc/src/a.rs",
+            "https://github.com/o/r/blob/feature/x/src/a.rs",
+            "https://github.com/o/r/blob/0123456789ABCDEFG123456789abcdef01234567/src/a.rs",
+            "https://gist.github.com/u/0123456789abcdef0123",
+        ] {
+            assert!(is_mutable(url), "{url}");
+        }
+    }
+
+    /// 中身が変わりうる URL は、保存した結果があっても取り直す（ADR 0074）。
+    #[test]
+    fn mutable_urls_are_refetched_and_fall_back_to_the_cache() {
+        let site = crate::testutil::tempdir();
+        let permalink = format!("https://github.com/o/r/blob/{SHA}/a.rs");
+        let permalink_raw = format!("https://raw.githubusercontent.com/o/r/{SHA}/a.rs");
+        let sources = vec![format!("{FILE_URL}\n\n{permalink}\n")];
+        let first = FakeFetcher::new(&[(RAW_URL, b"old\n"), (&permalink_raw, b"fixed\n")]);
+        collect(site.path(), &sources, &first);
+
+        // 取り直せたら、新しい中身を使って保存し直す。SHA の URL は取り直さない。
+        let updated = FakeFetcher::new(&[(RAW_URL, b"new\n")]);
+        let embeds = collect(site.path(), &sources, &updated);
+        assert_eq!(updated.urls(), [RAW_URL]);
+        let content = |embeds: &[CodeEmbed], url: &str| embeds.iter().find(|e| e.url == url).unwrap().files[0].content.clone();
+        assert_eq!(content(&embeds, FILE_URL), "new");
+        assert_eq!(content(&embeds, &permalink), "fixed");
+        assert_eq!(read_cache(site.path(), FILE_URL).unwrap()[0].content, "new");
+
+        // 取り直せなければ、保存した結果を使う。
+        let failing = FakeFetcher::new(&[]);
+        let embeds = collect(site.path(), &sources, &failing);
+        assert_eq!(failing.urls(), [RAW_URL]);
+        assert_eq!(content(&embeds, FILE_URL), "new");
+
+        // オフラインと、取り直さない取得（serve の組み立て直し）では、取り直さない。
+        assert_eq!(content(&collect(site.path(), &sources, &Offline), FILE_URL), "new");
+        let no_refresh = FakeFetcher::new(&[(RAW_URL, b"newer\n")]);
+        assert_eq!(content(&collect(site.path(), &sources, &crate::linkcard::NoRefresh(&no_refresh)), FILE_URL), "new");
+        assert!(no_refresh.urls().is_empty());
+    }
+
     #[test]
     fn collect_caches_successes_and_skips_failures() {
         let site = crate::testutil::tempdir();
@@ -507,9 +574,9 @@ mod tests {
         // 対象でない URL は取得しない。
         assert_eq!(fetcher.urls().len(), 2);
 
-        // 保存した結果を使い、取得し直さない。失敗したものは保存しないので、取得し直す。
+        // 失敗したものは保存しないので、取得し直す。取り直さない取得では、保存した結果を使う。
         let again = FakeFetcher::new(&[]);
-        assert_eq!(collect(site.path(), &sources, &again), embeds);
+        assert_eq!(collect(site.path(), &sources, &crate::linkcard::NoRefresh(&again)), embeds);
         assert_eq!(again.urls(), ["https://raw.githubusercontent.com/o/r/main/missing.rs"]);
 
         // オフラインでは取得せず、保存した結果だけを使う。
