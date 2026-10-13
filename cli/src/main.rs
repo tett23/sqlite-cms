@@ -312,8 +312,14 @@ fn build(site_dir: PathBuf, out_dir: PathBuf, data_only: bool) -> Result<()> {
 }
 
 /// serve で配信する一式を組み立てる。自動反映を使うときは、再読み込みのスクリプトを入れる（ADR 0034）。
-fn build_for_serve(site_dir: &Path, base_path: &str, reload: bool) -> Result<SiteOutput> {
-    let output = SiteOutput::site(site_dir, spa::embedded(), linkcard::fetcher_from_env().as_ref())?;
+/// 中身が変わりうるコードの埋め込みは、起動したとき（refresh）だけ取り直し、記事の変更で組み立て直すときは保存した結果を使う（ADR 0074）。
+fn build_for_serve(site_dir: &Path, base_path: &str, reload: bool, refresh: bool) -> Result<SiteOutput> {
+    let fetcher = linkcard::fetcher_from_env();
+    let output = if refresh {
+        SiteOutput::site(site_dir, spa::embedded(), fetcher.as_ref())?
+    } else {
+        SiteOutput::site(site_dir, spa::embedded(), &linkcard::NoRefresh(fetcher.as_ref()))?
+    };
     Ok(if reload { output.with_live_reload(base_path) } else { output })
 }
 
@@ -337,7 +343,7 @@ fn watch_and_rebuild(site_dir: PathBuf, base_path: String, state: Arc<serve::Ser
             continue;
         }
         last = now;
-        match build_for_serve(&site_dir, &base_path, true) {
+        match build_for_serve(&site_dir, &base_path, true, false) {
             Ok(output) => {
                 state.replace(output);
                 notice(format_args!("変更を反映しました"));
@@ -352,7 +358,7 @@ fn watch_and_rebuild(site_dir: PathBuf, base_path: String, state: Arc<serve::Ser
 
 fn serve(site_dir: PathBuf, port: u16, reload: bool) -> Result<()> {
     let base_path = site::read_site_config(&site_dir)?.base_path();
-    let output = build_for_serve(&site_dir, &base_path, reload)?;
+    let output = build_for_serve(&site_dir, &base_path, reload, true)?;
     let listener =
         TcpListener::bind(("127.0.0.1", port)).with_context(|| format!("ポート {port} で待ち受けられません"))?;
     let address = listener.local_addr()?;

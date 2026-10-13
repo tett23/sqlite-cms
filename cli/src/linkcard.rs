@@ -46,6 +46,25 @@ pub trait Fetcher {
     fn offline(&self) -> bool {
         false
     }
+    /// 中身が変わりうるコードの埋め込みを、保存した結果があっても取り直すなら true（ADR 0074）。
+    fn refresh_mutable(&self) -> bool {
+        true
+    }
+}
+
+/// 中身が変わりうるコードの埋め込みを取り直さない取得（ADR 0074）。serve で、記事の変更で組み立て直すときに使う。
+pub struct NoRefresh<'a>(pub &'a dyn Fetcher);
+
+impl Fetcher for NoRefresh<'_> {
+    fn fetch(&self, url: &str, max_bytes: u64, purpose: &str) -> Result<Fetched> {
+        self.0.fetch(url, max_bytes, purpose)
+    }
+    fn offline(&self) -> bool {
+        self.0.offline()
+    }
+    fn refresh_mutable(&self) -> bool {
+        false
+    }
 }
 
 pub struct UreqFetcher {
