@@ -256,7 +256,7 @@ API トークンに要る権限は、アカウントの「Workers スクリプ�
 ## 古い形の ADR
 
 [0063](adr/0063-loose-list-paragraph-spacing.md) より前の ADR は、日本語のファイル名と、`## 状態` の節の古い形で書いてある（[ADR 0064](adr/0064-align-adr-conventions-with-global-rules.md)）。
-コミットした ADR は、`ステータス:` の行のほかは書き換えられない（adr-guard が拒む。`ステータス:` の行の変更は `--allow-status` で許す。[ADR 0069](adr/0069-adr-guard-0-5-and-allow-status.md)）ので、名前も形もそのまま残す。
+コミットした ADR は、`ステータス:` の行のほかは書き換えられない（adr-guard が拒む）ので、名前も形もそのまま残す。
 状態の節の書き方が今のステータスと違うものは、次のとおりに読む。
 
 - [0001](adr/0001-記事フォーマットとSQLite生成.md) から [0037](adr/0037-robots.txtとサイトマップ.md) の「採用。」は、採択と同じ意味である。
