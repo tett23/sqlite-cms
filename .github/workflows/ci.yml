@@ -1,12 +1,11 @@
 name: ci
 
+# ワークフローは常に動かし、表示に関わらない変更ではジョブを飛ばす（ADR 0070）。
+# ワークフローごと動かさないと、マージの条件にした検査（ci-result）が報告されず、PR をマージできなくなる。
 on:
   push:
     branches: [main]
-    # ドキュメントだけの変更では動かさない（ADR 0044）。見本の記事（example/ の Markdown）は計測とテストに使うので動かす。
-    paths: ["**", "!docs/**", "!README.md", "!DEVELOPMENT.md"]
   pull_request:
-    paths: ["**", "!docs/**", "!README.md", "!DEVELOPMENT.md"]
 
 permissions:
   contents: read
@@ -16,9 +15,41 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # 変わったファイルから、test と browser のジョブが要るかを決める（ADR 0070）。
+  # 文書と開発の手順だけなら、どちらも飛ばす。テストだけなら、browser を飛ばす。
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      test: ${{ steps.needs.outputs.test }}
+      browser: ${{ steps.needs.outputs.browser }}
+    steps:
+      # 差分を取るため、履歴をすべて取る。
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - run: sh .github/scripts/test-ci-needs.sh
+
+      - id: needs
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        # 差分を取れないとき（前のコミットがない、履歴にない）は、一覧を空にして、どちらも要るとみなす。
+        run: |
+          files=$(git diff --name-only "$BASE...$HEAD" 2>/dev/null) || files=""
+          echo "変わったファイル:"
+          printf '%s\n' "$files"
+          echo "test=$(printf '%s\n' "$files" | sh .github/scripts/ci-needs.sh test)" >> "$GITHUB_OUTPUT"
+          echo "browser=$(printf '%s\n' "$files" | sh .github/scripts/ci-needs.sh browser)" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
   # 一つのジョブで順に行う。Rust のテストは埋め込んだ SPA を使うので、ジョブを分けても SPA のビルドを待つことになり、
   # ジョブごとのセットアップの分だけかえって遅くなる（ADR 0044）。速く終わる検査を先に置き、失敗を早く知らせる。
   test:
+    needs: changes
+    if: needs.changes.outputs.test == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -57,7 +88,8 @@ jobs:
   # 一つの機械で順に行うと 3 分かかっていた。Core Web Vitals は、ページを二つに分けて計測する。
   # 別々の機械なので、CPU を取り合って INP や LCP が揺れることもない。
   browser:
-    needs: test
+    needs: [changes, test]
+    if: needs.changes.outputs.browser == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -116,3 +148,25 @@ jobs:
           name: ${{ matrix.artifact }}
           path: web/${{ matrix.reports }}
           if-no-files-found: ignore
+
+  # マージの条件にする検査（ADR 0070）。飛ばしたジョブは通過とみなし、失敗か取り消しがあれば失敗する。
+  # browser は matrix なので、飛ばすと検査の名前（E2E など）が報告されない。必須の検査は、このジョブ一つにまとめる。
+  ci-result:
+    needs: [changes, test, browser]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          CHANGES: ${{ needs.changes.result }}
+          TEST: ${{ needs.test.result }}
+          BROWSER: ${{ needs.browser.result }}
+        run: |
+          echo "changes=$CHANGES test=$TEST browser=$BROWSER"
+          [ "$CHANGES" = success ] || exit 1
+          for result in "$TEST" "$BROWSER"; do
+            case "$result" in
+              success | skipped) ;;
+              *) exit 1 ;;
+            esac
+          done
