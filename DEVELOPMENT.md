@@ -61,24 +61,24 @@ npm がプラットフォーム用のバイナリを自動で入れるので、G
 adr-guard（下記）が、コミットした ADR の名前の変更と、`ステータス:` の行のほかの変更を拒むので、古い形のまま残す。
 状態の節が今と合わないもの（[0038](docs/adr/0038-表示の速さの改善.md) から [0062](docs/adr/0062-開発サーバーのDBの書き出し直し.md) の「提案。」）は、`docs/specifications.md` の「古い形の ADR」に今のステータスを書いた。
 
-コミットした ADR の書き換えは、[adr-guard](https://github.com/tett23/adr-guard)（v0.4.0）で止める（[ADR 0064](docs/adr/0064-align-adr-conventions-with-global-rules.md)、[0068](docs/adr/0068-adr-guard-0-4-and-adr-links.md)）。
-adr-guard は、コミットした ADR の `ステータス:` で始まる行のほかの変更、削除、名前の変更を、すべて違反とする。
+コミットした ADR の書き換えは、[adr-guard](https://github.com/tett23/adr-guard)（v0.5.0）で止める（[ADR 0064](docs/adr/0064-align-adr-conventions-with-global-rules.md)、[0068](docs/adr/0068-adr-guard-0-4-and-adr-links.md)、[0069](docs/adr/0069-adr-guard-0-5-and-allow-status.md)）。
+adr-guard は、コミットした ADR の変更、削除、名前の変更を、すべて違反とする。
 新しい ADR を足すことと、まだコミットしていない ADR の編集はよい。
-ただし、ADR の参照のリンクだけを変える書き換え（リンクを付ける、外す、リンク先を変える）は許す（`--allow-links`）。
+ただし、`ステータス:` で始まる行の変更（`--allow-status`）と、ADR の参照のリンクだけを変える書き換え（リンクを付ける、外す、リンク先を変える。`--allow-links`）は許す。
 
 文書（`.md`）の中の ADR の参照（`ADR 0001` の形）には、ADR のファイルへのリンクを付ける（`[ADR 0001](docs/adr/0001-….md)`、続く番号は `[0002](…)`）。
 インラインのコード、コードブロック、リンクのテキストの中と、ADR 自身の番号は対象外である。
 リンクのない参照は `adr-guard links` で見つかり、`adr-guard links --fix` で直せる（コミット済みの ADR も直すときは `--include-committed` を付ける）。
 
-- git の pre-commit フック（`.githooks/pre-commit`）：`adr-guard pre-commit --allow-links` で、コミットする中身（インデックス）を HEAD と比べ、違反のあるコミットを拒む。ステージした文書の、リンクのない ADR の参照も拒む。
-- Claude Code のフック：`adr-guard claude-hook` を、利用者の全体の設定（`~/.claude/settings.json` の PreToolUse、matcher は `Write|Edit|MultiEdit`）で動かす。リポジトリの `.claude/settings.json` には置かない（[ADR 0068](docs/adr/0068-adr-guard-0-4-and-adr-links.md)）。シェルのコマンドでの書き換えは見ないので、pre-commit フックと CI で止める。
-- CI（`.github/workflows/adr.yml`）：`main` への push と PR で、`adr-guard check-range --allow-links` が、範囲のマージ以外の各コミットを親と比べ、`adr-guard links` が、リンクのない ADR の参照を調べる。範囲の中で一度でも ADR を書き換えたコミットがあると、後で戻しても失敗するので、マージする前にブランチの履歴を直す。
+- git の pre-commit フック（`.githooks/pre-commit`）：`adr-guard pre-commit --allow-status --allow-links` で、コミットする中身（インデックス）を HEAD と比べ、違反のあるコミットを拒む。ステージした文書の、リンクのない ADR の参照も拒む。
+- Claude Code のフック：`adr-guard claude-hook --allow-status` を、利用者の全体の設定（`~/.claude/settings.json` の PreToolUse、matcher は `Write|Edit|MultiEdit`）で動かす。リポジトリの `.claude/settings.json` には置かない（[ADR 0068](docs/adr/0068-adr-guard-0-4-and-adr-links.md)）。シェルのコマンドでの書き換えは見ないので、pre-commit フックと CI で止める。
+- CI（`.github/workflows/adr.yml`）：`main` への push と PR で、`adr-guard check-range --allow-status --allow-links` が、範囲のマージ以外の各コミットを親と比べ、`adr-guard links` が、リンクのない ADR の参照を調べる。範囲の中で一度でも ADR を書き換えたコミットがあると、後で戻しても失敗するので、マージする前にブランチの履歴を直す。
 
 手元では、adr-guard を入れてから、クローンしたら一度だけ git のフックを有効にする。
 adr-guard がないと、pre-commit フックがコマンドを見つけられず、コミットできない。
 
 ```sh
-cargo install --git https://github.com/tett23/adr-guard --tag v0.4.0
+cargo install --git https://github.com/tett23/adr-guard --tag v0.5.0
 git config core.hooksPath .githooks
 ```
 
