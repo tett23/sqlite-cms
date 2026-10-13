@@ -193,8 +193,30 @@ cargo run -- serve example
 
 1 と 2 は一つのジョブ（`test`）で、速く終わる検査から順に行う（[ADR 0044](docs/adr/0044-E2EとCIの最適化.md)）。
 3 から 5 は、`test` が作った `target/debug/sqlite-cms` を Artifact で受け取り、別々の機械（`browser` のジョブ）で並行して行う（[ADR 0052](docs/adr/0052-ブラウザの検査の並行化.md)）。どれかが失敗しても、ほかの検査は最後まで行う。
-`docs/`、`README.md`、`DEVELOPMENT.md` だけを変えたときは動かさない。
-ADR の検査（`.github/workflows/adr.yml`）は別のワークフローで、ドキュメントだけの変更でも動く（[ADR 0064](docs/adr/0064-align-adr-conventions-with-global-rules.md)）。
+ADR の検査（`.github/workflows/adr.yml`）は別のワークフローで、すべての変更で動く（[ADR 0064](docs/adr/0064-align-adr-conventions-with-global-rules.md)）。
+
+表示に関わらない変更では、ジョブを飛ばす（[ADR 0070](docs/adr/0070-ci-job-skips-and-required-checks.md)）。
+最初の `changes` のジョブが、変わったファイル（PR では元との分かれ目から、`main` への push では push の前から）を `.github/scripts/ci-needs.sh` で調べる。
+
+| 変わったファイル | `test` | `browser`（E2E、Lighthouse、Core Web Vitals） |
+|---|---|---|
+| 文書と開発の手順だけ（`docs/`、`README.md`、`DEVELOPMENT.md`、`.githooks/`、`adr.yml`、`release.yml`、`.github/scripts/`、`.claude/`、`.gitignore`、`LICENSE`） | 飛ばす | 飛ばす |
+| テスト（`web/src/**/*.test.ts(x)`、`web/scripts/*.test.mjs`、`cli/tests/`）と上のものだけ | 動かす | 飛ばす |
+| それ以外（`cli/src/` は、Rust の単体テストが本体と同じファイルにあるので、こちら） | 動かす | 動かす |
+
+差分を取れないときは、どちらも動かす。判断の決まりを変えたら、`.github/scripts/test-ci-needs.sh` も直す（`changes` のジョブで動かす）。
+リリースのワークフローは、今までどおり、タグのたびにすべての検査を行う。
+
+最後の `ci-result` のジョブが、`test` と `browser` が成功か飛ばしたものなら成功する。
+main のブランチは保護してあり、`ci-result` と `adr` の通過をマージの条件にしている。
+ブランチは PR にして、検査が通ってから、次のようにマージする（no-ff のマージで、マージのコミットの書き方は今までどおり）。
+検査が通っていなければ、`gh` が拒む。手元で `git merge` して main に push すると、管理者は保護を迂回できてしまうので、しない。
+
+```sh
+gh pr merge <番号> --merge --subject "Merge branch '<ブランチ>'"
+```
+
+版を上げるコミット（「版を X にする」）は、今までどおり main に直に push する。
 同じ PR に続けて push したときは、古い実行を取り消す。`main` への push は取り消さない。
 
 ## Lighthouse
