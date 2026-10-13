@@ -543,12 +543,13 @@ location /blog/assets/ {
 - コミットした ADR は、ステータスのほかは書き換えない。判断を改めるときは、新しい番号の ADR を書く。
 - 破棄した ADR は、ステータスを「破棄」にして残し、理由を `docs/specifications.md` の「破棄した ADR」に書く。
 - ADR で仕様が変わったら、`docs/specifications.md` とこの README も同時に直す。
+- 文書の中の ADR の参照（`ADR 0001`）には、ADR のファイルへのリンクを付ける。リンクのない参照は `adr-guard links --fix` で直せる。
 
-コミットした ADR の書き換えは、[adr-guard](https://github.com/tett23/adr-guard) で止める（git の pre-commit フック、Claude Code のフック、CI）。
+コミットした ADR の書き換えとリンクのない参照は、[adr-guard](https://github.com/tett23/adr-guard) で止める（git の pre-commit フック、CI。Claude Code のフックは、利用者の全体の設定で動かす）。
 コミットする前に、adr-guard を入れ、クローンしたら一度だけ git のフックを有効にする。
 
 ```sh
-cargo install --git https://github.com/tett23/adr-guard --tag v0.1.0
+cargo install --git https://github.com/tett23/adr-guard --tag v0.4.0
 git config core.hooksPath .githooks
 ```
 
