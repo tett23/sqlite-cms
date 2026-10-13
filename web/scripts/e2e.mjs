@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { launchChrome, sleep, Tab } from "./cdp.mjs";
+import { formatResult, runScenario } from "./scenarios.mjs";
 import { PAGES } from "./pages.mjs";
 import { startServer } from "./server.mjs";
 
@@ -462,25 +463,18 @@ async function main() {
   const chrome = await launchChrome();
   const results = [];
   try {
-    for (const { name, fn } of scenarios) {
-      const start = Date.now();
-      let tab;
-      try {
-        tab = await Tab.open(chrome.port);
-        await tab.size(1024, 800);
-        let timer;
-        await Promise.race([
-          fn({ tab, origin: server.origin, defaultOrigin: defaultServer.origin, baseOrigin: baseServer.origin }),
-          new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new Error(`${SCENARIO_TIMEOUT / 1000} 秒で終わらない`)), SCENARIO_TIMEOUT);
-          }),
-        ]).finally(() => clearTimeout(timer));
-        results.push({ name, ok: true, ms: Date.now() - start });
-      } catch (error) {
-        results.push({ name, ok: false, ms: Date.now() - start, error: error.message });
-      } finally {
-        await tab?.close().catch(() => {});
-      }
+    for (const scenario of scenarios) {
+      results.push(
+        await runScenario(scenario, {
+          openTab: async () => {
+            const tab = await Tab.open(chrome.port);
+            await tab.size(1024, 800);
+            return tab;
+          },
+          args: (tab) => ({ tab, origin: server.origin, defaultOrigin: defaultServer.origin, baseOrigin: baseServer.origin }),
+          timeout: SCENARIO_TIMEOUT,
+        }),
+      );
     }
   } finally {
     chrome.kill();
@@ -488,7 +482,7 @@ async function main() {
     for (const dir of [defaultSite, baseSite]) await rm(dir, { recursive: true, force: true });
   }
 
-  const lines = results.map((r) => `${r.ok ? "✓" : "✗"} ${r.name}（${(r.ms / 1000).toFixed(1)} 秒）${r.ok ? "" : `\n    ${r.error}`}`);
+  const lines = results.map(formatResult);
   const failed = results.filter((r) => !r.ok).length;
   const summary = `## E2E\n\n${lines.join("\n")}\n\n${results.length - failed} 件成功、${failed} 件失敗\n`;
   console.log(summary);
