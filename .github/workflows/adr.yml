@@ -20,8 +20,8 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      # ステータスの行の変更と、ADR の参照のリンクだけを変える書き換えは許し、check-range の後に、リンクのない参照と、ステータスの行がちょうど 1 つあることも調べる（ADR 0068、0069、0072）。
-      - uses: tett23/adr-guard@v0.8.0
+      # ステータスの行の変更と、ADR の参照のリンクだけを変える書き換えは許し、check-range の後に、リンクのない参照と、ステータスの行がちょうど 1 つあることも調べる（ADR 0068、0069、0072、0073）。
+      - uses: tett23/adr-guard@v0.8.1
         with:
           allow-status: true
           allow-links: true
