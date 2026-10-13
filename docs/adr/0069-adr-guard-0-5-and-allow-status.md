@@ -1,6 +1,6 @@
 # ADR 0069: adr-guard を 0.5.0 に上げ、ステータスの行の変更を `--allow-status` で許す
 
-ステータス: 採択
+ステータス: 採択→版は[ADR 0072](0072-adr-guard-0-8-and-status-lines.md)
 
 ## 文脈
 
