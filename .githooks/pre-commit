@@ -1,5 +1,5 @@
 #!/bin/sh
-# git の pre-commit フック。コミット済みの ADR を、ステータスの行のほかで書き換え、消し、名前を変えるコミットと、文書のリンクのない ADR の参照と、ステータスの行がちょうど 1 つでない ADR を adr-guard で止める（ADR 0064、0068、0069、0072、0073）。
-# ステータスの行の変更と追加（--allow-status）と、ADR の参照のリンクだけを変える書き換え（--allow-links）は許す。
+# git の pre-commit フック。コミット済みの ADR を、ステータスの行のほかで書き換え、消し、名前を変えるコミットと、文書のリンクのない ADR の参照と、ステータスの行がちょうど 1 つでない ADR を adr-guard で止める（ADR 0064、0068、0069、0072、0073、0075）。
+# ステータスの行の変更と追加（--allow-status）と、リンクだけの変更（--allow-links）は許す。
 # 有効にするには、adr-guard を入れ、リポジトリで一度 `git config core.hooksPath .githooks` を実行する（DEVELOPMENT.md の「ADR」）。
 exec adr-guard pre-commit --allow-status --allow-links

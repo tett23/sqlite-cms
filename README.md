@@ -547,13 +547,13 @@ location /blog/assets/ {
 - ADR で仕様が変わったら、`docs/specifications.md` とこの README も同時に直す。
 - 文書の中の ADR の参照（`ADR 0001`）には、ADR のファイルへのリンクを付ける。リンクのない参照は `adr-guard links --fix` で直せる。
 
-コミットした ADR の書き換えと、リンクのない参照と、ステータスの行がちょうど 1 つでない ADR は、[adr-guard](https://github.com/tett23/adr-guard)（v0.8.1）で止める（git の pre-commit フック、CI。Claude Code のフックは、利用者の全体の設定で動かす）。
-ステータスの行の変更と追加と、ADR の参照のリンクだけを変える書き換えは許す（`--allow-status`、`--allow-links`）。
+コミットした ADR の書き換えと、リンクのない参照と、ステータスの行がちょうど 1 つでない ADR は、[adr-guard](https://github.com/tett23/adr-guard)（v0.8.2）で止める（git の pre-commit フック、CI。Claude Code のフックは、利用者の全体の設定で動かす）。
+ステータスの行の変更と追加と、リンクだけの変更は許す（`--allow-status`、`--allow-links`）。
 `docs/audit/`、`docs/audits/`、`docs/benchmarks/`、`docs/benchmark/` に置いた監査や計測の記録も、コミットした後は書き換えられない（今はこれらのディレクトリはない）。
 コミットする前に、adr-guard を入れ、クローンしたら一度だけ git のフックを有効にする。
 
 ```sh
-cargo install --git https://github.com/tett23/adr-guard --tag v0.8.1
+cargo install --git https://github.com/tett23/adr-guard --tag v0.8.2
 git config core.hooksPath .githooks
 ```
 

@@ -1,6 +1,6 @@
 # ADR 0073: adr-guard を 0.8.1 に上げ、ADR と記録のディレクトリの別名も守る
 
-ステータス: 採択
+ステータス: 採択→版は[ADR 0075](0075-adr-guard-0-8-2-and-link-only-changes.md)
 
 ## 文脈
 
