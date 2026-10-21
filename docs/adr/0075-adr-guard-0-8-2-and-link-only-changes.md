@@ -1,6 +1,6 @@
 # ADR 0075: adr-guard を 0.8.2 に上げ、コミット済みの ADR のリンクだけの変更を許す
 
-ステータス: 採択
+ステータス: 採択→版は[ADR 0076](0076-adr-guard-0-8-3-and-accepted-not-implemented-status.md)
 
 ## 文脈
 

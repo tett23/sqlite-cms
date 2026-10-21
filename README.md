@@ -538,7 +538,7 @@ location /blog/assets/ {
 設計の判断は、`docs/adr/` に連番の ADR（Architecture Decision Record）として残している。
 今の仕様の全体は `docs/specifications.md` にまとめてある。
 
-- 実装の前に ADR を書き、レビューを受けてから「採択」にしてコミットする。
+- 実装の前に ADR を書き、レビューを受けてから「採択」にしてコミットする。採択したがまだ実装していない ADR は「採択（未実装）」にする（`adr-guard unimplemented` で一覧できる）。
 - ファイル名は `0064-align-adr-conventions-with-global-rules.md` のように、番号の後を内容が分かる英語の kebab-case にする。
 - 中身は、ステータスの行と、文脈、実装すること、実装しないこと、テスト設計、トレードオフの節で書く（[0063](docs/adr/0063-loose-list-paragraph-spacing.md) より前の ADR は、日本語の題名と「状態」の節の古い形）。
 - ステータスの行（行頭が `ステータス:` の行）は、どの ADR にもちょうど 1 つ置く。古い形の ADR にも、題名の行の次に足してある（[ADR 0072](docs/adr/0072-adr-guard-0-8-and-status-lines.md)）。
@@ -547,13 +547,13 @@ location /blog/assets/ {
 - ADR で仕様が変わったら、`docs/specifications.md` とこの README も同時に直す。
 - 文書の中の ADR の参照（`ADR 0001`）には、ADR のファイルへのリンクを付ける。リンクのない参照は `adr-guard links --fix` で直せる。
 
-コミットした ADR の書き換えと、リンクのない参照と、ステータスの行がちょうど 1 つでない ADR は、[adr-guard](https://github.com/tett23/adr-guard)（v0.8.2）で止める（git の pre-commit フック、CI。Claude Code のフックは、利用者の全体の設定で動かす）。
+コミットした ADR の書き換えと、リンクのない参照と、ステータスの行がちょうど 1 つでない ADR は、[adr-guard](https://github.com/tett23/adr-guard)（v0.8.3）で止める（git の pre-commit フック、CI。Claude Code のフックは、利用者の全体の設定で動かす）。
 ステータスの行の変更と追加と、リンクだけの変更は許す（`--allow-status`、`--allow-links`）。
 `docs/audit/`、`docs/audits/`、`docs/benchmarks/`、`docs/benchmark/` に置いた監査や計測の記録も、コミットした後は書き換えられない（今はこれらのディレクトリはない）。
 コミットする前に、adr-guard を入れ、クローンしたら一度だけ git のフックを有効にする。
 
 ```sh
-cargo install --git https://github.com/tett23/adr-guard --tag v0.8.2
+cargo install --git https://github.com/tett23/adr-guard --tag v0.8.3
 git config core.hooksPath .githooks
 ```
 
