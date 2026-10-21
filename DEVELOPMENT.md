@@ -52,7 +52,7 @@ npm がプラットフォーム用のバイナリを自動で入れるので、G
 ## トレードオフ
 ```
 
-- ステータスは、提案、採択、採択→変更後の ADR 番号、却下、破棄など。ステータスの行（行頭が `ステータス:` の行）は、どの ADR にもちょうど 1 つ置く。
+- ステータスは、提案、採択、採択（未実装）、採択→変更後の ADR 番号、却下、破棄など。採択したがまだ実装していない ADR は「採択（未実装）」にし、`adr-guard unimplemented` で一覧できる。ステータスの行（行頭が `ステータス:` の行）は、どの ADR にもちょうど 1 つ置く。
 - コミットした ADR は、ステータスのほかは書き換えない。判断を改めるときは、次の番号で新しい ADR を書き、どの ADR のどの判断を改めるかをそこに書く。
 - ADR で仕様が変わったら、`docs/specifications.md` と `README.md` も同じときに直す。
 - ADR を破棄するときは、ステータスを「破棄」にして残し、理由を `docs/specifications.md` の「破棄した ADR」に書く。
@@ -62,7 +62,7 @@ adr-guard（下記）が、コミットした ADR の名前の変更と、`ス�
 古い形の ADR にも、題名の行の次に `ステータス:` の行を足してあり、今のステータスはこの行にある（[ADR 0072](docs/adr/0072-adr-guard-0-8-and-status-lines.md)）。
 状態の節は書いたときのままなので、今と合わないもの（[0038](docs/adr/0038-表示の速さの改善.md) から [0062](docs/adr/0062-開発サーバーのDBの書き出し直し.md) の「提案。」）がある。読み方は `docs/specifications.md` の「古い形の ADR」にある。
 
-コミットした ADR の書き換えは、[adr-guard](https://github.com/tett23/adr-guard)（v0.8.2）で止める（[ADR 0064](docs/adr/0064-align-adr-conventions-with-global-rules.md)、[0068](docs/adr/0068-adr-guard-0-4-and-adr-links.md)、[0069](docs/adr/0069-adr-guard-0-5-and-allow-status.md)、[0072](docs/adr/0072-adr-guard-0-8-and-status-lines.md)、[0073](docs/adr/0073-adr-guard-0-8-1-and-directory-name-variants.md)、[0075](docs/adr/0075-adr-guard-0-8-2-and-link-only-changes.md)）。
+コミットした ADR の書き換えは、[adr-guard](https://github.com/tett23/adr-guard)（v0.8.3）で止める（[ADR 0064](docs/adr/0064-align-adr-conventions-with-global-rules.md)、[0068](docs/adr/0068-adr-guard-0-4-and-adr-links.md)、[0069](docs/adr/0069-adr-guard-0-5-and-allow-status.md)、[0072](docs/adr/0072-adr-guard-0-8-and-status-lines.md)、[0073](docs/adr/0073-adr-guard-0-8-1-and-directory-name-variants.md)、[0075](docs/adr/0075-adr-guard-0-8-2-and-link-only-changes.md)、[0076](docs/adr/0076-adr-guard-0-8-3-and-accepted-not-implemented-status.md)）。
 adr-guard は、コミットした ADR の変更、削除、名前の変更を、すべて違反とする。
 新しい ADR を足すことと、まだコミットしていない ADR の編集はよい。
 ただし、`ステータス:` で始まる行の変更と、ステータスの行がなかった ADR への 1 行の追加（`--allow-status`）と、リンクだけの変更（ADR の参照などのリンクを付ける、外す、リンク先を変える、リンクの参照定義の行を変える。リンクのテキスト、画像の追加と削除、自動リンクや本文の URL の変更は許さない。`--allow-links`）は許す。
@@ -81,7 +81,7 @@ ADR は、行頭が `ステータス:`（または `Status:`）のステータ�
 adr-guard がないと、pre-commit フックがコマンドを見つけられず、コミットできない。
 
 ```sh
-cargo install --git https://github.com/tett23/adr-guard --tag v0.8.2
+cargo install --git https://github.com/tett23/adr-guard --tag v0.8.3
 git config core.hooksPath .githooks
 ```
 
