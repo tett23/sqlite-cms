@@ -1,6 +1,6 @@
 # ADR 0076: adr-guard を 0.8.3 に上げ、採択（未実装）のステータスを足す
 
-ステータス: 採択
+ステータス: 採択→版は[ADR 0077](0077-adr-guard-0-10-0-and-duplicate-adr-numbers.md)
 
 ## 文脈
 
