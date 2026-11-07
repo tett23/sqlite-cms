@@ -62,7 +62,7 @@ adr-guard（下記）が、コミットした ADR の名前の変更と、`ス�
 古い形の ADR にも、題名の行の次に `ステータス:` の行を足してあり、今のステータスはこの行にある（[ADR 0072](docs/adr/0072-adr-guard-0-8-and-status-lines.md)）。
 状態の節は書いたときのままなので、今と合わないもの（[0038](docs/adr/0038-表示の速さの改善.md) から [0062](docs/adr/0062-開発サーバーのDBの書き出し直し.md) の「提案。」）がある。読み方は `docs/specifications.md` の「古い形の ADR」にある。
 
-コミットした ADR の書き換えは、[adr-guard](https://github.com/tett23/adr-guard)（v0.8.3）で止める（[ADR 0064](docs/adr/0064-align-adr-conventions-with-global-rules.md)、[0068](docs/adr/0068-adr-guard-0-4-and-adr-links.md)、[0069](docs/adr/0069-adr-guard-0-5-and-allow-status.md)、[0072](docs/adr/0072-adr-guard-0-8-and-status-lines.md)、[0073](docs/adr/0073-adr-guard-0-8-1-and-directory-name-variants.md)、[0075](docs/adr/0075-adr-guard-0-8-2-and-link-only-changes.md)、[0076](docs/adr/0076-adr-guard-0-8-3-and-accepted-not-implemented-status.md)）。
+コミットした ADR の書き換えは、[adr-guard](https://github.com/tett23/adr-guard)（v0.10.0）で止める（[ADR 0064](docs/adr/0064-align-adr-conventions-with-global-rules.md)、[0068](docs/adr/0068-adr-guard-0-4-and-adr-links.md)、[0069](docs/adr/0069-adr-guard-0-5-and-allow-status.md)、[0072](docs/adr/0072-adr-guard-0-8-and-status-lines.md)、[0073](docs/adr/0073-adr-guard-0-8-1-and-directory-name-variants.md)、[0075](docs/adr/0075-adr-guard-0-8-2-and-link-only-changes.md)、[0076](docs/adr/0076-adr-guard-0-8-3-and-accepted-not-implemented-status.md)、[0077](docs/adr/0077-adr-guard-0-10-0-and-duplicate-adr-numbers.md)）。
 adr-guard は、コミットした ADR の変更、削除、名前の変更を、すべて違反とする。
 新しい ADR を足すことと、まだコミットしていない ADR の編集はよい。
 ただし、`ステータス:` で始まる行の変更と、ステータスの行がなかった ADR への 1 行の追加（`--allow-status`）と、リンクだけの変更（ADR の参照などのリンクを付ける、外す、リンク先を変える、リンクの参照定義の行を変える。リンクのテキスト、画像の追加と削除、自動リンクや本文の URL の変更は許さない。`--allow-links`）は許す。
@@ -72,16 +72,17 @@ ADR は、行頭が `ステータス:`（または `Status:`）のステータ�
 文書（`.md`）の中の ADR の参照（`ADR 0001` の形）には、ADR のファイルへのリンクを付ける（`[ADR 0001](docs/adr/0001-….md)`、続く番号は `[0002](…)`）。
 インラインのコード、コードブロック、リンクのテキストの中と、ADR 自身の番号は対象外である。
 リンクのない参照は `adr-guard links` で見つかり、`adr-guard links --fix` で直せる（コミット済みの ADR も直すときは `--include-committed` を付ける）。
+ほかのリポジトリの ADR を参照するときは、`[ADR 0018: …](https://github.com/…)` のように、リンクのテキストごと外部リンクにする。`<リポジトリ> ADR 0018` のように参照の直前に `/` や `-` を含む語を置くと、adr-guard（0.10.0 から）がそのディレクトリやモジュールの ADR への参照（修飾子付きの参照）と読み、対象がないと報告する。
 
 - git の pre-commit フック（`.githooks/pre-commit`）：`adr-guard pre-commit --allow-status --allow-links` で、コミットする中身（インデックス）を HEAD と比べ、違反のあるコミットを拒む。ステージした文書の、リンクのない ADR の参照と、ステージした ADR のステータスの行がちょうど 1 つでないものも拒む。
 - Claude Code のフック：`adr-guard claude-hook --allow-status` を、利用者の全体の設定（`~/.claude/settings.json` の PreToolUse、matcher は `Write|Edit|MultiEdit`）で動かす。リポジトリの `.claude/settings.json` には置かない（[ADR 0068](docs/adr/0068-adr-guard-0-4-and-adr-links.md)）。シェルのコマンドでの書き換えは見ないので、pre-commit フックと CI で止める。
-- CI（`.github/workflows/adr.yml`）：`main` への push と PR で、`adr-guard check-range --allow-status --allow-links` が、範囲のマージ以外の各コミットを親と比べ、`adr-guard links` が、リンクのない ADR の参照を調べ、`adr-guard check-status` が、すべての ADR のステータスの行がちょうど 1 つあることを調べる。範囲の中で一度でも ADR を書き換えたコミットがあると、後で戻しても失敗するので、マージする前にブランチの履歴を直す。
+- CI（`.github/workflows/adr.yml`）：`main` への push と PR で、`adr-guard check-range --allow-status --allow-links` が、範囲のマージ以外の各コミットを親と比べ、`adr-guard links` が、リンクのない ADR の参照を調べ、`adr-guard check-status` が、すべての ADR のステータスの行がちょうど 1 つあることを、`adr-guard check-numbers` が、同じディレクトリで ADR の番号が重複していないことを調べる。範囲の中で一度でも ADR を書き換えたコミットがあると、後で戻しても失敗するので、マージする前にブランチの履歴を直す。別のブランチで同じ番号の ADR を足すと、後からマージする側の CI が `check-numbers` で失敗するので、マージする前にブランチの履歴で ADR の番号を次の空き番号に直す。main に重複が入ったときは `adr-guard renumber` で直す（pre-commit フックと CI に `--allow-renumber` が要るので、そのときに ADR を書く）。
 
 手元では、adr-guard を入れてから、クローンしたら一度だけ git のフックを有効にする。
 adr-guard がないと、pre-commit フックがコマンドを見つけられず、コミットできない。
 
 ```sh
-cargo install --git https://github.com/tett23/adr-guard --tag v0.8.3
+cargo install --git https://github.com/tett23/adr-guard --tag v0.10.0
 git config core.hooksPath .githooks
 ```
 
