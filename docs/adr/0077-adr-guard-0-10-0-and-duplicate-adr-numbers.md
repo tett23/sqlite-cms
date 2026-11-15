@@ -1,6 +1,6 @@
 # ADR 0077: adr-guard を 0.10.0 に上げ、ADR の番号の重複を調べる
 
-Status: accepted
+Status: superseded [{"by":["docs/adr/0078-adr-guard-0-13-1-and-canonical-status-lines.md"],"part":"版"}]
 
 ## 文脈
 
