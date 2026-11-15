@@ -1,5 +1,5 @@
 # 0037 robots.txt とサイトマップ
-ステータス: 採択
+Status: accepted
 
 ## 状態
 

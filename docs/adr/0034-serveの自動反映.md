@@ -1,5 +1,5 @@
 # 0034 serve の自動反映
-ステータス: 採択
+Status: accepted
 
 ## 状態
 

@@ -1,5 +1,5 @@
 # 0020 new の slug の省略
-ステータス: 採択
+Status: accepted
 
 ## 状態
 

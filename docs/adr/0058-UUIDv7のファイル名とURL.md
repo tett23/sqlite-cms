@@ -1,5 +1,5 @@
 # 0058 UUIDv7 のファイル名と URL
-ステータス: 採択
+Status: accepted
 
 ## 状態
 

@@ -1,5 +1,5 @@
 # 0001 記事フォーマットと SQLite 生成
-ステータス: 採択
+Status: accepted
 
 ## 状態
 

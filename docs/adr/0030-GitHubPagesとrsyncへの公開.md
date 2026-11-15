@@ -1,5 +1,5 @@
 # 0030 GitHub Pages と rsync への公開
-ステータス: 採択
+Status: accepted
 
 ## 状態
 

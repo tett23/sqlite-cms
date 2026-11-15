@@ -1,6 +1,6 @@
 # ADR 0064: ADR の決まりを、グローバルの CLAUDE.md にそろえ、adr-guard で守る
 
-ステータス: 採択
+Status: accepted
 
 ## 文脈
 

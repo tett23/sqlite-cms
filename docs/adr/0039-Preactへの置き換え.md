@@ -1,5 +1,5 @@
 # 0039 Preact への置き換え
-ステータス: 採択
+Status: accepted
 
 ## 状態
 
