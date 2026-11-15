@@ -1,6 +1,6 @@
 # ADR 0078: adr-guard を 0.13.1 に上げ、ADR のステータスの行を新しい形に移す
 
-Status: proposed
+Status: accepted-pending
 
 ## 文脈
 
