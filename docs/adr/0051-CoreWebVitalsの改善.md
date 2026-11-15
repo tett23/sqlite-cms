@@ -1,5 +1,5 @@
 # 0051 Core Web Vitals の改善
-ステータス: 採択
+Status: accepted
 
 ## 状態
 

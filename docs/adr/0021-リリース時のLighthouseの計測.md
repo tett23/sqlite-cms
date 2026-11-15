@@ -1,5 +1,5 @@
 # 0021 リリース時の Lighthouse の計測
-ステータス: 採択
+Status: accepted
 
 ## 状態
 

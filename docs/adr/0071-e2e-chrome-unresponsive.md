@@ -1,6 +1,6 @@
 # ADR 0071: E2E で Chrome が応えなくなる失敗を、待ち方と再試行で防ぐ
 
-ステータス: 採択
+Status: accepted
 
 ## 文脈
 

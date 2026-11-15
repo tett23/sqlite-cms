@@ -1,5 +1,5 @@
 # 0012 TypeScript 7 による型検査
-ステータス: 採択
+Status: accepted
 
 ## 状態
 

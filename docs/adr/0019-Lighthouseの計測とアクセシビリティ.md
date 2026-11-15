@@ -1,5 +1,5 @@
 # 0019 Lighthouse の計測とアクセシビリティ
-ステータス: 採択
+Status: accepted
 
 ## 状態
 

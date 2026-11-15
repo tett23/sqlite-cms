@@ -1,5 +1,5 @@
 # 0003 Cloudflare デプロイと CI
-ステータス: 採択
+Status: accepted
 
 ## 状態
 

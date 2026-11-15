@@ -1,6 +1,6 @@
 # ADR 0077: adr-guard を 0.10.0 に上げ、ADR の番号の重複を調べる
 
-ステータス: 採択
+Status: accepted
 
 ## 文脈
 

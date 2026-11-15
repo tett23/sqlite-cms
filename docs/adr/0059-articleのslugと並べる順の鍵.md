@@ -1,5 +1,5 @@
 # 0059 article の slug と並べる順の鍵
-ステータス: 採択
+Status: accepted
 
 ## 状態
 

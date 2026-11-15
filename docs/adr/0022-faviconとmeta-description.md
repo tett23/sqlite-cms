@@ -1,5 +1,5 @@
 # 0022 favicon と meta description
-ステータス: 採択
+Status: accepted
 
 ## 状態
 

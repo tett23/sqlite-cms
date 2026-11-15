@@ -1,6 +1,6 @@
 # ADR 0065: GitHub のファイルと Gist の中身を本文に表示する
 
-ステータス: 採択
+Status: accepted
 
 ## 文脈
 

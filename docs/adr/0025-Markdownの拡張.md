@@ -1,5 +1,5 @@
 # 0025 Markdown の拡張
-ステータス: 採択
+Status: accepted
 
 ## 状態
 

@@ -1,5 +1,5 @@
 # 0007 Markdown 格納とブラウザ描画
-ステータス: 採択
+Status: accepted
 
 ## 状態
 

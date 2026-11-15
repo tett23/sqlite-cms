@@ -1,5 +1,5 @@
 # 0011 CLI による管理と SPA の埋め込み
-ステータス: 採択
+Status: accepted
 
 ## 状態
 
